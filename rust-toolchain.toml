@@ -1,0 +1,3 @@
+# Need Cargo 1.85+ so the registry can parse crates that use edition 2024 (e.g. transitive moxcms).
+[toolchain]
+channel = "1.85"

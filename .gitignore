@@ -1,0 +1,6 @@
+/target
+/dist
+/dist-admin
+node_modules
+*.log
+.env
