@@ -1,5 +1,7 @@
+mod admin;
 mod poll;
 
+pub use admin::{get_connected_devices, post_reset_connections};
 pub use poll::poll;
 use serde::Serialize;
 

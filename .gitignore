@@ -1,6 +1,20 @@
+# Rust
 /target
+
+# Frontend build
 /dist
 /dist-admin
+
+# Dependencies
 node_modules
-*.log
+client/node_modules
+admin/node_modules
+
+# Env and logs
 .env
+.env.local
+.env.*.local
+*.log
+
+# Optional
+.DS_Store

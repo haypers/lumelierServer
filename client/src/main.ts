@@ -3,8 +3,11 @@ interface PollEvent {
   color: string;
 }
 
+const DEVICE_ID_STORAGE_KEY = "lumelier_device_id";
+
 interface PollResponse {
   serverTime: number;
+  deviceId: string;
   events: PollEvent[];
 }
 
@@ -14,24 +17,35 @@ const CLOCK_UPDATE_MS = 100;
 /** Offset from local time to server time (ms). serverTime ≈ Date.now() + offset */
 let clockOffset = 0;
 let clockIntervalStarted = false;
+/** RTT from previous poll (ms), sent on next request for server to store. */
+let lastRttMs: number | null = null;
 
 function getServerTime(): number {
   return Date.now() + clockOffset;
 }
 
 async function fetchPoll(): Promise<PollResponse> {
-  const res = await fetch("/api/poll");
+  const deviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
+  const headers: HeadersInit = {};
+  if (deviceId) (headers as Record<string, string>)["X-Device-ID"] = deviceId;
+  if (lastRttMs != null) (headers as Record<string, string>)["X-Ping-Ms"] = String(lastRttMs);
+  const t0 = Date.now();
+  const res = await fetch("/api/poll", { headers });
+  lastRttMs = Date.now() - t0;
   if (!res.ok) throw new Error(`poll failed: ${res.status}`);
-  return res.json() as Promise<PollResponse>;
+  const data = (await res.json()) as PollResponse;
+  if (data.deviceId) localStorage.setItem(DEVICE_ID_STORAGE_KEY, data.deviceId);
+  return data;
 }
 
-function render(events: PollEvent[]) {
+function render(events: PollEvent[], deviceId: string) {
   const app = document.getElementById("app");
   if (!app) return;
 
   const firstColor = events.length > 0 ? events[0].color : "#000000";
   const serverTime = getServerTime();
   app.innerHTML = `
+    <p style="font-size:11px;color:#666;word-break:break-all;"><strong>Device ID:</strong> ${deviceId || "—"}</p>
     <p>Server time: <span id="server-time">${serverTime}</span></p>
     <p>Events: ${events.length}</p>
     <div style="width:80px;height:80px;background:${firstColor};border:1px solid #333;"></div>
@@ -47,7 +61,8 @@ async function pollLoop() {
   try {
     const data = await fetchPoll();
     clockOffset = data.serverTime - Date.now();
-    render(data.events);
+    const displayId = data.deviceId || localStorage.getItem(DEVICE_ID_STORAGE_KEY) || "—";
+    render(data.events, displayId);
     if (!clockIntervalStarted) {
       clockIntervalStarted = true;
       setInterval(updateClockDisplay, CLOCK_UPDATE_MS);

@@ -8,6 +8,9 @@
     "build": "tsc && vite build",
     "preview": "vite preview"
   },
+  "dependencies": {
+    "tabulator-tables": "^6.2.1"
+  },
   "devDependencies": {
     "typescript": "~5.6",
     "vite": "~6.0"

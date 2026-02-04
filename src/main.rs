@@ -1,9 +1,13 @@
-use axum::routing::get;
+use axum::routing::{any, get, post};
+use axum::response::IntoResponse;
 use axum::Router;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::RwLock;
 use tower_http::services::ServeDir;
 
 mod api;
+mod connections;
 
 const PORT: u16 = 3000;
 const ADMIN_PORT: u16 = 3010;
@@ -43,12 +47,29 @@ fn print_qr(url: &str) {
 
 #[tokio::main]
 async fn main() {
+    let registry: Arc<RwLock<connections::ConnectionRegistry>> =
+        Arc::new(RwLock::new(connections::ConnectionRegistry::new()));
+
     let app_main = Router::new()
         .route("/api/health", get(api::health))
         .route("/api/poll", get(api::poll))
+        .with_state(registry.clone())
         .fallback_service(ServeDir::new("dist"));
 
-    let app_admin = Router::new().fallback_service(ServeDir::new("dist-admin"));
+    async fn serve_admin_index() -> impl axum::response::IntoResponse {
+        match tokio::fs::read_to_string("dist-admin/index.html").await {
+            Ok(html) => ([("content-type", "text/html; charset=utf-8")], html).into_response(),
+            Err(_) => (axum::http::StatusCode::NOT_FOUND, "admin not built").into_response(),
+        }
+    }
+    let app_admin = Router::new()
+        .route("/api/admin/connected-devices", get(api::get_connected_devices))
+        .route("/api/admin/connections/reset", post(api::post_reset_connections))
+        .with_state(registry)
+        .route("/timeline", any(serve_admin_index))
+        .route("/connectedDevicesList", any(serve_admin_index))
+        .route("/connectedDevicesMap", any(serve_admin_index))
+        .fallback_service(ServeDir::new("dist-admin"));
 
     let addr_main = SocketAddr::from(([0, 0, 0, 0], PORT));
     let addr_admin = SocketAddr::from(([0, 0, 0, 0], ADMIN_PORT));
