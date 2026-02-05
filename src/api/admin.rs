@@ -4,9 +4,9 @@ use axum::Json;
 use serde::Serialize;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::connections::ConnectionRegistry;
+use crate::time;
 
 #[derive(Serialize)]
 pub struct Stats {
@@ -41,13 +41,14 @@ pub struct ConnectedDevicesResponse {
 
 pub async fn get_connected_devices(
     State(registry): State<Arc<RwLock<ConnectionRegistry>>>,
-) -> Json<ConnectedDevicesResponse> {
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX_EPOCH")
-        .as_millis() as u64;
+) -> Result<Json<ConnectedDevicesResponse>, StatusCode> {
+    let now_ms = time::unix_now_ms();
 
-    let (total_connected, average_ping_ms, rows) = registry.read().unwrap().list_with_stats(now_ms);
+    let mut guard = registry
+        .write()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    guard.tick_disconnects(now_ms);
+    let (total_connected, average_ping_ms, rows) = guard.list_with_stats(now_ms);
 
     let stats = Stats {
         total_connected,
@@ -66,17 +67,17 @@ pub async fn get_connected_devices(
         })
         .collect();
 
-    Json(ConnectedDevicesResponse { stats, devices })
+    Ok(Json(ConnectedDevicesResponse { stats, devices }))
 }
 
 pub async fn post_reset_connections(
     State(registry): State<Arc<RwLock<ConnectionRegistry>>>,
-) -> StatusCode {
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX_EPOCH")
-        .as_millis() as u64;
+) -> Result<StatusCode, StatusCode> {
+    let now_ms = time::unix_now_ms();
 
-    registry.write().unwrap().remove_disconnected(now_ms);
-    StatusCode::OK
+    registry
+        .write()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .remove_disconnected(now_ms);
+    Ok(StatusCode::OK)
 }

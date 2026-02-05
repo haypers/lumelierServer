@@ -8,6 +8,7 @@ use tower_http::services::ServeDir;
 
 mod api;
 mod connections;
+mod time;
 
 const PORT: u16 = 3000;
 const ADMIN_PORT: u16 = 3010;
@@ -54,7 +55,7 @@ async fn main() {
         .route("/api/health", get(api::health))
         .route("/api/poll", get(api::poll))
         .with_state(registry.clone())
-        .fallback_service(ServeDir::new("dist"));
+        .fallback_service(ServeDir::new("dist-client"));
 
     async fn serve_admin_index() -> impl axum::response::IntoResponse {
         match tokio::fs::read_to_string("dist-admin/index.html").await {

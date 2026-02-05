@@ -12,6 +12,8 @@ pub struct DeviceState {
     pub disconnect_events: u32,
     /// True once the client has sent X-Device-ID back (handshake returned).
     pub handshake_returned: bool,
+    /// True after we've counted this device's current disconnect (so we only increment once per disconnect).
+    pub disconnect_counted: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -75,11 +77,11 @@ impl ConnectionRegistry {
             ping_samples: Vec::with_capacity(PING_SAMPLES_MAX),
             disconnect_events: 0,
             handshake_returned: false,
+            disconnect_counted: false,
         });
 
-        if now_ms.saturating_sub(entry.last_seen_at_ms) > CONNECTED_THRESHOLD_MS {
-            entry.disconnect_events = entry.disconnect_events.saturating_add(1);
-        }
+        // Mark as connected again so we'll count the next disconnect when they go silent.
+        entry.disconnect_counted = false;
 
         if handshake_returned {
             entry.handshake_returned = true;
@@ -89,6 +91,18 @@ impl ConnectionRegistry {
             entry.ping_samples.push(p);
             if entry.ping_samples.len() > PING_SAMPLES_MAX {
                 entry.ping_samples.remove(0);
+            }
+        }
+    }
+
+    /// Update disconnect counts for devices that have gone silent (not on reconnect).
+    pub fn tick_disconnects(&mut self, now_ms: u64) {
+        for (_id, d) in self.devices.iter_mut() {
+            if d.is_connected(now_ms) {
+                d.disconnect_counted = false;
+            } else if !d.disconnect_counted {
+                d.disconnect_events = d.disconnect_events.saturating_add(1);
+                d.disconnect_counted = true;
             }
         }
     }

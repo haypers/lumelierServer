@@ -1,11 +1,12 @@
 use axum::extract::State;
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Serialize;
 use std::sync::Arc;
 use std::sync::RwLock;
-use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
+
+use crate::time;
 
 use crate::connections::ConnectionRegistry;
 
@@ -47,17 +48,14 @@ fn ping_ms_from_headers(headers: &HeaderMap) -> Option<u32> {
 pub async fn poll(
     State(registry): State<Arc<RwLock<ConnectionRegistry>>>,
     headers: HeaderMap,
-) -> Json<PollResponse> {
-    let now_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("system time before UNIX_EPOCH")
-        .as_millis() as u64;
+) -> Result<Json<PollResponse>, StatusCode> {
+    let now_ms = time::unix_now_ms();
 
     let (device_id, handshake_returned) = device_id_from_headers(&headers);
     let ping_ms = ping_ms_from_headers(&headers);
     registry
         .write()
-        .unwrap()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .upsert(device_id.clone(), now_ms, ping_ms, handshake_returned);
 
     let events = vec![PollEvent {
@@ -65,9 +63,9 @@ pub async fn poll(
         color: "#ff0000".to_string(),
     }];
 
-    Json(PollResponse {
+    Ok(Json(PollResponse {
         server_time: now_ms,
         device_id,
         events,
-    })
+    }))
 }

@@ -1,4 +1,4 @@
-import { Tabulator } from "tabulator-tables";
+import { TabulatorFull as Tabulator } from "tabulator-tables";
 import "tabulator-tables/dist/css/tabulator_midnight.min.css"; // dark theme
 import resetIcon from "../../icons/reset.svg?raw";
 
@@ -229,10 +229,15 @@ export function render(container: HTMLElement): void {
   const chooserBtn = document.getElementById("column-chooser-btn");
   const chooserList = document.getElementById("column-chooser-list");
   if (chooserBtn && chooserList && table) {
-    chooserList.innerHTML = columnDefs
+    const columns = table.getColumns();
+    chooserList.innerHTML = columns
       .map(
-        (col, i) =>
-          `<label><input type="checkbox" data-col-index="${i}" checked /> ${col.title}</label>`
+        (col, i) => {
+          const def = col.getDefinition();
+          const title = def.title ?? def.field ?? `Column ${i + 1}`;
+          const visible = col.getVisible();
+          return `<label><input type="checkbox" data-col-index="${i}" ${visible ? "checked" : ""} /> ${title}</label>`;
+        }
       )
       .join("");
     chooserList.hidden = true;
@@ -249,7 +254,7 @@ export function render(container: HTMLElement): void {
       input.addEventListener("change", () => {
         const idx = parseInt((input as HTMLInputElement).dataset.colIndex ?? "0", 10);
         const col = table?.getColumns()[idx];
-        if (col) (col as { show: () => void; hide: () => void })[(input as HTMLInputElement).checked ? "show" : "hide"]();
+        if (col) col[(input as HTMLInputElement).checked ? "show" : "hide"]();
       });
     });
   }

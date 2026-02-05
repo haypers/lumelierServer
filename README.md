@@ -1,14 +1,25 @@
 # Lumelier Server
 
-One binary that acts as both the **signal server** (API) and the **client server** (web UI). Same port for everything: API and static client.
 
 ## Requirements
 
 - **Rust 1.85+** (for Cargo; the crates.io index includes packages that need it). If `cargo check` fails with `edition2024 is required`, install [rustup](https://rustup.rs/) and run `rustup update` so the project’s `rust-toolchain.toml` can use a recent toolchain. Do not rely on the system `cargo` from apt if it is older than 1.85.
 
+- **Why Rust?** Because we are working with complex bulk networking, we can't aford the networking overhead that node provides. You'll notice the fronend for both the admin (show manager) and the client (phones) are node projects, but the networking is all served by rust. I don't know rust, I'm having AI help me build it lol.
+
 ## Build and run
 
-### 1. Build the client
+### Start with fresh frontend builds (recommended)
+
+From the repo root, run:
+
+```bash
+./runAll.sh
+```
+
+This builds the client and admin apps, then starts the server. Ensure the script is executable (`chmod +x runAll.sh` if needed). To start the server without rebuilding the frontends, use `cargo run` instead.
+
+### 1. Build the client (manual)
 
 From the repo root:
 
@@ -19,7 +30,7 @@ npm run build
 cd ..
 ```
 
-This writes the web app into `dist/` at the repo root.
+This writes the web app into `dist-client/` at the repo root.
 
 ### 2. Run the server
 
@@ -42,7 +53,7 @@ Open **http://localhost:3000** in a browser. The page will poll `/api/poll` ever
 
 - **GET /api/health** — liveness check (`{ "ok": true }`).
 - **GET /api/poll** — returns `{ "serverTime", "events" }` (JSON).
-- **GET /** and other paths — static files from `dist/` (the client app).
+- **GET /** and other paths — static files from `dist-client/` (the client app).
 
 All served by the same process on port 3000. No separate frontend server in production.
 
@@ -61,7 +72,7 @@ Then run the server; open **http://localhost:3010** (or **http://\<local-ip\>:30
 
 ## After changing the client or admin
 
-Rebuild the app you changed, then restart the server (it reads from `dist/` and `dist-admin/` on each request):
+Rebuild the app you changed, then restart the server (it reads from `dist-client/` and `dist-admin/` on each request):
 
 ```bash
 cd client && npm run build && cd ..   # client
