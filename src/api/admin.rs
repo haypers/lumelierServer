@@ -34,9 +34,40 @@ pub struct DeviceRowResponse {
 }
 
 #[derive(Serialize)]
+pub struct StatsResponse {
+    #[serde(rename = "serverTimeMs")]
+    pub server_time_ms: u64,
+    pub stats: Stats,
+}
+
+#[derive(Serialize)]
 pub struct ConnectedDevicesResponse {
+    #[serde(rename = "serverTimeMs")]
+    pub server_time_ms: u64,
     pub stats: Stats,
     pub devices: Vec<DeviceRowResponse>,
+}
+
+pub async fn get_stats(
+    State(registry): State<Arc<RwLock<ConnectionRegistry>>>,
+) -> Result<Json<StatsResponse>, StatusCode> {
+    let now_ms = time::unix_now_ms();
+
+    let mut guard = registry
+        .write()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    guard.tick_disconnects(now_ms);
+    let (total_connected, average_ping_ms) = guard.list_stats_only(now_ms);
+
+    let stats = Stats {
+        total_connected,
+        average_ping_ms,
+    };
+
+    Ok(Json(StatsResponse {
+        server_time_ms: now_ms,
+        stats,
+    }))
 }
 
 pub async fn get_connected_devices(
@@ -67,7 +98,11 @@ pub async fn get_connected_devices(
         })
         .collect();
 
-    Ok(Json(ConnectedDevicesResponse { stats, devices }))
+    Ok(Json(ConnectedDevicesResponse {
+        server_time_ms: now_ms,
+        stats,
+        devices,
+    }))
 }
 
 pub async fn post_reset_connections(

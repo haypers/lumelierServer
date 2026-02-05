@@ -65,6 +65,7 @@ async fn main() {
     }
     let app_admin = Router::new()
         .route("/api/admin/connected-devices", get(api::get_connected_devices))
+        .route("/api/admin/stats", get(api::get_stats))
         .route("/api/admin/connections/reset", post(api::post_reset_connections))
         .with_state(registry)
         .route("/timeline", any(serve_admin_index))

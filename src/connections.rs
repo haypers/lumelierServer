@@ -107,6 +107,29 @@ impl ConnectionRegistry {
         }
     }
 
+    /// Returns (total_connected, average_ping_ms) without allocating device rows.
+    pub fn list_stats_only(&self, now_ms: u64) -> (u32, Option<f64>) {
+        let mut total_connected = 0u32;
+        let mut ping_sum = 0f64;
+        let mut ping_count = 0usize;
+        for d in self.devices.values() {
+            if !d.is_connected(now_ms) {
+                continue;
+            }
+            total_connected += 1;
+            if let Some(p) = d.average_ping_ms() {
+                ping_sum += p;
+                ping_count += 1;
+            }
+        }
+        let average_ping_ms = if ping_count == 0 {
+            None
+        } else {
+            Some(ping_sum / ping_count as f64)
+        };
+        (total_connected, average_ping_ms)
+    }
+
     pub fn list_with_stats(&self, now_ms: u64) -> (u32, Option<f64>, Vec<DeviceRow>) {
         let rows: Vec<DeviceRow> = self
             .devices

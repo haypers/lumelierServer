@@ -1,9 +1,13 @@
 import { TabulatorFull as Tabulator } from "tabulator-tables";
 import "tabulator-tables/dist/css/tabulator_midnight.min.css"; // dark theme
 import resetIcon from "../../icons/reset.svg?raw";
+import { createRefreshEvery } from "../../components/refresh-every";
+import { createInfoBubble } from "../../components/info-bubble";
 
 const REFRESH_STORAGE_KEY = "lumelier_admin_devices_refresh_interval_ms";
 const DEFAULT_REFRESH_MS = 2000;
+const STATS_REFRESH_STORAGE_KEY = "lumelier_admin_stats_refresh_interval_ms";
+const DEFAULT_STATS_REFRESH_MS = 2000;
 
 interface Stats {
   total_connected: number;
@@ -21,14 +25,23 @@ interface DeviceRow {
 }
 
 interface ConnectedDevicesResponse {
+  serverTimeMs: number;
   stats: Stats;
   devices: DeviceRow[];
 }
 
+interface StatsResponse {
+  serverTimeMs: number;
+  stats: Stats;
+}
+
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
+let statsRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let table: Tabulator | null = null;
 let connectedFilterActive = false;
-let lastStats: Stats | null = null;
+/** Offset (ms) from client time to server time: serverTimeMs ≈ Date.now() + serverTimeOffsetMs */
+let serverTimeOffsetMs = 0;
+let serverTimeRafId: number | null = null;
 
 function formatUptime(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -52,6 +65,12 @@ async function fetchDevices(): Promise<ConnectedDevicesResponse> {
   return res.json() as Promise<ConnectedDevicesResponse>;
 }
 
+async function fetchStats(): Promise<StatsResponse> {
+  const res = await fetch("/api/admin/stats");
+  if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
+  return res.json() as Promise<StatsResponse>;
+}
+
 function showResetConfirmModal(onConfirm: () => void): void {
   const overlay = document.createElement("div");
   overlay.className = "modal-overlay";
@@ -72,38 +91,22 @@ function showResetConfirmModal(onConfirm: () => void): void {
   document.body.appendChild(overlay);
 }
 
-function getRefreshIntervalMs(): number {
-  const s = localStorage.getItem(REFRESH_STORAGE_KEY);
-  if (s == null) return DEFAULT_REFRESH_MS;
-  const n = parseInt(s, 10);
-  return Number.isFinite(n) ? n : DEFAULT_REFRESH_MS;
+function updateServerTimeDisplay(): void {
+  const el = document.getElementById("server-time-unix");
+  if (el) {
+    const serverMs = Date.now() + serverTimeOffsetMs;
+    el.textContent = String(Math.round(serverMs));
+  }
+  refreshEveryApi?.updateClockHand();
+  statsRefreshEveryApi?.updateClockHand();
+  serverTimeRafId = requestAnimationFrame(updateServerTimeDisplay);
 }
 
 function updateStatsEls(stats: Stats): void {
   const totalEl = document.getElementById("stat-total-connected");
   const pingEl = document.getElementById("stat-average-ping");
-  const totalWrap = document.getElementById("stat-widget-total");
-  const pingWrap = document.getElementById("stat-widget-ping");
-  const totalChanged = lastStats == null || lastStats.total_connected !== stats.total_connected;
-  const pingChanged =
-    lastStats == null ||
-    (lastStats.averagePingMs ?? null) !== (stats.averagePingMs ?? null);
-  lastStats = stats;
-
-  if (totalEl) {
-    totalEl.textContent = String(stats.total_connected);
-    if (totalChanged && totalWrap) {
-      totalWrap.classList.add("stat-updated");
-      setTimeout(() => totalWrap.classList.remove("stat-updated"), 300);
-    }
-  }
-  if (pingEl) {
-    pingEl.textContent = stats.averagePingMs != null ? `${Math.round(stats.averagePingMs)} ms` : "—";
-    if (pingChanged && pingWrap) {
-      pingWrap.classList.add("stat-updated");
-      setTimeout(() => pingWrap.classList.remove("stat-updated"), 300);
-    }
-  }
+  if (totalEl) totalEl.textContent = String(stats.total_connected);
+  if (pingEl) pingEl.textContent = stats.averagePingMs != null ? `${Math.round(stats.averagePingMs)} ms` : "—";
 }
 
 function applyConnectedFilter(): void {
@@ -114,16 +117,11 @@ function applyConnectedFilter(): void {
   } else {
     table.clearFilter();
   }
-  const wrap = document.getElementById("stat-widget-total");
-  wrap?.classList.toggle("stat-active", connectedFilterActive);
 }
 
 function sortByPing(): void {
   if (!table) return;
   table.setSort([ { column: "averagePingMs", dir: "asc" } ]);
-  const wrap = document.getElementById("stat-widget-ping");
-  wrap?.classList.add("stat-active");
-  setTimeout(() => wrap?.classList.remove("stat-active"), 800);
 }
 
 function updateTable(data: DeviceRow[]): void {
@@ -141,10 +139,25 @@ function updateTable(data: DeviceRow[]): void {
   table?.setData(rows);
 }
 
+let refreshEveryApi: ReturnType<typeof createRefreshEvery> | null = null;
+let statsRefreshEveryApi: ReturnType<typeof createRefreshEvery> | null = null;
+
+async function refreshStats(): Promise<void> {
+  statsRefreshEveryApi?.recordRefresh();
+  try {
+    const data = await fetchStats();
+    serverTimeOffsetMs = data.serverTimeMs - Date.now();
+    updateStatsEls(data.stats);
+    updateServerTimeDisplay();
+  } catch (e) {
+    console.error("Failed to refresh stats", e);
+  }
+}
+
 async function refresh(): Promise<void> {
+  refreshEveryApi?.recordRefresh();
   try {
     const data = await fetchDevices();
-    updateStatsEls(data.stats);
     updateTable(data.devices);
   } catch (e) {
     console.error("Failed to refresh devices", e);
@@ -165,89 +178,94 @@ export function render(container: HTMLElement): void {
     clearInterval(refreshTimer);
     refreshTimer = null;
   }
+  if (statsRefreshTimer) {
+    clearInterval(statsRefreshTimer);
+    statsRefreshTimer = null;
+  }
+  if (serverTimeRafId != null) {
+    cancelAnimationFrame(serverTimeRafId);
+    serverTimeRafId = null;
+  }
   if (table) {
     table.destroy();
     table = null;
   }
 
-  const intervalMs = getRefreshIntervalMs();
-  const intervalOptions = [
-    { value: 1000, label: "1s" },
-    { value: 2000, label: "2s" },
-    { value: 5000, label: "5s" },
-    { value: 10000, label: "10s" },
-  ];
-
   const columnDefs = [
-    { title: "Device ID", field: "deviceId", sorter: "string", headerFilter: "input" },
-    { title: "Connection Status", field: "connectionStatus", sorter: "string", headerFilter: "input" },
-    { title: "First Connected At", field: "firstConnectedAtFormatted", sorter: "string", headerFilter: "input" },
-    { title: "Average Ping (ms)", field: "averagePingMs", sorter: "number", headerFilter: "number" },
-    { title: "Time since last contact (ms)", field: "timeSinceLastContactMs", sorter: "number", headerFilter: "number" },
-    { title: "Disconnect Events", field: "disconnectEvents", sorter: "number", headerFilter: "number" },
-    { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", sorterParams: { field: "estimatedUptimeMs" }, headerFilter: "input" },
+    { title: "Device ID", field: "deviceId", sorter: "string" },
+    { title: "Connection Status", field: "connectionStatus", sorter: "string" },
+    { title: "First Connected At", field: "firstConnectedAtFormatted", sorter: "string" },
+    { title: "Average Ping (ms)", field: "averagePingMs", sorter: "number" },
+    { title: "Time since last contact (ms)", field: "timeSinceLastContactMs", sorter: "number" },
+    { title: "Disconnect Events", field: "disconnectEvents", sorter: "number" },
+    { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", sorterParams: { field: "estimatedUptimeMs" } },
   ];
 
+  const actionsDropdownId = "actions-dropdown-list";
   container.innerHTML = `
     <div class="devices-list-page">
       <div class="devices-toolbar">
-        <button type="button" class="btn-reset" id="btn-reset" title="Remove all disconnected devices">${resetIcon}<span>Reset connections</span></button>
+        <div class="actions-dropdown">
+          <button type="button" class="actions-dropdown-btn" id="actions-dropdown-btn" aria-expanded="false" aria-haspopup="true" aria-controls="${actionsDropdownId}">
+            Actions
+            <span class="actions-dropdown-arrow" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M2.5 4.5L6 8l3.5-3.5"/></svg></span>
+          </button>
+          <div id="${actionsDropdownId}" class="actions-dropdown-list" hidden role="menu">
+            <button type="button" class="actions-dropdown-item" id="action-drop-disconnected" role="menuitem">${resetIcon}<span>Drop Disconnected Devices</span></button>
+          </div>
+        </div>
       </div>
+      <div class="devices-stats-group">
+      <div class="devices-stats-controls" id="devices-stats-controls"></div>
       <div class="devices-stats">
         <div class="stat-widget stat-widget-clickable" id="stat-widget-total" role="button" tabindex="0" title="Click to filter table to connected only">
           <span class="stat-label">Total number of connected clients:</span>
-          <span class="stat-value" id="stat-total-connected">0</span>
+          <span class="stat-value stat-value-fixed stat-value-num" id="stat-total-connected">0</span>
         </div>
         <div class="stat-widget stat-widget-clickable" id="stat-widget-ping" role="button" tabindex="0" title="Click to sort table by ping (lowest first)">
           <span class="stat-label">Average ping time of connected clients:</span>
-          <span class="stat-value" id="stat-average-ping">—</span>
+          <span class="stat-value stat-value-fixed stat-value-ping" id="stat-average-ping">—</span>
+        </div>
+        <div class="stat-widget stat-widget-server-time" id="stat-widget-server-time">
+          <span class="stat-label">Server Time:</span>
+          <span class="stat-value stat-value-fixed stat-value-time" id="server-time-unix">—</span>
         </div>
       </div>
-      <div class="devices-controls">
-        <label>Refresh every:
-          <select id="refresh-interval">
-            ${intervalOptions.map((o) => `<option value="${o.value}" ${o.value === intervalMs ? "selected" : ""}>${o.label}</option>`).join("")}
-          </select>
-        </label>
-        <span class="devices-controls-sep">|</span>
-        <div class="column-chooser">
-          <button type="button" id="column-chooser-btn">Columns</button>
-          <div id="column-chooser-list" class="column-chooser-list" hidden></div>
-        </div>
       </div>
-      <div id="devices-table" class="devices-table"></div>
+      <div class="devices-table-section">
+        <div class="devices-controls" id="devices-controls">
+          <span class="devices-controls-sep">|</span>
+          <div class="column-chooser">
+            <button type="button" id="column-chooser-btn">Columns</button>
+            <div id="column-chooser-list" class="column-chooser-list" hidden></div>
+          </div>
+        </div>
+        <div id="devices-table" class="devices-table"></div>
+      </div>
     </div>`;
 
   table = new Tabulator("#devices-table", {
     layout: "fitColumns",
     columns: columnDefs,
     columnDefaults: {
-      headerFilter: true,
+      headerFilter: false,
     },
   });
 
   const chooserBtn = document.getElementById("column-chooser-btn");
   const chooserList = document.getElementById("column-chooser-list");
   if (chooserBtn && chooserList && table) {
-    const columns = table.getColumns();
-    chooserList.innerHTML = columns
+    chooserList.innerHTML = columnDefs
       .map(
-        (col, i) => {
-          const def = col.getDefinition();
+        (def, i) => {
           const title = def.title ?? def.field ?? `Column ${i + 1}`;
-          const visible = col.getVisible();
-          return `<label><input type="checkbox" data-col-index="${i}" ${visible ? "checked" : ""} /> ${title}</label>`;
+          return `<label class="column-chooser-label"><input type="checkbox" data-col-index="${i}" checked /> ${title}</label>`;
         }
       )
       .join("");
-    chooserList.hidden = true;
     chooserBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       chooserList.hidden = !chooserList.hidden;
-    });
-    document.addEventListener("click", () => {
-      const list = document.getElementById("column-chooser-list");
-      if (list) list.hidden = true;
     });
     chooserList.addEventListener("click", (e) => e.stopPropagation());
     chooserList.querySelectorAll("input[data-col-index]").forEach((input) => {
@@ -274,20 +292,76 @@ export function render(container: HTMLElement): void {
     }
   });
 
-  document.getElementById("btn-reset")?.addEventListener("click", () => {
+  const actionsBtn = document.getElementById("actions-dropdown-btn");
+  const actionsList = document.getElementById(actionsDropdownId);
+
+  function closeAllDropdowns(): void {
+    if (actionsList) {
+      actionsList.hidden = true;
+      actionsBtn?.setAttribute("aria-expanded", "false");
+    }
+    const colList = document.getElementById("column-chooser-list");
+    if (colList) colList.hidden = true;
+  }
+
+  document.getElementById("action-drop-disconnected")?.addEventListener("click", () => {
+    closeAllDropdowns();
     showResetConfirmModal(() => doReset());
   });
 
-  document.getElementById("refresh-interval")?.addEventListener("change", (e) => {
-    const val = (e.target as HTMLSelectElement).value;
-    const ms = parseInt(val, 10);
-    if (Number.isFinite(ms)) {
-      localStorage.setItem(REFRESH_STORAGE_KEY, String(ms));
-      if (refreshTimer) clearInterval(refreshTimer);
-      refreshTimer = setInterval(refresh, ms);
-    }
-  });
+  if (actionsBtn && actionsList) {
+    actionsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const isOpen = !actionsList.hidden;
+      actionsList.hidden = isOpen;
+      actionsBtn.setAttribute("aria-expanded", String(!isOpen));
+    });
+    actionsList.addEventListener("click", (e) => e.stopPropagation());
+  }
 
+  document.addEventListener("click", () => closeAllDropdowns());
+
+  statsRefreshEveryApi = createRefreshEvery({
+    storageKey: STATS_REFRESH_STORAGE_KEY,
+    defaultMs: DEFAULT_STATS_REFRESH_MS,
+    infoTooltip: "These stats require server resources to compute. Refresh only as often as you need.",
+    onManualRefresh: refreshStats,
+    onIntervalChange(ms) {
+      if (statsRefreshTimer) clearInterval(statsRefreshTimer);
+      statsRefreshTimer = null;
+      if (ms > 0) statsRefreshTimer = setInterval(refreshStats, ms);
+    },
+  });
+  const statsControlsEl = document.getElementById("devices-stats-controls");
+  if (statsControlsEl) statsControlsEl.appendChild(statsRefreshEveryApi.root);
+
+  refreshEveryApi = createRefreshEvery({
+    storageKey: REFRESH_STORAGE_KEY,
+    defaultMs: DEFAULT_REFRESH_MS,
+    onManualRefresh: refresh,
+    onIntervalChange(ms) {
+      if (refreshTimer) clearInterval(refreshTimer);
+      refreshTimer = null;
+      if (ms > 0) refreshTimer = setInterval(refresh, ms);
+    },
+  });
+  const controlsEl = document.getElementById("devices-controls");
+  if (controlsEl) controlsEl.insertBefore(refreshEveryApi.root, controlsEl.firstChild);
+
+  const serverTimeWidget = document.getElementById("stat-widget-server-time");
+  if (serverTimeWidget) {
+    const serverTimeInfo = createInfoBubble({
+      tooltipText: "The value updates in the UI every frame but is only re-synced with the server on each refresh.",
+      ariaLabel: "Info about server time",
+    });
+    serverTimeWidget.appendChild(serverTimeInfo);
+  }
+
+  refreshStats();
   refresh();
-  refreshTimer = setInterval(refresh, intervalMs);
+  const statsMs = statsRefreshEveryApi.getIntervalMs();
+  const devicesMs = refreshEveryApi.getIntervalMs();
+  if (statsMs > 0) statsRefreshTimer = setInterval(refreshStats, statsMs);
+  if (devicesMs > 0) refreshTimer = setInterval(refresh, devicesMs);
+  serverTimeRafId = requestAnimationFrame(updateServerTimeDisplay);
 }
