@@ -1,13 +1,19 @@
 /**
  * Reusable "Refresh every" control: label, dropdown, optional clock icon,
- * and optional info tooltip (uses shared info-bubble component).
+ * optional info tooltip, and optional disconnect indicator when requests exceed response time.
  */
 
 import { createInfoBubble } from "./info-bubble";
+import { createPopupTrigger } from "./popup-tooltip";
+import warningBulbEmpty from "../icons/warningBulbEmpty.svg?raw";
+import warningBulbFilled from "../icons/warningBulbFilled.svg?raw";
 
 const FLASH_FRAME_COUNT = 8;
 const MIN_INTERVAL_MS_TO_SHOW_CLOCK = 500;
 const NEVER_MS = 0;
+
+/** Default time (ms) after which a request is considered "not responding" and the disconnect indicator is shown. */
+export const DEFAULT_RESPONSE_TIMEOUT_MS = 1_000;
 
 /** Inline SVG: circular arrow refresh icon */
 const REFRESH_ICON_SVG = `<svg class="refresh-manual-icon-svg" viewBox="0 0 24 24" width="24" height="24" aria-hidden="true">
@@ -29,13 +35,19 @@ export const REFRESH_EVERY_OPTIONS = [
 ] as const;
 
 export interface RefreshEveryOptions {
-  storageKey: string;
+  /** Used as the localStorage key to persist the selected interval. Loaded on init, saved on change. */
+  name: string;
   defaultMs: number;
   onIntervalChange: (ms: number) => void;
   /** Called when user clicks the manual refresh icon (shown when "Never" is selected). */
   onManualRefresh?: () => void;
   /** If set, show an info icon with this tooltip text. */
   infoTooltip?: string;
+  /**
+   * If set, show a disconnect indicator when a request fails or exceeds this many ms.
+   * Call requestStarted() before each request and requestCompleted(success) when it finishes.
+   */
+  responseTimeoutMs?: number;
 }
 
 export interface RefreshEveryApi {
@@ -43,10 +55,14 @@ export interface RefreshEveryApi {
   getIntervalMs: () => number;
   recordRefresh: () => void;
   updateClockHand: () => void;
+  /** Call before starting a request; use with responseTimeoutMs. */
+  requestStarted: () => void;
+  /** Call when a request finishes. Pass false on failure (or timeout) to show disconnect indicator; pass true on success to hide it. */
+  requestCompleted: (success: boolean) => void;
 }
 
-function getStoredIntervalMs(storageKey: string, defaultMs: number): number {
-  const s = localStorage.getItem(storageKey);
+function getStoredIntervalMs(name: string, defaultMs: number): number {
+  const s = localStorage.getItem(name);
   if (s == null) return defaultMs;
   const n = parseInt(s, 10);
   return Number.isFinite(n) ? n : defaultMs;
@@ -60,10 +76,14 @@ function removeFlashAfterFrames(clockEl: HTMLElement, framesLeft: number): void 
   requestAnimationFrame(() => removeFlashAfterFrames(clockEl, framesLeft - 1));
 }
 
+const DISCONNECT_TOOLTIP = "The server is not responding to our requests to update this value.";
+
 export function createRefreshEvery(opts: RefreshEveryOptions): RefreshEveryApi {
-  const { storageKey, defaultMs, onIntervalChange, onManualRefresh, infoTooltip } = opts;
-  const intervalMs = getStoredIntervalMs(storageKey, defaultMs);
+  const { name, defaultMs, onIntervalChange, onManualRefresh, infoTooltip, responseTimeoutMs } = opts;
+  const intervalMs = getStoredIntervalMs(name, defaultMs);
   let lastRefreshTime = 0;
+  let responseTimeoutId: ReturnType<typeof setTimeout> | null = null;
+  let disconnectIndicatorVisible = false;
 
   const root = document.createElement("div");
   root.className = "refresh-every-wrapper";
@@ -99,6 +119,23 @@ export function createRefreshEvery(opts: RefreshEveryOptions): RefreshEveryApi {
     root.appendChild(infoBubble);
   }
 
+  const hasResponseTimeout = typeof responseTimeoutMs === "number" && responseTimeoutMs > 0;
+  let disconnectIndicatorEl: HTMLElement | null = null;
+  if (hasResponseTimeout) {
+    const bulbHtml = `
+      <span class="disconnect-indicator-bulbs" aria-hidden="true">
+        <span class="disconnect-indicator-empty">${warningBulbEmpty}</span>
+        <span class="disconnect-indicator-filled">${warningBulbFilled}</span>
+      </span>`;
+    disconnectIndicatorEl = createPopupTrigger({
+      triggerContent: bulbHtml,
+      tooltipText: DISCONNECT_TOOLTIP,
+      ariaLabel: "Server not responding",
+      wrapperClass: "disconnect-indicator disconnect-indicator--hidden",
+    });
+    root.appendChild(disconnectIndicatorEl);
+  }
+
   const selectEl = root.querySelector<HTMLSelectElement>("[data-refresh-every-select]");
   const clockEl = root.querySelector<HTMLElement>("[data-refresh-clock]");
   const clockHandEl = root.querySelector<SVGGElement>("[data-refresh-clock-hand]");
@@ -115,7 +152,7 @@ export function createRefreshEvery(opts: RefreshEveryOptions): RefreshEveryApi {
   selectEl.addEventListener("change", () => {
     const ms = parseInt(selectEl.value, 10);
     if (!Number.isFinite(ms) || ms < 0) return;
-    localStorage.setItem(storageKey, String(ms));
+    localStorage.setItem(name, String(ms));
     lastRefreshTime = Date.now();
     updateClockVsManual(ms);
     onIntervalChange(ms);
@@ -126,7 +163,7 @@ export function createRefreshEvery(opts: RefreshEveryOptions): RefreshEveryApi {
   }
 
   function getIntervalMs(): number {
-    return getStoredIntervalMs(storageKey, defaultMs);
+    return getStoredIntervalMs(name, defaultMs);
   }
 
   function recordRefresh(): void {
@@ -147,6 +184,32 @@ export function createRefreshEvery(opts: RefreshEveryOptions): RefreshEveryApi {
     clockHandEl.setAttribute("transform", `rotate(${angle} 12 12)`);
   }
 
+  function requestStarted(): void {
+    if (!hasResponseTimeout || !disconnectIndicatorEl) return;
+    if (responseTimeoutId != null) clearTimeout(responseTimeoutId);
+    responseTimeoutId = setTimeout(() => {
+      responseTimeoutId = null;
+      disconnectIndicatorVisible = true;
+      disconnectIndicatorEl?.classList.remove("disconnect-indicator--hidden");
+    }, responseTimeoutMs!);
+  }
+
+  function requestCompleted(success: boolean): void {
+    if (responseTimeoutId != null) {
+      clearTimeout(responseTimeoutId);
+      responseTimeoutId = null;
+    }
+    if (success) {
+      if (disconnectIndicatorVisible && disconnectIndicatorEl) {
+        disconnectIndicatorVisible = false;
+        disconnectIndicatorEl.classList.add("disconnect-indicator--hidden");
+      }
+    } else {
+      disconnectIndicatorVisible = true;
+      disconnectIndicatorEl?.classList.remove("disconnect-indicator--hidden");
+    }
+  }
+
   lastRefreshTime = Date.now();
-  return { root, getIntervalMs, recordRefresh, updateClockHand };
+  return { root, getIntervalMs, recordRefresh, updateClockHand, requestStarted, requestCompleted };
 }

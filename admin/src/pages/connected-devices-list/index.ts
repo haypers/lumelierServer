@@ -1,13 +1,10 @@
 import { TabulatorFull as Tabulator } from "tabulator-tables";
 import "tabulator-tables/dist/css/tabulator_midnight.min.css"; // dark theme
 import resetIcon from "../../icons/reset.svg?raw";
-import { createRefreshEvery } from "../../components/refresh-every";
+import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
 
-const REFRESH_STORAGE_KEY = "lumelier_admin_devices_refresh_interval_ms";
 const DEFAULT_REFRESH_MS = 2000;
-const STATS_REFRESH_STORAGE_KEY = "lumelier_admin_stats_refresh_interval_ms";
-const DEFAULT_STATS_REFRESH_MS = 2000;
 
 interface Stats {
   total_connected: number;
@@ -143,24 +140,34 @@ let refreshEveryApi: ReturnType<typeof createRefreshEvery> | null = null;
 let statsRefreshEveryApi: ReturnType<typeof createRefreshEvery> | null = null;
 
 async function refreshStats(): Promise<void> {
+  statsRefreshEveryApi?.requestStarted();
   statsRefreshEveryApi?.recordRefresh();
+  let success = false;
   try {
     const data = await fetchStats();
     serverTimeOffsetMs = data.serverTimeMs - Date.now();
     updateStatsEls(data.stats);
     updateServerTimeDisplay();
+    success = true;
   } catch (e) {
     console.error("Failed to refresh stats", e);
+  } finally {
+    statsRefreshEveryApi?.requestCompleted(success);
   }
 }
 
 async function refresh(): Promise<void> {
+  refreshEveryApi?.requestStarted();
   refreshEveryApi?.recordRefresh();
+  let success = false;
   try {
     const data = await fetchDevices();
     updateTable(data.devices);
+    success = true;
   } catch (e) {
     console.error("Failed to refresh devices", e);
+  } finally {
+    refreshEveryApi?.requestCompleted(success);
   }
 }
 
@@ -322,9 +329,10 @@ export function render(container: HTMLElement): void {
   document.addEventListener("click", () => closeAllDropdowns());
 
   statsRefreshEveryApi = createRefreshEvery({
-    storageKey: STATS_REFRESH_STORAGE_KEY,
-    defaultMs: DEFAULT_STATS_REFRESH_MS,
+    name: "Connected_Devices_List-StatsWidgets",
+    defaultMs: DEFAULT_REFRESH_MS,
     infoTooltip: "These stats require server resources to compute. Refresh only as often as you need.",
+    responseTimeoutMs: DEFAULT_RESPONSE_TIMEOUT_MS,
     onManualRefresh: refreshStats,
     onIntervalChange(ms) {
       if (statsRefreshTimer) clearInterval(statsRefreshTimer);
@@ -336,8 +344,10 @@ export function render(container: HTMLElement): void {
   if (statsControlsEl) statsControlsEl.appendChild(statsRefreshEveryApi.root);
 
   refreshEveryApi = createRefreshEvery({
-    storageKey: REFRESH_STORAGE_KEY,
+    name: "Connected_Devices_List-DevicesTable",
     defaultMs: DEFAULT_REFRESH_MS,
+    infoTooltip: "Pulling this table from the server often can consume server resources.",
+    responseTimeoutMs: DEFAULT_RESPONSE_TIMEOUT_MS,
     onManualRefresh: refresh,
     onIntervalChange(ms) {
       if (refreshTimer) clearInterval(refreshTimer);
