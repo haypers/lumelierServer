@@ -18,6 +18,8 @@ import {
   importState,
   type NextIds,
 } from "./state-serialization";
+import type { TimelineStateJSON } from "./types";
+import { createActionsDropdown } from "../../components/actions-dropdown";
 
 export type { TimelineItemPayload, TimelineStateJSON } from "./types";
 
@@ -26,6 +28,7 @@ let groups: DataSet<DataGroup>;
 let items: DataSet<DataItem & { payload?: TimelineItemPayload }>;
 let nextLayerId = 1;
 let nextItemId = 1;
+let projectTitle = "Untitled Show";
 
 function ensureGroups(): void {
   if (!groups.length) {
@@ -206,6 +209,11 @@ function loadFromClipboard(): void {
         (ids: NextIds) => {
           nextItemId = ids.nextItemId;
           nextLayerId = ids.nextLayerId;
+        },
+        (title) => {
+          projectTitle = title;
+          const el = document.getElementById("timeline-project-title-input");
+          if (el instanceof HTMLInputElement) el.value = title;
         }
       );
       timeline?.fit();
@@ -218,9 +226,153 @@ function copyExportToClipboard(): void {
   const state = exportState(
     groups,
     items,
-    () => (timeline ? dateToSec(timeline.getCustomTime(readheadId)) : 0)
+    () => (timeline ? dateToSec(timeline.getCustomTime(readheadId)) : 0),
+    () => projectTitle
   );
   navigator.clipboard.writeText(JSON.stringify(state, null, 2));
+}
+
+/** Sanitize project title to a safe filename (only [a-zA-Z0-9._-]); append .json. */
+function titleToFilename(title: string): string {
+  const t = title
+    .trim()
+    .replace(/[/\\]/g, "")
+    .replace(/[^a-zA-Z0-9._\s-]/g, "")
+    .replace(/\s+/g, "_")
+    .replace(/_+/g, "_")
+    .replace(/^_|_$/g, "")
+    .trim();
+  const base = t || "Untitled_Show";
+  return `${base}.json`;
+}
+
+function getExportState(): TimelineStateJSON {
+  return exportState(
+    groups,
+    items,
+    () => (timeline ? dateToSec(timeline.getCustomTime(readheadId)) : 0),
+    () => projectTitle
+  );
+}
+
+function showOverwriteConfirmModal(onConfirm: () => void): void {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <p>A show with this name already exists. Overwrite?</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel">Cancel</button>
+        <button type="button" class="btn-confirm">Overwrite</button>
+      </div>
+    </div>`;
+  const close = () => overlay.remove();
+  overlay.querySelector(".btn-cancel")?.addEventListener("click", close);
+  overlay.querySelector(".btn-confirm")?.addEventListener("click", () => {
+    onConfirm();
+    close();
+  });
+  document.body.appendChild(overlay);
+}
+
+async function saveShow(): Promise<void> {
+  const filename = titleToFilename(projectTitle);
+  let list: string[] = [];
+  try {
+    const res = await fetch("/api/admin/shows");
+    if (res.ok) list = (await res.json()) as string[];
+  } catch {
+    // ignore; will try save anyway
+  }
+  const exists = list.includes(filename);
+  const doPut = async () => {
+    try {
+      const res = await fetch(`/api/admin/shows/${encodeURIComponent(filename)}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(getExportState()),
+      });
+      if (res.ok) {
+        alert("Show saved successfully.");
+      } else {
+        const text = await res.text();
+        alert(`Save failed: ${res.status} ${text || res.statusText}`);
+      }
+    } catch (e) {
+      alert(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  };
+  if (exists) {
+    showOverwriteConfirmModal(doPut);
+  } else {
+    await doPut();
+  }
+}
+
+function showOpenShowModal(): void {
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal">
+      <p>Select a show to open:</p>
+      <ul class="modal-show-list" id="modal-show-list"></ul>
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel">Cancel</button>
+      </div>
+    </div>`;
+  const listEl = overlay.querySelector("#modal-show-list") as HTMLElement;
+  const close = () => overlay.remove();
+
+  overlay.querySelector(".btn-cancel")?.addEventListener("click", close);
+
+  fetch("/api/admin/shows")
+    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`))))
+    .then((files: string[]) => {
+      if (!listEl) return;
+      listEl.innerHTML = files
+        .filter((f) => f.endsWith(".json"))
+        .map((f) => `<li><button type="button" class="modal-show-item" data-filename="${f.replace(/"/g, "&quot;")}">${f.replace(/</g, "&lt;")}</button></li>`)
+        .join("");
+      listEl.querySelectorAll(".modal-show-item").forEach((btn) => {
+        btn.addEventListener("click", async () => {
+          const name = (btn as HTMLElement).dataset.filename;
+          if (!name) return;
+          try {
+            const res = await fetch(`/api/admin/shows/${encodeURIComponent(name)}`);
+            if (!res.ok) throw new Error(`${res.status}`);
+            const state = (await res.json()) as TimelineStateJSON;
+            if (state.version !== 1 || !Array.isArray(state.layers) || !Array.isArray(state.items)) {
+              alert("Invalid timeline JSON.");
+              return;
+            }
+            importState(
+              state,
+              groups,
+              items,
+              (sec) => timeline?.setCustomTime(timeToDate(sec), readheadId),
+              (ids: NextIds) => {
+                nextItemId = ids.nextItemId;
+                nextLayerId = ids.nextLayerId;
+              },
+              (title) => {
+                projectTitle = title;
+                const el = document.getElementById("timeline-project-title-input");
+                if (el instanceof HTMLInputElement) el.value = title;
+              }
+            );
+            close();
+            timeline?.fit();
+          } catch (e) {
+            alert(`Failed to load show: ${e instanceof Error ? e.message : String(e)}`);
+          }
+        });
+      });
+    })
+    .catch((e) => {
+      alert(`Failed to list shows: ${e instanceof Error ? e.message : String(e)}`);
+    });
+
+  document.body.appendChild(overlay);
 }
 
 export function render(container: HTMLElement): void {
@@ -229,26 +381,33 @@ export function render(container: HTMLElement): void {
 
   container.innerHTML = `
     <div class="timeline-page">
-      <section class="timeline-details-panel" aria-label="Selected item details">
-        <h3>Selection</h3>
-        <div class="timeline-details-body">
-          <p class="no-selection">Select an item on the timeline to view or edit its details.</p>
-        </div>
-      </section>
-      <div class="timeline">
-        <div class="timeline-toolbar">
-          <button type="button" class="btn btn-primary" data-action="add-clip">Add clip</button>
+      <div class="timeline-actions-row"></div>
+      <div class="timeline-page-body">
+        <section class="timeline-details-panel" aria-label="Selected item details">
+          <h3>Selection</h3>
+          <div class="timeline-details-body">
+            <p class="no-selection">Select an item on the timeline to view or edit its details.</p>
+          </div>
+        </section>
+        <div class="timeline">
+          <div class="timeline-toolbar">
+            <span class="timeline-project-title-wrap">
+              <label for="timeline-project-title-input">Show:</label>
+              <input type="text" id="timeline-project-title-input" value="Untitled Show" />
+            </span>
+            <button type="button" class="btn btn-primary" data-action="add-clip">Add clip</button>
           <button type="button" class="btn btn-primary" data-action="add-flag">Add flag</button>
           <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
           <span class="toolbar-divider"></span>
           <button type="button" class="btn" data-action="copy-json">Copy JSON</button>
           <button type="button" class="btn" data-action="load-json">Load from clipboard</button>
         </div>
-        <div class="timeline-container-wrap">
-          <div class="timeline-loading" id="timeline-loading" aria-hidden="false">
-            <span class="timeline-loading-icon">${animatedLoadingIcon}</span>
+          <div class="timeline-container-wrap">
+            <div class="timeline-loading" id="timeline-loading" aria-hidden="false">
+              <span class="timeline-loading-icon">${animatedLoadingIcon}</span>
+            </div>
+            <div id="timeline-mount"></div>
           </div>
-          <div id="timeline-mount"></div>
         </div>
       </div>
     </div>
@@ -257,6 +416,18 @@ export function render(container: HTMLElement): void {
   const mount = document.getElementById("timeline-mount");
   const detailsPanel = container.querySelector(".timeline-details-panel");
   const loadingEl = document.getElementById("timeline-loading");
+
+  const actionsRow = container.querySelector(".timeline-actions-row");
+  const actionsDropdown = createActionsDropdown({
+    dropdownId: "timeline-actions-dropdown-list",
+    items: [
+      { id: "save-show", label: "Save Show" },
+      { id: "open-show", label: "Open Show" },
+    ],
+  });
+  if (actionsRow) actionsRow.appendChild(actionsDropdown.root);
+  actionsDropdown.onAction("save-show", () => saveShow());
+  actionsDropdown.onAction("open-show", () => showOpenShowModal());
 
   if (!mount || !detailsPanel) return;
 
@@ -325,6 +496,14 @@ export function render(container: HTMLElement): void {
   addClip();
   addFlag();
   timeline.fit();
+
+  const titleInput = document.getElementById("timeline-project-title-input");
+  if (titleInput instanceof HTMLInputElement) {
+    titleInput.value = projectTitle;
+    titleInput.addEventListener("input", () => {
+      projectTitle = titleInput.value.trim() || "Untitled Show";
+    });
+  }
 
   container.querySelectorAll("[data-action]").forEach((el) => {
     el.addEventListener("click", () => {

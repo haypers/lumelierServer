@@ -7,7 +7,8 @@ import { timeToDate, dateToSec } from "./types";
 export function exportState(
   groups: DataSet<DataGroup>,
   items: DataSet<DataItem & { payload?: TimelineItemPayload }>,
-  getReadheadSec: () => number
+  getReadheadSec: () => number,
+  getTitle: () => string
 ): TimelineStateJSON {
   const layers = groups.get().map((g: DataGroup) => ({
     id: String(g.id),
@@ -32,6 +33,7 @@ export function exportState(
     });
   return {
     version: 1,
+    title: getTitle(),
     layers,
     items: itemList,
     readheadSec: getReadheadSec(),
@@ -48,8 +50,10 @@ export function importState(
   groups: DataSet<DataGroup>,
   items: DataSet<DataItem & { payload?: TimelineItemPayload }>,
   setReadheadSec: (sec: number) => void,
-  setNextIds: (ids: NextIds) => void
+  setNextIds: (ids: NextIds) => void,
+  setTitle: (title: string) => void
 ): void {
+  setTitle(state.title ?? "Untitled Show");
   groups.clear();
   items.clear();
   state.layers.forEach((l) => groups.add({ id: l.id, content: l.label }));

@@ -35,6 +35,8 @@ export interface TimelineItemPayload {
 /** Serializable timeline state for server. */
 export interface TimelineStateJSON {
   version: number;
+  /** Show title; default "Untitled Show" when missing. */
+  title?: string;
   layers: { id: string; label: string }[];
   items: {
     id: string;

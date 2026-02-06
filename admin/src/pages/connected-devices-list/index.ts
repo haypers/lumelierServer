@@ -3,6 +3,7 @@ import "tabulator-tables/dist/css/tabulator_midnight.min.css"; // dark theme
 import resetIcon from "../../icons/reset.svg?raw";
 import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
+import { createActionsDropdown } from "../../components/actions-dropdown";
 
 const DEFAULT_REFRESH_MS = 2000;
 
@@ -208,20 +209,15 @@ export function render(container: HTMLElement): void {
     { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", sorterParams: { field: "estimatedUptimeMs" } },
   ];
 
-  const actionsDropdownId = "actions-dropdown-list";
+  const actionsDropdown = createActionsDropdown({
+    dropdownId: "devices-actions-dropdown-list",
+    items: [
+      { id: "drop-disconnected", label: "Drop Disconnected Devices", icon: resetIcon, danger: true },
+    ],
+  });
   container.innerHTML = `
     <div class="devices-list-page">
-      <div class="devices-toolbar">
-        <div class="actions-dropdown">
-          <button type="button" class="actions-dropdown-btn" id="actions-dropdown-btn" aria-expanded="false" aria-haspopup="true" aria-controls="${actionsDropdownId}">
-            Actions
-            <span class="actions-dropdown-arrow" aria-hidden="true"><svg width="12" height="12" viewBox="0 0 12 12" fill="currentColor"><path d="M2.5 4.5L6 8l3.5-3.5"/></svg></span>
-          </button>
-          <div id="${actionsDropdownId}" class="actions-dropdown-list" hidden role="menu">
-            <button type="button" class="actions-dropdown-item" id="action-drop-disconnected" role="menuitem">${resetIcon}<span>Drop Disconnected Devices</span></button>
-          </div>
-        </div>
-      </div>
+      <div class="devices-toolbar" id="devices-toolbar-actions"></div>
       <div class="devices-stats-group">
       <div class="devices-stats-controls" id="devices-stats-controls"></div>
       <div class="devices-stats">
@@ -258,6 +254,10 @@ export function render(container: HTMLElement): void {
       headerFilter: false,
     },
   });
+
+  const toolbarActions = document.getElementById("devices-toolbar-actions");
+  if (toolbarActions) toolbarActions.appendChild(actionsDropdown.root);
+  actionsDropdown.onAction("drop-disconnected", () => showResetConfirmModal(() => doReset()));
 
   const chooserBtn = document.getElementById("column-chooser-btn");
   const chooserList = document.getElementById("column-chooser-list");
@@ -299,34 +299,11 @@ export function render(container: HTMLElement): void {
     }
   });
 
-  const actionsBtn = document.getElementById("actions-dropdown-btn");
-  const actionsList = document.getElementById(actionsDropdownId);
-
-  function closeAllDropdowns(): void {
-    if (actionsList) {
-      actionsList.hidden = true;
-      actionsBtn?.setAttribute("aria-expanded", "false");
-    }
+  function closeColumnChooser(): void {
     const colList = document.getElementById("column-chooser-list");
     if (colList) colList.hidden = true;
   }
-
-  document.getElementById("action-drop-disconnected")?.addEventListener("click", () => {
-    closeAllDropdowns();
-    showResetConfirmModal(() => doReset());
-  });
-
-  if (actionsBtn && actionsList) {
-    actionsBtn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      const isOpen = !actionsList.hidden;
-      actionsList.hidden = isOpen;
-      actionsBtn.setAttribute("aria-expanded", String(!isOpen));
-    });
-    actionsList.addEventListener("click", (e) => e.stopPropagation());
-  }
-
-  document.addEventListener("click", () => closeAllDropdowns());
+  document.addEventListener("click", () => closeColumnChooser());
 
   statsRefreshEveryApi = createRefreshEvery({
     name: "Connected_Devices_List-StatsWidgets",

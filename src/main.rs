@@ -2,6 +2,7 @@ use axum::routing::{any, get, post};
 use axum::response::IntoResponse;
 use axum::Router;
 use std::net::SocketAddr;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::RwLock;
 use tower_http::services::ServeDir;
@@ -51,6 +52,16 @@ async fn main() {
     let registry: Arc<RwLock<connections::ConnectionRegistry>> =
         Arc::new(RwLock::new(connections::ConnectionRegistry::new()));
 
+    let show_timelines_path = PathBuf::from("./userData/showTimelines");
+    if let Err(e) = std::fs::create_dir_all(&show_timelines_path) {
+        eprintln!("could not create show timelines dir: {}", e);
+    }
+
+    let admin_state = api::AdminAppState {
+        registry: registry.clone(),
+        show_timelines_path,
+    };
+
     let app_main = Router::new()
         .route("/api/health", get(api::health))
         .route("/api/poll", get(api::poll))
@@ -67,7 +78,9 @@ async fn main() {
         .route("/api/admin/connected-devices", get(api::get_connected_devices))
         .route("/api/admin/stats", get(api::get_stats))
         .route("/api/admin/connections/reset", post(api::post_reset_connections))
-        .with_state(registry)
+        .route("/api/admin/shows", get(api::list_shows))
+        .route("/api/admin/shows/:name", get(api::get_show).put(api::put_show))
+        .with_state(admin_state)
         .route("/timeline", any(serve_admin_index))
         .route("/connectedDevicesList", any(serve_admin_index))
         .route("/connectedDevicesMap", any(serve_admin_index))

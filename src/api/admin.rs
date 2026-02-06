@@ -2,10 +2,8 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
-use std::sync::Arc;
-use std::sync::RwLock;
 
-use crate::connections::ConnectionRegistry;
+use crate::api::AdminAppState;
 use crate::time;
 
 #[derive(Serialize)]
@@ -49,11 +47,11 @@ pub struct ConnectedDevicesResponse {
 }
 
 pub async fn get_stats(
-    State(registry): State<Arc<RwLock<ConnectionRegistry>>>,
+    State(state): State<AdminAppState>,
 ) -> Result<Json<StatsResponse>, StatusCode> {
     let now_ms = time::unix_now_ms();
 
-    let mut guard = registry
+    let mut guard = state.registry
         .write()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     guard.tick_disconnects(now_ms);
@@ -71,11 +69,11 @@ pub async fn get_stats(
 }
 
 pub async fn get_connected_devices(
-    State(registry): State<Arc<RwLock<ConnectionRegistry>>>,
+    State(state): State<AdminAppState>,
 ) -> Result<Json<ConnectedDevicesResponse>, StatusCode> {
     let now_ms = time::unix_now_ms();
 
-    let mut guard = registry
+    let mut guard = state.registry
         .write()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     guard.tick_disconnects(now_ms);
@@ -106,11 +104,11 @@ pub async fn get_connected_devices(
 }
 
 pub async fn post_reset_connections(
-    State(registry): State<Arc<RwLock<ConnectionRegistry>>>,
+    State(state): State<AdminAppState>,
 ) -> Result<StatusCode, StatusCode> {
     let now_ms = time::unix_now_ms();
 
-    registry
+    state.registry
         .write()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .remove_disconnected(now_ms);
