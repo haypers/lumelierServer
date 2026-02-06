@@ -1,6 +1,8 @@
 import "vis-timeline/styles/vis-timeline-graph2d.css";
 import { DataSet } from "vis-data";
 import { Timeline, type DataItem, type DataGroup, type IdType } from "vis-timeline";
+import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
+import trashIcon from "../../icons/trash.svg?raw";
 import {
   SEC,
   readheadId,
@@ -89,6 +91,105 @@ function removeSelected(): void {
   sel.forEach((id) => items.remove(id));
 }
 
+function createGroupLabelElement(
+  groupData: { id: IdType; content: string },
+  onRemove: (id: IdType) => void,
+  onRename: (id: IdType, newContent: string) => void
+): HTMLElement {
+  const wrap = document.createElement("div");
+  wrap.className = "timeline-layer-label";
+  const label = String(groupData.content ?? "");
+  wrap.innerHTML = `
+    <span class="timeline-layer-label-name" title="Double-click to rename">${escapeHtml(label)}</span>
+    <button type="button" class="timeline-layer-label-remove" title="Remove layer" aria-label="Remove layer">${trashIcon}</button>
+  `;
+  const nameEl = wrap.querySelector(".timeline-layer-label-name") as HTMLElement;
+  const btn = wrap.querySelector(".timeline-layer-label-remove") as HTMLButtonElement;
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    if (groupData.id == null) return;
+    if (groups.getIds().length <= 1) return;
+    if (confirm("Remove this layer and all its items?")) {
+      onRemove(groupData.id);
+      timeline?.fit();
+    }
+  });
+
+  nameEl.addEventListener("dblclick", (e) => {
+    e.stopPropagation();
+    const input = document.createElement("input");
+    input.type = "text";
+    input.className = "timeline-layer-label-input";
+    input.value = nameEl.textContent ?? "";
+    input.setAttribute("aria-label", "Layer name");
+    const commit = () => {
+      const val = input.value.trim();
+      if (val && groupData.id != null) {
+        onRename(groupData.id, val);
+      }
+      wrap.replaceChild(nameEl, input);
+      nameEl.textContent = val || label;
+    };
+    input.addEventListener("blur", commit);
+    input.addEventListener("keydown", (ev) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        input.blur();
+      }
+      if (ev.key === "Escape") {
+        wrap.replaceChild(nameEl, input);
+      }
+    });
+    wrap.replaceChild(input, nameEl);
+    input.focus();
+    input.select();
+  });
+
+  return wrap;
+}
+
+function escapeHtml(s: string): string {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function updateOnlyLayerVisibility(): void {
+  const mount = document.getElementById("timeline-mount");
+  if (!mount) return;
+  const totalLayers = groups.getIds().length;
+  const onlyOne = totalLayers <= 1;
+  mount.querySelectorAll(".timeline-layer-label").forEach((el) => {
+    const wrap = el as HTMLElement;
+    if (onlyOne) {
+      wrap.classList.add("timeline-layer-label--only-one");
+    } else {
+      wrap.classList.remove("timeline-layer-label--only-one");
+    }
+  });
+}
+
+function injectAddLayerButton(): void {
+  const mount = document.getElementById("timeline-mount");
+  if (!mount) return;
+  const corner = mount.querySelector(
+    ".vis-panel.vis-background:not(.vis-horizontal):not(.vis-vertical)"
+  ) as HTMLElement | null;
+  if (!corner) return;
+  const existing = mount.querySelector(".timeline-add-layer-wrap");
+  if (existing) return;
+  const wrap = document.createElement("div");
+  wrap.className = "timeline-add-layer-wrap";
+  wrap.innerHTML = '<button type="button" class="timeline-add-layer-btn">+ Layer</button>';
+  wrap.querySelector("button")?.addEventListener("click", () => {
+    addLayer();
+    timeline?.fit();
+  });
+  corner.appendChild(wrap);
+}
+
 function loadFromClipboard(): void {
   navigator.clipboard.readText().then(
     (text) => {
@@ -136,9 +237,6 @@ export function render(container: HTMLElement): void {
       </section>
       <div class="timeline">
         <div class="timeline-toolbar">
-          <button type="button" class="btn btn-primary" data-action="add-layer">Add layer</button>
-          <button type="button" class="btn" data-action="remove-layer">Remove layer</button>
-          <span class="toolbar-divider"></span>
           <button type="button" class="btn btn-primary" data-action="add-clip">Add clip</button>
           <button type="button" class="btn btn-primary" data-action="add-flag">Add flag</button>
           <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
@@ -147,6 +245,9 @@ export function render(container: HTMLElement): void {
           <button type="button" class="btn" data-action="load-json">Load from clipboard</button>
         </div>
         <div class="timeline-container-wrap">
+          <div class="timeline-loading" id="timeline-loading" aria-hidden="false">
+            <span class="timeline-loading-icon">${animatedLoadingIcon}</span>
+          </div>
           <div id="timeline-mount"></div>
         </div>
       </div>
@@ -155,6 +256,7 @@ export function render(container: HTMLElement): void {
 
   const mount = document.getElementById("timeline-mount");
   const detailsPanel = container.querySelector(".timeline-details-panel");
+  const loadingEl = document.getElementById("timeline-loading");
 
   if (!mount || !detailsPanel) return;
 
@@ -183,6 +285,21 @@ export function render(container: HTMLElement): void {
       multiselect: true,
       selectable: true,
       verticalScroll: true,
+      groupTemplate: (data: { id: IdType; content: string }, _element: HTMLElement) => {
+        return createGroupLabelElement(
+          data,
+          (id) => removeLayer(id),
+          (id, newContent) => groups.update({ id, content: newContent })
+        );
+      },
+      onInitialDrawComplete: () => {
+        if (loadingEl) {
+          loadingEl.classList.add("timeline-loading--hidden");
+          loadingEl.setAttribute("aria-hidden", "true");
+        }
+        injectAddLayerButton();
+        updateOnlyLayerVisibility();
+      },
     }
   );
 
@@ -201,6 +318,8 @@ export function render(container: HTMLElement): void {
     updateDetailsPanel(detailsPanel as HTMLElement, null, () => null);
   });
 
+  groups.on("*", () => updateOnlyLayerVisibility());
+
   addLayer();
   addClip();
   addClip();
@@ -211,21 +330,6 @@ export function render(container: HTMLElement): void {
     el.addEventListener("click", () => {
       const action = (el as HTMLElement).getAttribute("data-action");
       switch (action) {
-        case "add-layer": {
-          addLayer();
-          timeline?.fit();
-          break;
-        }
-        case "remove-layer": {
-          const layerIds = groups.getIds();
-          if (layerIds.length <= 1) break;
-          const sel = timeline?.getSelection();
-          const toRemove =
-            sel?.length ? (items.get(sel[0]) as DataItem)?.group : layerIds[layerIds.length - 1];
-          if (toRemove != null) removeLayer(toRemove);
-          timeline?.fit();
-          break;
-        }
         case "add-clip":
           addClip();
           timeline?.fit();

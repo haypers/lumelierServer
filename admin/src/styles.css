@@ -751,6 +751,7 @@ body {
   background: var(--border);
 }
 .timeline-container-wrap {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -758,6 +759,26 @@ body {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   overflow: hidden;
+}
+.timeline-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-elevated);
+}
+.timeline-loading.timeline-loading--hidden {
+  display: none;
+}
+.timeline-loading-icon {
+  display: inline-flex;
+  color: var(--text-muted);
+}
+.timeline-loading-icon svg {
+  width: 32px;
+  height: 32px;
 }
 #timeline-mount {
   flex: 1;
@@ -792,10 +813,117 @@ body {
 .vis-time-axis .vis-grid.vis-major {
   stroke: var(--border) !important;
 }
+/* Layer labels column (thinner) */
+.timeline-container-wrap .vis-panel.vis-left {
+  width: 180px !important;
+  min-width: 180px !important;
+}
 .vis-labelset .vis-label {
   background: var(--bg) !important;
   color: var(--text) !important;
   border-color: var(--border) !important;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+}
+.vis-labelset .vis-label .vis-inner {
+  width: 100%;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  padding: 0 4px;
+  box-sizing: border-box;
+}
+/* Custom layer label: name + trash (fixed row height, no shift on hover) */
+.timeline-layer-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 28px;
+  padding: 0;
+  box-sizing: border-box;
+}
+.timeline-layer-label-name,
+.timeline-layer-label-input {
+  width: 0;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.timeline-layer-label-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+  font-size: 13px;
+}
+.timeline-layer-label-name:hover {
+  color: var(--accent);
+}
+.timeline-layer-label-input {
+  padding: 2px 6px;
+  font-size: 13px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--text);
+  outline: none;
+}
+.timeline-layer-label-remove {
+  flex-shrink: 0;
+  visibility: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: pointer;
+  color: #e87a7a;
+  position: relative;
+}
+.timeline-layer-label-remove:hover {
+  background: rgba(232, 122, 122, 0.2);
+}
+.timeline-layer-label-remove svg {
+  width: 14px;
+  height: 14px;
+}
+.vis-label:hover .timeline-layer-label-remove {
+  visibility: visible;
+}
+.timeline-layer-label--only-one .timeline-layer-label-remove {
+  display: none !important;
+}
+/* "+ Layer" button in top-left corner (vis-panel.vis-background) */
+.timeline-container-wrap .vis-panel.vis-background:not(.vis-horizontal):not(.vis-vertical) {
+  position: relative;
+}
+.timeline-add-layer-wrap {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 6px 8px;
+  z-index: 2;
+}
+.timeline-add-layer-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.timeline-add-layer-btn:hover {
+  background: var(--accent-current);
+  border-color: var(--accent);
 }
 .vis-item {
   border-color: var(--accent) !important;
