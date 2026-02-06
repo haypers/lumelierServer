@@ -644,3 +644,180 @@ body {
 .modal .btn-confirm:hover {
   filter: brightness(1.1);
 }
+
+/* Timeline page: fixed 50/50 split, no content shift */
+.admin-content:has(.timeline-page) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.timeline-page {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  gap: var(--space);
+}
+.timeline-page > .timeline-details-panel,
+.timeline-page > .timeline {
+  min-height: 0;
+  overflow: hidden;
+}
+.timeline-details-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space);
+}
+.timeline {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.timeline .timeline-toolbar {
+  flex-shrink: 0;
+}
+.timeline .timeline-container-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.timeline-details-panel h3 {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.timeline-details-panel .no-selection {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.timeline-details-panel .detail-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+.timeline-details-panel .detail-grid dt {
+  color: var(--text-muted);
+  margin: 0;
+}
+.timeline-details-panel .detail-grid dd {
+  margin: 0;
+}
+.timeline-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space);
+  padding: var(--space) 0;
+}
+.timeline-toolbar .btn {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.timeline-toolbar .btn:hover {
+  background: var(--border);
+}
+.timeline-toolbar .btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.timeline-toolbar .btn-primary:hover {
+  filter: brightness(1.1);
+}
+.timeline-toolbar .btn-danger:hover {
+  background: rgba(232, 122, 122, 0.2);
+  border-color: #e87a7a;
+  color: #e87a7a;
+}
+.timeline-toolbar .toolbar-divider {
+  width: 1px;
+  height: 20px;
+  background: var(--border);
+}
+.timeline-container-wrap {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+#timeline-mount {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.timeline-container-wrap .vis-timeline {
+  border: none;
+  height: 100% !important;
+}
+/* Override vis-timeline to match dark theme */
+.vis-timeline {
+  background: var(--bg-elevated) !important;
+  color: var(--text) !important;
+}
+.vis-panel.vis-background {
+  background: var(--bg) !important;
+}
+.vis-panel.vis-center,
+.vis-panel.vis-top,
+.vis-panel.vis-bottom {
+  border-color: var(--border) !important;
+}
+.vis-time-axis .vis-text {
+  color: var(--text-muted) !important;
+  fill: var(--text-muted) !important;
+}
+.vis-time-axis .vis-grid.vis-minor {
+  stroke: var(--border) !important;
+}
+.vis-time-axis .vis-grid.vis-major {
+  stroke: var(--border) !important;
+}
+.vis-labelset .vis-label {
+  background: var(--bg) !important;
+  color: var(--text) !important;
+  border-color: var(--border) !important;
+}
+.vis-item {
+  border-color: var(--accent) !important;
+  background-color: rgba(74, 125, 199, 0.35) !important;
+  color: var(--text) !important;
+}
+.vis-item.vis-selected {
+  border-color: var(--accent) !important;
+  background-color: var(--accent-current) !important;
+}
+.vis-item.vis-point.vis-selected {
+  background-color: var(--accent) !important;
+}
+.vis-item.vis-range.vis-selected {
+  background-color: rgba(74, 125, 199, 0.5) !important;
+  border-width: 2px !important;
+  border-color: var(--accent) !important;
+}
+.vis-custom-time {
+  background-color: var(--accent) !important;
+  width: 2px !important;
+}
+.vis-current-time {
+  background-color: var(--accent) !important;
+}
