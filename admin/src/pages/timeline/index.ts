@@ -211,45 +211,6 @@ function injectAddLayerButton(): void {
   corner.appendChild(wrap);
 }
 
-function loadFromClipboard(): void {
-  navigator.clipboard.readText().then(
-    (text) => {
-      const state = JSON.parse(text) as import("./types").TimelineStateJSON;
-      if (state.version !== 1 || !Array.isArray(state.layers) || !Array.isArray(state.items)) {
-        alert("Invalid timeline JSON.");
-        return;
-      }
-      importState(
-        state,
-        groups,
-        items,
-        (sec) => timeline?.setCustomTime(timeToDate(sec), readheadId),
-        (ids: NextIds) => {
-          nextItemId = ids.nextItemId;
-          nextLayerId = ids.nextLayerId;
-        },
-        (title) => {
-          projectTitle = title;
-          const el = document.getElementById("timeline-project-title-input");
-          if (el instanceof HTMLInputElement) el.value = title;
-        }
-      );
-      timeline?.fit();
-    },
-    () => alert("Could not read clipboard.")
-  );
-}
-
-function copyExportToClipboard(): void {
-  const state = exportState(
-    groups,
-    items,
-    () => (timeline ? dateToSec(timeline.getCustomTime(readheadId)) : 0),
-    () => projectTitle
-  );
-  navigator.clipboard.writeText(JSON.stringify(state, null, 2));
-}
-
 /** Sanitize project title to a safe filename (only [a-zA-Z0-9._-]); append .json. */
 function titleToFilename(title: string): string {
   const t = title
@@ -556,9 +517,6 @@ export function render(container: HTMLElement): void {
               <button type="button" class="btn btn-primary" data-action="add-clip">Add clip</button>
               <button type="button" class="btn btn-primary" data-action="add-flag">Add flag</button>
               <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
-              <span class="toolbar-divider"></span>
-              <button type="button" class="btn" data-action="copy-json">Copy JSON</button>
-              <button type="button" class="btn" data-action="load-json">Load from clipboard</button>
             </div>
             <div class="timeline-container-wrap">
               <div class="timeline-loading timeline-loading--hidden" id="timeline-loading" aria-hidden="true">
@@ -630,12 +588,6 @@ export function render(container: HTMLElement): void {
         case "remove-item":
           removeSelected();
           updateDetailsPanel(detailsPanel as HTMLElement, null, () => null);
-          break;
-        case "copy-json":
-          copyExportToClipboard();
-          break;
-        case "load-json":
-          loadFromClipboard();
           break;
       }
     });
