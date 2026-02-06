@@ -691,6 +691,12 @@ body {
   overflow: hidden;
   gap: var(--space);
 }
+.timeline-page-body--details-hidden {
+  grid-template-rows: 1fr;
+}
+.timeline-page-body--details-hidden > .timeline-details-panel {
+  display: none !important;
+}
 .timeline-page-body > .timeline-details-panel,
 .timeline-page-body > .timeline {
   min-height: 0;
@@ -733,6 +739,59 @@ body {
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  position: relative;
+}
+.timeline-empty-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space);
+  padding: var(--space);
+}
+.timeline-empty-state--hidden {
+  display: none !important;
+}
+.timeline-empty-state-message {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}
+.timeline-empty-state-actions {
+  display: flex;
+  gap: var(--space);
+}
+.timeline-empty-state-actions .btn {
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.timeline-empty-state-actions .btn:hover {
+  background: var(--border);
+}
+.timeline-empty-state-actions .btn-primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+.timeline-empty-state-actions .btn-primary:hover {
+  filter: brightness(1.1);
+}
+.timeline-content {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.timeline-content--hidden {
+  display: none !important;
 }
 .timeline .timeline-toolbar {
   flex-shrink: 0;
@@ -888,14 +947,17 @@ body {
   padding: 0 4px;
   box-sizing: border-box;
 }
-/* Custom layer label: name + trash (fixed row height, no shift on hover) */
+/* Custom layer label: name + trash. Fixed height prevents vis-timeline from measuring
+   different heights across redraws and triggering its "infinite loop in redraw?" warning. */
 .timeline-layer-label {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
   min-width: 0;
+  height: 28px;
   min-height: 28px;
+  max-height: 28px;
   padding: 0;
   box-sizing: border-box;
 }
@@ -952,8 +1014,11 @@ body {
 .vis-label:hover .timeline-layer-label-remove {
   visibility: visible;
 }
+/* Keep button in layout (visibility + pointer-events) so toggling this class does not change
+   label height and trigger vis-timeline's "resized" redraw loop. */
 .timeline-layer-label--only-one .timeline-layer-label-remove {
-  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none;
 }
 /* "+ Layer" button in top-left corner (vis-panel.vis-background) */
 .timeline-container-wrap .vis-panel.vis-background:not(.vis-horizontal):not(.vis-vertical) {
