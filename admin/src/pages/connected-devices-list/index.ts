@@ -3,7 +3,6 @@ import "tabulator-tables/dist/css/tabulator_midnight.min.css"; // dark theme
 import resetIcon from "../../icons/reset.svg?raw";
 import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
-import { createActionsDropdown } from "../../components/actions-dropdown";
 
 const DEFAULT_REFRESH_MS = 2000;
 
@@ -209,15 +208,11 @@ export function render(container: HTMLElement): void {
     { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", sorterParams: { field: "estimatedUptimeMs" } },
   ];
 
-  const actionsDropdown = createActionsDropdown({
-    dropdownId: "devices-actions-dropdown-list",
-    items: [
-      { id: "drop-disconnected", label: "Drop Disconnected Devices", icon: resetIcon, danger: true },
-    ],
-  });
   container.innerHTML = `
     <div class="devices-list-page">
-      <div class="devices-toolbar" id="devices-toolbar-actions"></div>
+      <div class="devices-toolbar">
+        <button type="button" class="devices-toolbar-btn devices-toolbar-btn-danger" id="devices-drop-disconnected">${resetIcon}<span>Drop Disconnected Devices</span></button>
+      </div>
       <div class="devices-stats-group">
       <div class="devices-stats-controls" id="devices-stats-controls"></div>
       <div class="devices-stats">
@@ -255,9 +250,7 @@ export function render(container: HTMLElement): void {
     },
   });
 
-  const toolbarActions = document.getElementById("devices-toolbar-actions");
-  if (toolbarActions) toolbarActions.appendChild(actionsDropdown.root);
-  actionsDropdown.onAction("drop-disconnected", () => showResetConfirmModal(() => doReset()));
+  document.getElementById("devices-drop-disconnected")?.addEventListener("click", () => showResetConfirmModal(() => doReset()));
 
   const chooserBtn = document.getElementById("column-chooser-btn");
   const chooserList = document.getElementById("column-chooser-list");

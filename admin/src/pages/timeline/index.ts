@@ -2,6 +2,8 @@ import "vis-timeline/styles/vis-timeline-graph2d.css";
 import { DataSet } from "vis-data";
 import { Timeline, type DataItem, type DataGroup, type IdType } from "vis-timeline";
 import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
+import openIcon from "../../icons/open.svg?raw";
+import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import {
   SEC,
@@ -20,8 +22,6 @@ import {
   type NextIds,
 } from "./state-serialization";
 import type { TimelineStateJSON } from "./types";
-import { createActionsDropdown } from "../../components/actions-dropdown";
-
 export type { TimelineItemPayload, TimelineStateJSON } from "./types";
 
 let timeline: Timeline | null = null;
@@ -622,13 +622,20 @@ export function render(container: HTMLElement): void {
           </div>
           <div class="timeline-content timeline-content--hidden">
             <div class="timeline-toolbar">
-              <span class="timeline-project-title-wrap">
-                <label for="timeline-project-title-input">Show:</label>
-                <input type="text" id="timeline-project-title-input" value="Untitled Show" />
-              </span>
-              <button type="button" class="btn btn-primary hidden" data-action="add-clip" aria-hidden="true">Add clip</button>
-              <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
-              <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
+              <div class="timeline-toolbar-left">
+                <span class="timeline-project-title-wrap">
+                  <label for="timeline-project-title-input">Show:</label>
+                  <input type="text" id="timeline-project-title-input" value="Untitled Show" />
+                </span>
+                <button type="button" class="btn btn-icon-label" data-action="save-show">${saveIcon}<span>Save</span></button>
+                <button type="button" class="btn btn-icon-label" data-action="open-show">${openIcon}<span>Open</span></button>
+              </div>
+              <div class="timeline-toolbar-center"></div>
+              <div class="timeline-toolbar-right">
+                <button type="button" class="btn btn-primary hidden" data-action="add-clip" aria-hidden="true">Add clip</button>
+                <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
+                <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
+              </div>
             </div>
             <div class="timeline-container-wrap">
               <div class="timeline-loading timeline-loading--hidden" id="timeline-loading" aria-hidden="true">
@@ -661,16 +668,31 @@ export function render(container: HTMLElement): void {
   timelineLoadingEl = loadingEl;
 
   const actionsRow = container.querySelector(".timeline-actions-row");
-  const actionsDropdown = createActionsDropdown({
-    dropdownId: "timeline-actions-dropdown-list",
-    items: [
-      { id: "save-show", label: "Save Show" },
-      { id: "open-show", label: "Open Show" },
-    ],
-  });
-  if (actionsRow) actionsRow.appendChild(actionsDropdown.root);
-  actionsDropdown.onAction("save-show", () => saveShow());
-  actionsDropdown.onAction("open-show", () => showOpenShowModal());
+  if (actionsRow) {
+    const modeSwitch = document.createElement("div");
+    modeSwitch.className = "mode-switch";
+    modeSwitch.setAttribute("role", "group");
+    modeSwitch.setAttribute("aria-label", "Mode");
+    modeSwitch.innerHTML = `
+      <span class="mode-switch-label mode-switch-label-edit active">Editing</span>
+      <button type="button" class="mode-switch-toggle" id="timeline-mode-toggle" aria-pressed="false" aria-label="Switch mode">
+        <span class="mode-switch-track">
+          <span class="mode-switch-knob"></span>
+        </span>
+      </button>
+      <span class="mode-switch-label mode-switch-label-broadcast">Broadcasting</span>
+    `;
+    const toggleBtn = modeSwitch.querySelector(".mode-switch-toggle");
+    const labelEdit = modeSwitch.querySelector(".mode-switch-label-edit");
+    const labelBroadcast = modeSwitch.querySelector(".mode-switch-label-broadcast");
+    toggleBtn?.addEventListener("click", () => {
+      const isBroadcast = modeSwitch.classList.toggle("mode-switch--broadcast");
+      toggleBtn?.setAttribute("aria-pressed", String(isBroadcast));
+      labelEdit?.classList.toggle("active", !isBroadcast);
+      labelBroadcast?.classList.toggle("active", isBroadcast);
+    });
+    actionsRow.appendChild(modeSwitch);
+  }
 
   document.getElementById("timeline-empty-open-show")?.addEventListener("click", () => showOpenShowModal());
   document.getElementById("timeline-empty-create-show")?.addEventListener("click", () => createNewShow());
@@ -689,6 +711,12 @@ export function render(container: HTMLElement): void {
     el.addEventListener("click", () => {
       const action = (el as HTMLElement).getAttribute("data-action");
       switch (action) {
+        case "save-show":
+          saveShow();
+          break;
+        case "open-show":
+          showOpenShowModal();
+          break;
         case "add-clip":
           addClip();
           timeline?.fit();
