@@ -3,6 +3,8 @@ import { DataSet } from "vis-data";
 import { Timeline, type DataItem, type DataGroup, type IdType } from "vis-timeline";
 import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
 import openIcon from "../../icons/open.svg?raw";
+import pauseIcon from "../../icons/pause.svg?raw";
+import playIcon from "../../icons/play.svg?raw";
 import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import {
@@ -14,6 +16,7 @@ import {
   dateToSec,
   type TimelineItemPayload,
 } from "./types";
+import { createInfoBubble } from "../../components/info-bubble";
 import type { DetailsPanelUpdates } from "./details-panel";
 import { updateDetailsPanel } from "./details-panel";
 import {
@@ -35,8 +38,11 @@ let projectTitle = "Untitled Show";
 const EVENT_TYPE_SET_COLOR_BROADCAST = "Set Color Broadcast";
 /** True once the user has opened or created a show; timeline and toolbar are visible. */
 let hasLoadedShow = false;
+/** True when in Broadcasting mode; used to guard layer edit/remove and drive broadcast UI. */
+let isBroadcastMode = false;
 /** Set in render(); used when loading a show to create timeline and show content. */
 let timelineWrapEl: HTMLElement | null = null;
+let timelineContentEl: HTMLElement | null = null;
 let timelinePageBodyEl: HTMLElement | null = null;
 let timelineMountEl: HTMLElement | null = null;
 let timelineDetailsPanelEl: HTMLElement | null = null;
@@ -189,6 +195,7 @@ function createGroupLabelElement(
   btn.addEventListener("click", (e) => {
     e.stopPropagation();
     e.preventDefault();
+    if (isBroadcastMode) return;
     if (groupData.id == null) return;
     if (groups.getIds().length <= 1) return;
     if (confirm("Remove this layer and all its items?")) {
@@ -199,6 +206,7 @@ function createGroupLabelElement(
 
   nameEl.addEventListener("dblclick", (e) => {
     e.stopPropagation();
+    if (isBroadcastMode) return;
     const input = document.createElement("input");
     input.type = "text";
     input.className = "timeline-layer-label-input";
@@ -329,6 +337,7 @@ function refreshDetailsPanel(forceItemId?: IdType): void {
       () => {},
       () => []
     );
+    ensureReadOnlyBadge();
     return;
   }
   updateDetailsPanel(
@@ -339,6 +348,38 @@ function refreshDetailsPanel(forceItemId?: IdType): void {
     getLayers,
     (currentItemId) => refreshDetailsPanel(currentItemId)
   );
+  ensureReadOnlyBadge();
+}
+
+function ensureReadOnlyBadge(): void {
+  if (!isBroadcastMode || !timelineDetailsPanelEl) return;
+  if (timelineDetailsPanelEl.querySelector(".timeline-details-readonly-badge")) return;
+  ensureReadOnlyHeaderRow();
+}
+
+/** In broadcast mode, wrap the details panel h3 in a header row with badge and info so they stay on one line. */
+function ensureReadOnlyHeaderRow(): void {
+  if (!timelineDetailsPanelEl) return;
+  const detailsH3 = timelineDetailsPanelEl.querySelector("h3");
+  if (!detailsH3) return;
+  let wrapper = timelineDetailsPanelEl.querySelector(".timeline-details-header-row") as HTMLElement | null;
+  if (!wrapper) {
+    wrapper = document.createElement("div");
+    wrapper.className = "timeline-details-header-row";
+    timelineDetailsPanelEl.insertBefore(wrapper, detailsH3);
+    wrapper.appendChild(detailsH3);
+  }
+  if (wrapper.querySelector(".timeline-details-readonly-badge")) return;
+  const badge = document.createElement("span");
+  badge.className = "timeline-details-readonly-badge";
+  badge.textContent = "Read Only";
+  wrapper.appendChild(badge);
+  const infoBubble = createInfoBubble({
+    tooltipText: "When in Broadcasting mode, no changes to the timeline can be made.",
+    ariaLabel: "Read only info",
+  });
+  infoBubble.classList.add("timeline-details-readonly-info");
+  wrapper.appendChild(infoBubble);
 }
 
 function showTimelineContent(): void {
@@ -446,6 +487,7 @@ function ensureTimelineCreated(): void {
     document.addEventListener("keydown", (e) => {
       if (e.key !== "Delete") return;
       if (!timeline) return;
+      if (isBroadcastMode) return;
       const sel = timeline.getSelection();
       if (!sel?.length) return;
       const tag = document.activeElement?.tagName?.toUpperCase();
@@ -637,6 +679,16 @@ export function render(container: HTMLElement): void {
                 <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
               </div>
             </div>
+            <div class="timeline-toolbar-broadcast">
+              <div class="timeline-toolbar-left">
+                <span class="timeline-broadcast-show-name" id="timeline-broadcast-show-name">Untitled Show</span>
+              </div>
+              <div class="timeline-toolbar-center">
+                <button type="button" class="btn btn-icon-only" data-action="play" aria-label="Play">${playIcon}</button>
+                <button type="button" class="btn btn-icon-only" data-action="pause" aria-label="Pause">${pauseIcon}</button>
+              </div>
+              <div class="timeline-toolbar-right"></div>
+            </div>
             <div class="timeline-container-wrap">
               <div class="timeline-loading timeline-loading--hidden" id="timeline-loading" aria-hidden="true">
                 <span class="timeline-loading-icon">${animatedLoadingIcon}</span>
@@ -663,6 +715,7 @@ export function render(container: HTMLElement): void {
 
   timelineWrapEl = timelineWrap;
   timelinePageBodyEl = pageBody;
+  timelineContentEl = container.querySelector(".timeline-content") as HTMLElement | null;
   timelineMountEl = mount;
   timelineDetailsPanelEl = detailsPanel as HTMLElement | null;
   timelineLoadingEl = loadingEl;
@@ -685,11 +738,55 @@ export function render(container: HTMLElement): void {
     const toggleBtn = modeSwitch.querySelector(".mode-switch-toggle");
     const labelEdit = modeSwitch.querySelector(".mode-switch-label-edit");
     const labelBroadcast = modeSwitch.querySelector(".mode-switch-label-broadcast");
+
+    function applyBroadcastUI(): void {
+      isBroadcastMode = true;
+      modeSwitch.classList.add("mode-switch--broadcast");
+      toggleBtn?.setAttribute("aria-pressed", "true");
+      labelEdit?.classList.remove("active");
+      labelBroadcast?.classList.add("active");
+      timelineContentEl?.classList.add("timeline-content--broadcast");
+      timelineDetailsPanelEl?.classList.add("timeline-details-panel--readonly");
+      const broadcastShowName = document.getElementById("timeline-broadcast-show-name");
+      if (broadcastShowName) broadcastShowName.textContent = projectTitle;
+      ensureReadOnlyHeaderRow();
+      timeline?.setOptions({
+        editable: { add: false, remove: false, updateGroup: false, updateTime: false },
+      });
+    }
+
+    function revertBroadcastUI(): void {
+      isBroadcastMode = false;
+      modeSwitch.classList.remove("mode-switch--broadcast");
+      toggleBtn?.setAttribute("aria-pressed", "false");
+      labelEdit?.classList.add("active");
+      labelBroadcast?.classList.remove("active");
+      timelineContentEl?.classList.remove("timeline-content--broadcast");
+      timelineDetailsPanelEl?.classList.remove("timeline-details-panel--readonly");
+      const wrapper = timelineDetailsPanelEl?.querySelector(".timeline-details-header-row");
+      if (wrapper && wrapper.parentNode) {
+        const h3 = wrapper.querySelector("h3");
+        if (h3) timelineDetailsPanelEl?.insertBefore(h3, wrapper);
+        wrapper.remove();
+      }
+      timeline?.setOptions({
+        editable: { add: false, remove: false, updateGroup: false, updateTime: true },
+      });
+    }
+
     toggleBtn?.addEventListener("click", () => {
-      const isBroadcast = modeSwitch.classList.toggle("mode-switch--broadcast");
-      toggleBtn?.setAttribute("aria-pressed", String(isBroadcast));
-      labelEdit?.classList.toggle("active", !isBroadcast);
-      labelBroadcast?.classList.toggle("active", isBroadcast);
+      const currentlyBroadcast = modeSwitch.classList.contains("mode-switch--broadcast");
+      if (currentlyBroadcast) {
+        revertBroadcastUI();
+        return;
+      }
+      const canEnterBroadcast =
+        hasLoadedShow && groups.length > 0 && items.length > 0;
+      if (!canEnterBroadcast) {
+        alert("To enter broadcasting mode, you must have a non empty timeline loaded.");
+        return;
+      }
+      applyBroadcastUI();
     });
     actionsRow.appendChild(modeSwitch);
   }
@@ -716,6 +813,12 @@ export function render(container: HTMLElement): void {
           break;
         case "open-show":
           showOpenShowModal();
+          break;
+        case "play":
+          /* TODO: start broadcast playback */
+          break;
+        case "pause":
+          /* TODO: pause broadcast playback */
           break;
         case "add-clip":
           addClip();
