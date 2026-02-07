@@ -1,0 +1,104 @@
+use axum::extract::State;
+use axum::http::StatusCode;
+use axum::Json;
+use serde::{Deserialize, Serialize};
+
+use crate::api::AdminAppState;
+use crate::time;
+
+#[derive(Deserialize)]
+pub struct PlayBody {
+    #[serde(rename = "readheadSec")]
+    pub readhead_sec: f64,
+}
+
+#[derive(Serialize)]
+pub struct PlayResponse {
+    #[serde(rename = "playAtMs")]
+    pub play_at_ms: u64,
+    #[serde(rename = "serverTimeMs")]
+    pub server_time_ms: u64,
+}
+
+#[derive(Serialize)]
+pub struct PauseResponse {
+    #[serde(rename = "pauseAtMs")]
+    pub pause_at_ms: u64,
+    #[serde(rename = "serverTimeMs")]
+    pub server_time_ms: u64,
+}
+
+const SCHEDULED_DELAY_MS: u64 = 1000;
+
+pub async fn post_broadcast_timeline(
+    State(state): State<AdminAppState>,
+    body: axum::body::Bytes,
+) -> Result<StatusCode, StatusCode> {
+    let json = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
+    state
+        .broadcast
+        .write()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .timeline_json = Some(json);
+    Ok(StatusCode::OK)
+}
+
+pub async fn post_broadcast_play(
+    State(state): State<AdminAppState>,
+    Json(body): Json<PlayBody>,
+) -> Result<Json<PlayResponse>, StatusCode> {
+    let now_ms = time::unix_now_ms();
+    let play_at_ms = now_ms + SCHEDULED_DELAY_MS;
+    let readhead_sec = body.readhead_sec;
+
+    println!("User hit play from {} (readhead sec).", readhead_sec);
+    println!("Planning to start playing timeline at {} (unix ms)", play_at_ms);
+    println!("Starting to send json to all clients");
+    {
+        let mut b = state.broadcast.write().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        b.play_at_ms = Some(play_at_ms);
+        b.readhead_sec = readhead_sec;
+        b.pause_at_ms = None;
+    }
+    println!("Finished sending to all clients");
+    tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_millis(SCHEDULED_DELAY_MS)).await;
+        println!("All clients should have started playing the timeline now.");
+    });
+
+    Ok(Json(PlayResponse {
+        play_at_ms,
+        server_time_ms: now_ms,
+    }))
+}
+
+pub async fn post_broadcast_pause(
+    State(state): State<AdminAppState>,
+) -> Result<Json<PauseResponse>, StatusCode> {
+    let now_ms = time::unix_now_ms();
+    let pause_at_ms = now_ms + SCHEDULED_DELAY_MS;
+
+    println!(
+        "User requested a pause. Planning to pause at {} (unix ms)",
+        pause_at_ms
+    );
+    println!(
+        "Sending pause instruction to clients to pause at {}",
+        pause_at_ms
+    );
+    state
+        .broadcast
+        .write()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+        .pause_at_ms = Some(pause_at_ms);
+    println!("Finished sending pause request");
+    tokio::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_millis(SCHEDULED_DELAY_MS)).await;
+        println!("All clients should be pausing NOW");
+    });
+
+    Ok(Json(PauseResponse {
+        pause_at_ms,
+        server_time_ms: now_ms,
+    }))
+}

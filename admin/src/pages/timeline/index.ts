@@ -49,6 +49,47 @@ let timelineDetailsPanelEl: HTMLElement | null = null;
 let timelineLoadingEl: HTMLElement | null = null;
 let deleteKeyListenerAdded = false;
 
+/** Offset (ms) from client time to server time: serverTimeMs ≈ Date.now() + serverTimeOffsetMs */
+let serverTimeOffsetMs = 0;
+let broadcastPlayAtMs: number | null = null;
+let broadcastReadheadSec = 0;
+let broadcastPauseAtMs: number | null = null;
+let broadcastReadheadTickId: ReturnType<typeof setInterval> | null = null;
+
+const BROADCAST_READHEAD_TICK_MS = 100;
+
+function getServerTimeMs(): number {
+  return Date.now() + serverTimeOffsetMs;
+}
+
+function tickBroadcastReadhead(): void {
+  if (broadcastPlayAtMs == null || !timeline) return;
+  const nowMs = getServerTimeMs();
+  if (nowMs < broadcastPlayAtMs) return;
+  if (broadcastPauseAtMs != null && nowMs >= broadcastPauseAtMs) {
+    return;
+  }
+  const sec = broadcastReadheadSec + (nowMs - broadcastPlayAtMs) / 1000;
+  timeline.setCustomTime(timeToDate(sec), readheadId);
+}
+
+function startBroadcastReadheadTick(): void {
+  if (broadcastReadheadTickId != null) {
+    clearInterval(broadcastReadheadTickId);
+    broadcastReadheadTickId = null;
+  }
+  broadcastReadheadTickId = setInterval(tickBroadcastReadhead, BROADCAST_READHEAD_TICK_MS);
+}
+
+function stopBroadcastReadheadTick(): void {
+  if (broadcastReadheadTickId != null) {
+    clearInterval(broadcastReadheadTickId);
+    broadcastReadheadTickId = null;
+  }
+  broadcastPlayAtMs = null;
+  broadcastPauseAtMs = null;
+}
+
 function ensureGroups(): void {
   if (!groups.length) {
     addLayer();
@@ -306,6 +347,32 @@ function getExportState(): TimelineStateJSON {
   );
 }
 
+async function uploadTimelineToServer(): Promise<boolean> {
+  const state = getExportState();
+  try {
+    const res = await fetch("/api/admin/broadcast/timeline", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(state),
+    });
+    if (!res.ok) {
+      console.error("Failed to upload timeline:", res.status, await res.text());
+      return false;
+    }
+    console.log("timeline successfully uploaded to server");
+    return true;
+  } catch (e) {
+    console.error("Failed to upload timeline:", e);
+    return false;
+  }
+}
+
+function getReadheadSecClamped(): number {
+  if (!timeline) return 0;
+  const sec = dateToSec(timeline.getCustomTime(readheadId));
+  return Math.max(0, sec);
+}
+
 /** Default state for "Create New Show": one layer, one event at 5s (no clip). */
 function getDefaultNewShowState(): TimelineStateJSON {
   return {
@@ -463,6 +530,11 @@ function ensureTimelineCreated(): void {
   );
   timeline.addCustomTime(defaultTimeZero, readheadId);
   timeline.setCustomTimeTitle("Readhead", readheadId);
+  timeline.on("timechange", (props: { id?: string; time?: Date | number }) => {
+    if (props.id !== readheadId || !timeline) return;
+    const sec = dateToSec(new Date(toMs(props.time ?? 0)));
+    if (sec < 0) timeline.setCustomTime(timeToDate(0), readheadId);
+  });
   timeline.on("select", (props) => {
     updateDetailsPanel(
       timelineDetailsPanelEl as HTMLElement,
@@ -757,6 +829,8 @@ export function render(container: HTMLElement): void {
 
     function revertBroadcastUI(): void {
       isBroadcastMode = false;
+      stopBroadcastReadheadTick();
+      timelineContentEl?.classList.remove("timeline-readhead-no-drag");
       modeSwitch.classList.remove("mode-switch--broadcast");
       toggleBtn?.setAttribute("aria-pressed", "false");
       labelEdit?.classList.add("active");
@@ -774,7 +848,7 @@ export function render(container: HTMLElement): void {
       });
     }
 
-    toggleBtn?.addEventListener("click", () => {
+    toggleBtn?.addEventListener("click", async () => {
       const currentlyBroadcast = modeSwitch.classList.contains("mode-switch--broadcast");
       if (currentlyBroadcast) {
         revertBroadcastUI();
@@ -787,6 +861,11 @@ export function render(container: HTMLElement): void {
         return;
       }
       applyBroadcastUI();
+      const ok = await uploadTimelineToServer();
+      if (!ok) {
+        revertBroadcastUI();
+        alert("Failed to upload timeline to server.");
+      }
     });
     actionsRow.appendChild(modeSwitch);
   }
@@ -805,7 +884,7 @@ export function render(container: HTMLElement): void {
   }
 
   container.querySelectorAll("[data-action]").forEach((el) => {
-    el.addEventListener("click", () => {
+    el.addEventListener("click", async () => {
       const action = (el as HTMLElement).getAttribute("data-action");
       switch (action) {
         case "save-show":
@@ -814,12 +893,65 @@ export function render(container: HTMLElement): void {
         case "open-show":
           showOpenShowModal();
           break;
-        case "play":
-          /* TODO: start broadcast playback */
+        case "play": {
+          const readheadSec = getReadheadSecClamped();
+          console.log("User hit play from", readheadSec, "(readhead sec).");
+          try {
+            const res = await fetch("/api/admin/broadcast/play", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ readheadSec }),
+            });
+            if (!res.ok) throw new Error(String(res.status));
+            const data = (await res.json()) as { playAtMs?: number; serverTimeMs?: number };
+            const playAtMs = data.playAtMs ?? 0;
+            if (data.serverTimeMs != null) {
+              serverTimeOffsetMs = data.serverTimeMs - Date.now();
+            }
+            broadcastPlayAtMs = playAtMs;
+            broadcastReadheadSec = readheadSec;
+            broadcastPauseAtMs = null;
+            startBroadcastReadheadTick();
+            timeline?.setOptions({
+              editable: { add: false, remove: false, updateGroup: false, updateTime: false },
+            });
+            timelineContentEl?.classList.add("timeline-readhead-no-drag");
+            console.log("Planning to start playing timeline at", playAtMs);
+            console.log("Starting to send json to all clients");
+            console.log("Finished sending to all clients");
+            setTimeout(() => {
+              console.log("All clients should have started playing the timeline now.");
+            }, 1000);
+          } catch (e) {
+            console.error("Broadcast play failed:", e);
+          }
           break;
-        case "pause":
-          /* TODO: pause broadcast playback */
+        }
+        case "pause": {
+          try {
+            const res = await fetch("/api/admin/broadcast/pause", { method: "POST" });
+            if (!res.ok) throw new Error(String(res.status));
+            const data = (await res.json()) as { pauseAtMs?: number; serverTimeMs?: number };
+            const pauseAtMs = data.pauseAtMs ?? 0;
+            if (data.serverTimeMs != null) {
+              serverTimeOffsetMs = data.serverTimeMs - Date.now();
+            }
+            broadcastPauseAtMs = pauseAtMs;
+            timeline?.setOptions({
+              editable: { add: false, remove: false, updateGroup: false, updateTime: true },
+            });
+            timelineContentEl?.classList.remove("timeline-readhead-no-drag");
+            console.log("User requested a pause. Planning to pause at", pauseAtMs);
+            console.log("Sending pause instruction to clients to pause at", pauseAtMs);
+            console.log("Finished sending pause request");
+            setTimeout(() => {
+              console.log("All clients should be pausing NOW");
+            }, 1000);
+          } catch (e) {
+            console.error("Broadcast pause failed:", e);
+          }
           break;
+        }
         case "add-clip":
           addClip();
           timeline?.fit();

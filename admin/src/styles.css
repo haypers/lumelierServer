@@ -1373,6 +1373,9 @@ body {
   background-color: var(--accent) !important;
   width: 2px !important;
 }
+.timeline-content.timeline-readhead-no-drag .vis-custom-time {
+  pointer-events: none;
+}
 .vis-current-time {
   background-color: var(--accent) !important;
 }

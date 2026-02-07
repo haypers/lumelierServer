@@ -98,5 +98,5 @@ export function importState(
     return Number.isNaN(n) ? acc : Math.max(acc, n);
   }, 0);
   setNextIds({ nextItemId: maxId + 1, nextLayerId: layerNum + 1 });
-  setReadheadSec(state.readheadSec);
+  setReadheadSec(Math.max(0, state.readheadSec ?? 0));
 }

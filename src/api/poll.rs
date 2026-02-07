@@ -2,18 +2,26 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Serialize;
-use std::sync::Arc;
-use std::sync::RwLock;
 use uuid::Uuid;
 
+use crate::api::MainAppState;
 use crate::time;
-
-use crate::connections::ConnectionRegistry;
 
 #[derive(Serialize)]
 pub struct PollEvent {
     pub t: i64,
     pub color: String,
+}
+
+#[derive(Serialize)]
+pub struct PollBroadcast {
+    pub timeline: serde_json::Value,
+    #[serde(rename = "readheadSec")]
+    pub readhead_sec: f64,
+    #[serde(rename = "playAtMs", skip_serializing_if = "Option::is_none")]
+    pub play_at_ms: Option<u64>,
+    #[serde(rename = "pauseAtMs", skip_serializing_if = "Option::is_none")]
+    pub pause_at_ms: Option<u64>,
 }
 
 #[derive(Serialize)]
@@ -23,6 +31,8 @@ pub struct PollResponse {
     #[serde(rename = "deviceId")]
     pub device_id: String,
     pub events: Vec<PollEvent>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub broadcast: Option<PollBroadcast>,
 }
 
 /// Prefer client-sent X-Device-ID (stable UID per device). Otherwise generate a new UUID.
@@ -46,17 +56,35 @@ fn ping_ms_from_headers(headers: &HeaderMap) -> Option<u32> {
 }
 
 pub async fn poll(
-    State(registry): State<Arc<RwLock<ConnectionRegistry>>>,
+    State(state): State<MainAppState>,
     headers: HeaderMap,
 ) -> Result<Json<PollResponse>, StatusCode> {
     let now_ms = time::unix_now_ms();
 
     let (device_id, handshake_returned) = device_id_from_headers(&headers);
     let ping_ms = ping_ms_from_headers(&headers);
-    registry
+    state
+        .registry
         .write()
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .upsert(device_id.clone(), now_ms, ping_ms, handshake_returned);
+
+    let broadcast = {
+        let b = state
+            .broadcast
+            .read()
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        b.timeline_json.as_ref().map(|json| {
+            let timeline: serde_json::Value =
+                serde_json::from_str(json).unwrap_or(serde_json::Value::Null);
+            PollBroadcast {
+                timeline,
+                readhead_sec: b.readhead_sec,
+                play_at_ms: b.play_at_ms,
+                pause_at_ms: b.pause_at_ms,
+            }
+        })
+    };
 
     let events = vec![PollEvent {
         t: 0,
@@ -67,5 +95,6 @@ pub async fn poll(
         server_time: now_ms,
         device_id,
         events,
+        broadcast,
     }))
 }
