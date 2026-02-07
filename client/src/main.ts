@@ -34,6 +34,8 @@ const DEVICE_ID_STORAGE_KEY = "lumelier_device_id";
 
 interface PollResponse {
   serverTime: number;
+  /** Server time right before send; use with RTT/2 for better sync. */
+  serverTimeAtSend?: number;
   deviceId: string;
   events: PollEvent[];
   broadcast?: PollBroadcast;
@@ -59,12 +61,24 @@ let lastDeviceId = "";
 
 const POLL_INTERVAL_MS = 2500;
 const CLOCK_UPDATE_MS = 100;
+const OFFSET_SAMPLES_MAX = 5;
 
 /** Offset from local time to server time (ms). serverTime ≈ Date.now() + offset */
 let clockOffset = 0;
+/** Recent offset samples for median smoothing. */
+let offsetSamples: number[] = [];
 let clockIntervalStarted = false;
 /** RTT from previous poll (ms), sent on next request for server to store. */
 let lastRttMs: number | null = null;
+
+function median(arr: number[]): number {
+  if (arr.length === 0) return 0;
+  const sorted = [...arr].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 !== 0
+    ? sorted[mid]
+    : (sorted[mid - 1] + sorted[mid]) / 2;
+}
 
 function getServerTime(): number {
   return Date.now() + clockOffset;
@@ -155,7 +169,14 @@ function updateClockDisplay() {
 async function pollLoop() {
   try {
     const data = await fetchPoll();
-    clockOffset = data.serverTime - Date.now();
+    const serverTs =
+      data.serverTimeAtSend != null ? data.serverTimeAtSend : data.serverTime;
+    const rttMs = lastRttMs ?? 0;
+    const rawOffset = serverTs + rttMs / 2 - Date.now();
+    offsetSamples.push(rawOffset);
+    if (offsetSamples.length > OFFSET_SAMPLES_MAX) offsetSamples.shift();
+    clockOffset = median(offsetSamples);
+
     const displayId = data.deviceId || localStorage.getItem(DEVICE_ID_STORAGE_KEY) || "—";
 
     if (data.broadcast && isBroadcastTimeline(data.broadcast.timeline)) {

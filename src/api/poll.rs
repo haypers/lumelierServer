@@ -28,6 +28,9 @@ pub struct PollBroadcast {
 pub struct PollResponse {
     #[serde(rename = "serverTime")]
     pub server_time: u64,
+    /// Server time taken right before sending the response; use with RTT/2 for better sync.
+    #[serde(rename = "serverTimeAtSend")]
+    pub server_time_at_send: u64,
     #[serde(rename = "deviceId")]
     pub device_id: String,
     pub events: Vec<PollEvent>,
@@ -91,8 +94,11 @@ pub async fn poll(
         color: "#ff0000".to_string(),
     }];
 
+    let server_time_at_send = time::unix_now_ms();
+
     Ok(Json(PollResponse {
         server_time: now_ms,
+        server_time_at_send,
         device_id,
         events,
         broadcast,
