@@ -24,12 +24,21 @@ export function dateToSec(date: Date): number {
   return Math.round(date.getTime() / SEC);
 }
 
-/** Extended item payload for clips and flags (stored in item and in JSON). */
+/** Seconds as float (for editable start time). */
+export function dateToSecFloat(date: Date): number {
+  return date.getTime() / SEC;
+}
+
+/** Extended item payload for clips and events (stored in item and in JSON). */
 export interface TimelineItemPayload {
-  kind: "clip" | "flag";
+  kind: "clip" | "event";
   label?: string;
-  /** Optional effect or event type for server. */
+  /** Event type (e.g. "Set Color Broadcast"). No effect on timeline visual. */
   effectType?: string;
+  /** For "Set Color Broadcast": target audience (All, GPS Enabled, GPS Disabled). */
+  target?: string;
+  /** For "Set Color Broadcast": hex color (e.g. "#ff0000"). */
+  color?: string;
 }
 
 /** Serializable timeline state for server. */
@@ -41,11 +50,13 @@ export interface TimelineStateJSON {
   items: {
     id: string;
     layerId: string;
-    kind: "clip" | "flag";
+    kind: "clip" | "event";
     startSec: number;
     endSec?: number;
     label?: string;
     effectType?: string;
+    target?: string;
+    color?: string;
   }[];
   /** Readhead position in seconds. */
   readheadSec: number;

@@ -12,6 +12,7 @@ import {
   dateToSec,
   type TimelineItemPayload,
 } from "./types";
+import type { DetailsPanelUpdates } from "./details-panel";
 import { updateDetailsPanel } from "./details-panel";
 import {
   exportState,
@@ -31,6 +32,7 @@ const groupLabelCache = new Map<string, HTMLElement>();
 let nextLayerId = 1;
 let nextItemId = 1;
 let projectTitle = "Untitled Show";
+const EVENT_TYPE_SET_COLOR_BROADCAST = "Set Color Broadcast";
 /** True once the user has opened or created a show; timeline and toolbar are visible. */
 let hasLoadedShow = false;
 /** Set in render(); used when loading a show to create timeline and show content. */
@@ -39,6 +41,7 @@ let timelinePageBodyEl: HTMLElement | null = null;
 let timelineMountEl: HTMLElement | null = null;
 let timelineDetailsPanelEl: HTMLElement | null = null;
 let timelineLoadingEl: HTMLElement | null = null;
+let deleteKeyListenerAdded = false;
 
 function ensureGroups(): void {
   if (!groups.length) {
@@ -51,6 +54,7 @@ function addLayer(): string {
   const label = `Layer ${id}`;
   groups.add({ id, content: label });
   updateOnlyLayerVisibility();
+  refreshDetailsPanel();
   return id;
 }
 
@@ -64,6 +68,7 @@ function removeLayer(id: IdType): void {
     if (item?.group === id) items.remove(itemId);
   });
   updateOnlyLayerVisibility();
+  refreshDetailsPanel();
 }
 
 function addClip(layerId?: IdType): string {
@@ -85,12 +90,16 @@ function addClip(layerId?: IdType): string {
   return id;
 }
 
-function addFlag(layerId?: IdType): string {
+function addEvent(layerId?: IdType): string {
   ensureGroups();
   const gid = layerId ?? groups.getIds()[0];
   const at = timeline ? dateToSec(timeline.getWindow().start) + 2 : 0;
   const id = `item-${nextItemId++}`;
-  const payload: TimelineItemPayload = { kind: "flag", label: `Flag ${id}`, effectType: "trigger" };
+  const payload: TimelineItemPayload = {
+    kind: "event",
+    label: `Event ${id}`,
+    effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
+  };
   items.add({
     id,
     group: gid,
@@ -105,6 +114,61 @@ function addFlag(layerId?: IdType): string {
 function removeSelected(): void {
   const sel = timeline?.getSelection() ?? [];
   sel.forEach((id) => items.remove(id));
+}
+
+function getLayers(): { id: string; label: string }[] {
+  return groups.get().map((g: DataGroup) => ({
+    id: String(g.id),
+    label: String(g.content),
+  }));
+}
+
+function updateItemInTimeline(id: IdType, updates: DetailsPanelUpdates): void {
+  const item = items.get(id) as (DataItem & { payload?: TimelineItemPayload }) | null;
+  if (!item) return;
+  const payload = { ...(item.payload ?? { kind: "event" as const }) };
+  let start: Date | undefined;
+  let end: Date | undefined;
+  let group: string | undefined;
+  let content: string | undefined;
+
+  if (updates.startSec !== undefined) {
+    const sec = Number(updates.startSec);
+    if (!Number.isNaN(sec) && sec >= 0) {
+      start = timeToDate(sec);
+      if (item.end != null && payload.kind === "clip") {
+        const durMs = new Date(item.end).getTime() - new Date(item.start).getTime();
+        end = new Date(start.getTime() + durMs);
+      } else if (payload.kind === "event") {
+        end = undefined;
+      }
+    }
+  }
+  if (updates.layerId !== undefined) {
+    group = updates.layerId;
+  }
+  if (updates.label !== undefined) {
+    payload.label = updates.label || undefined;
+    content = updates.label?.trim() || String(id);
+  }
+  if (updates.effectType !== undefined) {
+    payload.effectType = updates.effectType || undefined;
+  }
+  if (updates.target !== undefined) {
+    payload.target = updates.target || undefined;
+  }
+  if (updates.color !== undefined) {
+    payload.color = updates.color || undefined;
+  }
+
+  items.update({
+    id,
+    ...(start != null && { start }),
+    ...(end !== undefined && { end }),
+    ...(group != null && { group }),
+    ...(content != null && { content }),
+    payload,
+  });
 }
 
 function createGroupLabelElement(
@@ -234,7 +298,7 @@ function getExportState(): TimelineStateJSON {
   );
 }
 
-/** Default state for "Create New Show": one layer, one 2s clip, one flag at 5s. */
+/** Default state for "Create New Show": one layer, one event at 5s (no clip). */
 function getDefaultNewShowState(): TimelineStateJSON {
   return {
     version: 1,
@@ -244,21 +308,37 @@ function getDefaultNewShowState(): TimelineStateJSON {
       {
         id: "item-1",
         layerId: "layer-1",
-        kind: "clip",
-        startSec: 0,
-        endSec: 2,
-        label: "Clip item-1",
-      },
-      {
-        id: "item-2",
-        layerId: "layer-1",
-        kind: "flag",
+        kind: "event",
         startSec: 5,
-        label: "Flag item-2",
+        label: "Event item-1",
+        effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
       },
     ],
     readheadSec: 0,
   };
+}
+
+function refreshDetailsPanel(forceItemId?: IdType): void {
+  if (!timelineDetailsPanelEl) return;
+  const itemId = forceItemId ?? timeline?.getSelection()?.[0];
+  if (itemId == null) {
+    updateDetailsPanel(
+      timelineDetailsPanelEl,
+      null,
+      () => null,
+      () => {},
+      () => []
+    );
+    return;
+  }
+  updateDetailsPanel(
+    timelineDetailsPanelEl,
+    itemId,
+    (id) => items.get(id) as (DataItem & { payload?: TimelineItemPayload }) | null,
+    updateItemInTimeline,
+    getLayers,
+    (currentItemId) => refreshDetailsPanel(currentItemId)
+  );
 }
 
 function showTimelineContent(): void {
@@ -315,7 +395,10 @@ function ensureTimelineCreated(): void {
         wrap = createGroupLabelElement(
           data,
           (id) => removeLayer(id),
-          (id, newContent) => groups.update({ id, content: newContent })
+          (id, newContent) => {
+            groups.update({ id, content: newContent });
+            refreshDetailsPanel();
+          }
         );
         groupLabelCache.set(key, wrap);
         return wrap;
@@ -343,12 +426,41 @@ function ensureTimelineCreated(): void {
     updateDetailsPanel(
       timelineDetailsPanelEl as HTMLElement,
       props.items?.[0] ?? null,
-      (id) => items.get(id) as (DataItem & { payload?: TimelineItemPayload }) | null
+      (id) => items.get(id) as (DataItem & { payload?: TimelineItemPayload }) | null,
+      updateItemInTimeline,
+      getLayers,
+      (currentItemId) => refreshDetailsPanel(currentItemId)
     );
   });
   timeline.on("deselect", () => {
-    updateDetailsPanel(timelineDetailsPanelEl as HTMLElement, null, () => null);
+    updateDetailsPanel(
+      timelineDetailsPanelEl as HTMLElement,
+      null,
+      () => null,
+      () => {},
+      () => []
+    );
   });
+  if (!deleteKeyListenerAdded) {
+    deleteKeyListenerAdded = true;
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Delete") return;
+      if (!timeline) return;
+      const sel = timeline.getSelection();
+      if (!sel?.length) return;
+      const tag = document.activeElement?.tagName?.toUpperCase();
+      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      e.preventDefault();
+      sel.forEach((id) => items.remove(id));
+      updateDetailsPanel(
+        timelineDetailsPanelEl as HTMLElement,
+        null,
+        () => null,
+        () => {},
+        () => []
+      );
+    });
+  }
   /* Do not call updateOnlyLayerVisibility from groups.on("*") — "*" fires during vis-timeline's
    * internal redraws and would schedule a RAF that mutates label DOM and triggers a redraw loop.
    * We call it from onInitialDrawComplete, addLayer, and removeLayer only. */
@@ -514,8 +626,8 @@ export function render(container: HTMLElement): void {
                 <label for="timeline-project-title-input">Show:</label>
                 <input type="text" id="timeline-project-title-input" value="Untitled Show" />
               </span>
-              <button type="button" class="btn btn-primary" data-action="add-clip">Add clip</button>
-              <button type="button" class="btn btn-primary" data-action="add-flag">Add flag</button>
+              <button type="button" class="btn btn-primary hidden" data-action="add-clip" aria-hidden="true">Add clip</button>
+              <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
               <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
             </div>
             <div class="timeline-container-wrap">
@@ -581,13 +693,19 @@ export function render(container: HTMLElement): void {
           addClip();
           timeline?.fit();
           break;
-        case "add-flag":
-          addFlag();
+        case "add-event":
+          addEvent();
           timeline?.fit();
           break;
         case "remove-item":
           removeSelected();
-          updateDetailsPanel(detailsPanel as HTMLElement, null, () => null);
+          updateDetailsPanel(
+            detailsPanel as HTMLElement,
+            null,
+            () => null,
+            () => {},
+            () => []
+          );
           break;
       }
     });

@@ -26,7 +26,7 @@ export function exportState(
         layerId: String(it.group),
         kind: payload.kind,
         startSec,
-        endSec: payload.kind === "clip" ? endSec : undefined,
+        endSec: payload.kind === "clip" ? endSec : undefined, // events are points, no endSec
         label: payload.label,
         effectType: payload.effectType,
       };
@@ -62,6 +62,8 @@ export function importState(
       kind: it.kind,
       label: it.label,
       effectType: it.effectType,
+      target: it.target,
+      color: it.color,
     };
     if (it.kind === "clip") {
       items.add({
@@ -74,6 +76,7 @@ export function importState(
         payload,
       });
     } else {
+      // event (point item)
       items.add({
         id: it.id,
         group: it.layerId,

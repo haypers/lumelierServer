@@ -1,16 +1,45 @@
 import type { DataItem } from "vis-timeline";
 import type { IdType } from "vis-timeline";
 import type { TimelineItemPayload } from "./types";
-import { dateToSec } from "./types";
+import { dateToSecFloat } from "./types";
 
 export type GetItemFn = (
   id: IdType
 ) => (DataItem & { payload?: TimelineItemPayload }) | null;
 
+export interface LayerInfo {
+  id: string;
+  label: string;
+}
+
+export interface DetailsPanelUpdates {
+  startSec?: number;
+  layerId?: string;
+  label?: string;
+  effectType?: string;
+  target?: string;
+  color?: string;
+}
+
+export type UpdateItemFn = (id: IdType, updates: DetailsPanelUpdates) => void;
+export type GetLayersFn = () => LayerInfo[];
+
+/** Event type options for the dropdown. Only one for now. */
+export const EVENT_TYPE_OPTIONS = ["Set Color Broadcast"] as const;
+
+/** Target options for "Set Color Broadcast" event type. */
+export const TARGET_OPTIONS = ["All", "GPS Enabled", "GPS Disabled"] as const;
+
+/** Called to refresh the details panel; pass current itemId to re-render that item (e.g. after changing event type). */
+export type OnDetailsUpdatedFn = (currentItemId?: IdType) => void;
+
 export function updateDetailsPanel(
   container: HTMLElement,
   itemId: IdType | null | undefined,
-  getItem: GetItemFn
+  getItem: GetItemFn,
+  updateItem: UpdateItemFn,
+  getLayers: GetLayersFn,
+  onUpdated?: OnDetailsUpdatedFn
 ): void {
   const h3 = container.querySelector("h3");
   const body = container.querySelector(".timeline-details-body");
@@ -30,21 +59,188 @@ export function updateDetailsPanel(
     return;
   }
 
-  const payload = item.payload ?? { kind: "clip" as const };
-  const startSec = dateToSec(new Date(item.start as Date));
-  const endSec =
-    item.end != null ? dateToSec(new Date(item.end as Date)) : null;
+  const payload = item.payload ?? { kind: "event" as const };
+  const startSec = dateToSecFloat(new Date(item.start as Date));
+  const layers = getLayers();
+  const layerIndex =
+    layers.findIndex((l) => l.id === String(item.group)) + 1 || 1;
 
-  h3.textContent = payload.kind === "clip" ? "Clip details" : "Flag details";
+  h3.textContent = payload.kind === "clip" ? "Clip details" : "Event details";
+
+  const layerOptions = layers
+    .map(
+      (l) =>
+        `<option value="${escapeAttr(l.id)}" ${l.id === String(item.group) ? "selected" : ""}>${escapeHtml(l.label)}</option>`
+    )
+    .join("");
+
+  const eventTypeOptions =
+    `<option value="" ${payload.effectType == null || payload.effectType === "" ? "selected" : ""}>—</option>` +
+    EVENT_TYPE_OPTIONS.map(
+      (t) =>
+        `<option value="${escapeAttr(t)}" ${t === (payload.effectType ?? "") ? "selected" : ""}>${escapeHtml(t)}</option>`
+    ).join("");
+
+  const isSetColorBroadcast =
+    payload.kind === "event" && payload.effectType === "Set Color Broadcast";
+  const targetValue = payload.target ?? "All";
+  const colorValue =
+    payload.color && /^#[0-9A-Fa-f]{6}$/.test(payload.color)
+      ? payload.color
+      : "#ffffff";
+
+  const targetOptions = TARGET_OPTIONS.map(
+    (t) =>
+      `<option value="${escapeAttr(t)}" ${t === targetValue ? "selected" : ""}>${escapeHtml(t)}</option>`
+  ).join("");
+
+  const subsettingsHtml =
+    isSetColorBroadcast
+      ? `
+  <div class="detail-subsettings">
+    <dl class="detail-grid">
+      <dt>Target</dt>
+      <dd>
+        <select class="detail-input detail-target" aria-label="Target">
+          ${targetOptions}
+        </select>
+      </dd>
+      <dt>Color</dt>
+      <dd>
+        <input type="color" class="detail-input detail-color" value="${escapeAttr(colorValue)}" aria-label="Color" />
+        <span class="detail-color-hex">${escapeHtml(colorValue)}</span>
+      </dd>
+    </dl>
+  </div>`
+      : "";
+
   body.innerHTML = `
     <dl class="detail-grid">
-      <dt>ID</dt><dd>${String(item.id)}</dd>
-      <dt>Type</dt><dd>${payload.kind}</dd>
-      <dt>Start</dt><dd>${startSec} s</dd>
-      ${endSec != null ? `<dt>End</dt><dd>${endSec} s</dd><dt>Duration</dt><dd>${endSec - startSec} s</dd>` : ""}
-      <dt>Layer</dt><dd>${String(item.group)}</dd>
-      <dt>Label</dt><dd>${payload.label ?? "—"}</dd>
-      <dt>Effect type</dt><dd>${payload.effectType ?? "—"}</dd>
+      <dt>ID</dt><dd class="detail-readonly">${escapeHtml(String(item.id))}</dd>
+      <dt>Type</dt><dd class="detail-readonly">${escapeHtml(payload.kind)}</dd>
+      <dt>Start</dt>
+      <dd>
+        <input type="number" class="detail-input detail-start" step="any" min="0" value="${startSec}" aria-label="Start time in seconds" />
+        <span class="detail-unit">s</span>
+      </dd>
+      <dt>Layer</dt>
+      <dd class="detail-layer-wrap">
+        <select class="detail-input detail-layer-select" aria-label="Layer by name">
+          ${layerOptions}
+        </select>
+        <input type="number" class="detail-input detail-layer-num" min="1" max="${Math.max(1, layers.length)}" value="${layerIndex}" aria-label="Layer index" />
+      </dd>
+      <dt>Name</dt>
+      <dd>
+        <input type="text" class="detail-input detail-label" value="${escapeAttr(payload.label ?? "")}" aria-label="Name" />
+      </dd>
+      ${payload.kind === "event" ? `
+      <dt>Event Type</dt>
+      <dd>
+        <select class="detail-input detail-effect-type" aria-label="Event type">
+          ${eventTypeOptions}
+        </select>
+      </dd>
     </dl>
+    ${subsettingsHtml}
+      ` : "</dl>"}
   `;
+
+  const startInput = body.querySelector(".detail-start") as HTMLInputElement;
+  const layerSelect = body.querySelector(".detail-layer-select") as HTMLSelectElement;
+  const layerNumInput = body.querySelector(".detail-layer-num") as HTMLInputElement;
+  const labelInput = body.querySelector(".detail-label") as HTMLInputElement;
+  const effectSelect = body.querySelector(".detail-effect-type") as HTMLSelectElement | null;
+
+  function applyStart(): void {
+    const val = parseFloat(startInput.value);
+    if (!Number.isNaN(val) && val >= 0) {
+      updateItem(itemId as IdType, { startSec: val });
+    }
+  }
+
+  function applyLayerFromSelect(): void {
+    const layerId = layerSelect.value;
+    const idx = layers.findIndex((l) => l.id === layerId) + 1;
+    if (idx >= 1) {
+      layerNumInput.value = String(idx);
+      layerNumInput.max = String(layers.length);
+      updateItem(itemId as IdType, { layerId });
+    }
+  }
+
+  function applyLayerFromNum(): void {
+    const num = parseInt(layerNumInput.value, 10);
+    if (!Number.isNaN(num) && num >= 1 && num <= layers.length) {
+      const layer = layers[num - 1];
+      if (layer) {
+        layerSelect.value = layer.id;
+        updateItem(itemId as IdType, { layerId: layer.id });
+      }
+    }
+  }
+
+  function applyLabel(): void {
+    updateItem(itemId as IdType, { label: labelInput.value.trim() || undefined });
+  }
+
+  function applyEffectType(): void {
+    if (effectSelect) {
+      const val = effectSelect.value;
+      updateItem(itemId as IdType, { effectType: val });
+      if (val === "Set Color Broadcast") {
+        updateItem(itemId as IdType, { target: "All", color: "#ffffff" });
+      }
+      onUpdated?.(itemId as IdType);
+    }
+  }
+
+  function applyTarget(): void {
+    if (!body) return;
+    const targetSelect = body.querySelector(".detail-target") as HTMLSelectElement | null;
+    if (targetSelect) updateItem(itemId as IdType, { target: targetSelect.value || undefined });
+  }
+
+  function applyColor(): void {
+    if (!body) return;
+    const colorInput = body.querySelector(".detail-color") as HTMLInputElement | null;
+    const hexSpan = body.querySelector(".detail-color-hex");
+    if (colorInput) {
+      const hex = colorInput.value;
+      updateItem(itemId as IdType, { color: hex });
+      if (hexSpan) hexSpan.textContent = hex;
+    }
+  }
+
+  startInput.addEventListener("change", applyStart);
+  startInput.addEventListener("blur", applyStart);
+  layerSelect.addEventListener("change", applyLayerFromSelect);
+  layerNumInput.addEventListener("change", applyLayerFromNum);
+  layerNumInput.addEventListener("blur", applyLayerFromNum);
+  labelInput.addEventListener("change", applyLabel);
+  labelInput.addEventListener("blur", applyLabel);
+  if (effectSelect) {
+    effectSelect.addEventListener("change", applyEffectType);
+  }
+  const targetSelect = body.querySelector(".detail-target") as HTMLSelectElement | null;
+  const colorInput = body.querySelector(".detail-color") as HTMLInputElement | null;
+  if (targetSelect) targetSelect.addEventListener("change", applyTarget);
+  if (colorInput) {
+    colorInput.addEventListener("input", applyColor);
+    colorInput.addEventListener("change", applyColor);
+  }
+}
+
+function escapeHtml(s: string): string {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
+
+function escapeAttr(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
