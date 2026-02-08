@@ -338,7 +338,37 @@ body {
   top: 100%;
   margin-top: 6px;
 }
-.info-bubble:hover .info-tooltip {
+.info-bubble:hover .info-tooltip:not(.info-tooltip--inline-only) {
+  visibility: visible;
+  opacity: 1;
+}
+/* Inline tooltip is only used as content source; portal tooltip is shown instead */
+.info-tooltip--inline-only {
+  display: none !important;
+}
+
+/* Portal tooltip: rendered in body so it appears above tables/overflow (shared by info-bubble and disconnect-indicator) */
+.info-tooltip--portal {
+  position: fixed;
+  z-index: 10000;
+  min-width: 200px;
+  max-width: min(380px, calc(100vw - 24px));
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  white-space: normal;
+  visibility: hidden;
+  opacity: 0;
+  transition: visibility 0.15s ease, opacity 0.15s ease;
+  pointer-events: none;
+}
+.info-tooltip--portal.info-tooltip--visible {
   visibility: visible;
   opacity: 1;
 }

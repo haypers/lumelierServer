@@ -22,29 +22,50 @@ export interface PopupTooltipOptions {
 }
 
 /**
+ * Show tooltip in a portal (appended to body) so it isn't clipped by overflow/stacking
+ * and always has a high z-index. Positions with position:fixed from trigger rect.
+ */
+function showTooltipPortal(trigger: HTMLElement, text: string): HTMLElement {
+  const rect = trigger.getBoundingClientRect();
+  const inTopHalf = rect.top + rect.height / 2 < window.innerHeight / 2;
+  const portal = document.createElement("div");
+  portal.className = "info-tooltip info-tooltip--portal " + (inTopHalf ? "info-tooltip--below" : "info-tooltip--above");
+  portal.setAttribute("role", "tooltip");
+  portal.textContent = text;
+  document.body.appendChild(portal);
+  requestAnimationFrame(() => {
+    const tw = portal.offsetWidth;
+    const iconCenter = rect.left + rect.width / 2;
+    const clampedLeft = Math.max(
+      TOOLTIP_PAD,
+      Math.min(iconCenter - tw / 2, window.innerWidth - TOOLTIP_PAD - tw)
+    );
+    portal.style.left = `${clampedLeft}px`;
+    if (inTopHalf) {
+      portal.style.top = `${rect.bottom + 6}px`;
+    } else {
+      portal.style.bottom = `${window.innerHeight - rect.top + 6}px`;
+    }
+    portal.classList.add("info-tooltip--visible");
+  });
+  return portal;
+}
+
+/**
  * Attaches mouseenter/mouseleave to position the tooltip and show/hide it.
- * Caller must ensure the tooltip has classes info-tooltip and info-tooltip--below (or --above).
+ * Uses a body-level portal so the tooltip is never clipped by table overflow or stacking.
  */
 export function attachTooltipBehavior(trigger: HTMLElement, tooltipEl: HTMLElement): void {
+  let portal: HTMLElement | null = null;
   trigger.addEventListener("mouseenter", () => {
-    const rect = trigger.getBoundingClientRect();
-    const inTopHalf = rect.top + rect.height / 2 < window.innerHeight / 2;
-    tooltipEl.classList.toggle("info-tooltip--below", inTopHalf);
-    tooltipEl.classList.toggle("info-tooltip--above", !inTopHalf);
-    requestAnimationFrame(() => {
-      const tw = tooltipEl.offsetWidth;
-      const iconCenter = rect.left + rect.width / 2;
-      const clampedLeft = Math.max(
-        TOOLTIP_PAD,
-        Math.min(iconCenter - tw / 2, window.innerWidth - TOOLTIP_PAD - tw)
-      );
-      tooltipEl.style.left = `${clampedLeft - rect.left}px`;
-      tooltipEl.style.transform = "none";
-    });
+    const text = tooltipEl.textContent ?? "";
+    portal = showTooltipPortal(trigger, text);
   });
   trigger.addEventListener("mouseleave", () => {
-    tooltipEl.style.left = "";
-    tooltipEl.style.transform = "";
+    if (portal?.parentNode) {
+      portal.remove();
+      portal = null;
+    }
   });
 }
 
@@ -59,7 +80,7 @@ export function createPopupTrigger(opts: PopupTooltipOptions): HTMLElement {
   if (ariaLabel != null) root.setAttribute("aria-label", ariaLabel);
   root.innerHTML = `
     ${triggerContent}
-    <span class="info-tooltip info-tooltip--below" role="tooltip">${escapeHtml(tooltipText)}</span>
+    <span class="info-tooltip info-tooltip--inline-only" role="tooltip">${escapeHtml(tooltipText)}</span>
   `;
   const tooltipEl = root.querySelector<HTMLElement>(".info-tooltip");
   if (tooltipEl) attachTooltipBehavior(root, tooltipEl);
