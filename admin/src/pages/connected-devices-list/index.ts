@@ -6,6 +6,18 @@ import { createInfoBubble } from "../../components/info-bubble";
 
 const DEFAULT_REFRESH_MS = 2000;
 
+/** Tooltips for column headers (same order as columnDefs). */
+const COLUMN_HEADER_TOOLTIPS = [
+  "Stable identifier for this device. Sent by the client in the X-Device-ID header once it has received one from the server (e.g. on first connection).",
+  "Whether the server considers the device connected (contacted within the last 20 s) and if the client has returned the device ID handshake.",
+  "Server time (Unix ms) when this device was first seen. Shown in local time.",
+  "Round-trip time reported by the client (average of last few polls). Measured by the client from send of GET /api/poll to receipt of response, sent on the next poll as X-Ping-Ms.",
+  "Most recent round-trip time reported by the client for the previous poll. Same measurement as Avg but not averaged.",
+  "Milliseconds since the server last received a poll request from this device.",
+  "Number of times this device has gone silent (no poll within 20 s) and then contacted again. Increments once per disconnect.",
+  "Time from first contact to now (if connected) or to last contact (if disconnected).",
+];
+
 interface Stats {
   total_connected: number;
   averagePingMs: number | null;
@@ -16,6 +28,7 @@ interface DeviceRow {
   connectionStatus: string;
   firstConnectedAt: number;
   averagePingMs: number | null;
+  lastClientRttMs: number | null;
   disconnectEvents: number;
   estimatedUptimeMs: number;
   timeSinceLastContactMs: number;
@@ -128,6 +141,7 @@ function updateTable(data: DeviceRow[]): void {
     firstConnectedAt: d.firstConnectedAt,
     firstConnectedAtFormatted: formatTime(d.firstConnectedAt),
     averagePingMs: d.averagePingMs ?? null,
+    lastClientRttMs: d.lastClientRttMs ?? null,
     disconnectEvents: d.disconnectEvents,
     estimatedUptimeMs: d.estimatedUptimeMs,
     estimatedUptimeFormatted: formatUptime(d.estimatedUptimeMs),
@@ -180,6 +194,30 @@ async function doReset(): Promise<void> {
   }
 }
 
+/** Tabulator titleFormatter: renders header as info bubble + title (receives mockCell, params, onRendered). */
+function columnTitleWithInfoBubble(
+  cell: { getValue: () => string },
+  formatterParams: { tooltipText?: string },
+): HTMLElement {
+  const title = cell.getValue();
+  const tooltipText = formatterParams.tooltipText ?? "";
+  const container = document.createElement("span");
+  container.className = "devices-col-header-title-cell";
+  const bubbleWrap = document.createElement("span");
+  bubbleWrap.className = "devices-col-header-info-wrap";
+  bubbleWrap.appendChild(
+    createInfoBubble({
+      tooltipText,
+      ariaLabel: `Info about ${title}`,
+    }),
+  );
+  container.appendChild(bubbleWrap);
+  const titleSpan = document.createElement("span");
+  titleSpan.textContent = title;
+  container.appendChild(titleSpan);
+  return container;
+}
+
 export function render(container: HTMLElement): void {
   if (refreshTimer) {
     clearInterval(refreshTimer);
@@ -199,13 +237,14 @@ export function render(container: HTMLElement): void {
   }
 
   const columnDefs = [
-    { title: "Device ID", field: "deviceId", sorter: "string" },
-    { title: "Connection Status", field: "connectionStatus", sorter: "string" },
-    { title: "First Connected At", field: "firstConnectedAtFormatted", sorter: "string" },
-    { title: "Average Ping (ms)", field: "averagePingMs", sorter: "number" },
-    { title: "Time since last contact (ms)", field: "timeSinceLastContactMs", sorter: "number" },
-    { title: "Disconnect Events", field: "disconnectEvents", sorter: "number" },
-    { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", sorterParams: { field: "estimatedUptimeMs" } },
+    { title: "Device ID", field: "deviceId", sorter: "string", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[0] } },
+    { title: "Connection Status", field: "connectionStatus", sorter: "string", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[1] } },
+    { title: "First Connected At", field: "firstConnectedAtFormatted", sorter: "string", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[2] } },
+    { title: "Avg Client RTT (ms)", field: "averagePingMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[3] } },
+    { title: "Last Client RTT (ms)", field: "lastClientRttMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[4] } },
+    { title: "Time since last contact (ms)", field: "timeSinceLastContactMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[5] } },
+    { title: "Disconnect Events", field: "disconnectEvents", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[6] } },
+    { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", sorterParams: { field: "estimatedUptimeMs" }, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[7] } },
   ];
 
   container.innerHTML = `
@@ -220,8 +259,8 @@ export function render(container: HTMLElement): void {
           <span class="stat-label">Total number of connected clients:</span>
           <span class="stat-value stat-value-fixed stat-value-num" id="stat-total-connected">0</span>
         </div>
-        <div class="stat-widget stat-widget-clickable" id="stat-widget-ping" role="button" tabindex="0" title="Click to sort table by ping (lowest first)">
-          <span class="stat-label">Average ping time of connected clients:</span>
+        <div class="stat-widget stat-widget-clickable" id="stat-widget-ping" role="button" tabindex="0" title="Click to sort table by Avg Client RTT (lowest first)">
+          <span class="stat-label">Avg RTT (client-reported, ms):</span>
           <span class="stat-value stat-value-fixed stat-value-ping" id="stat-average-ping">—</span>
         </div>
         <div class="stat-widget stat-widget-server-time" id="stat-widget-server-time">

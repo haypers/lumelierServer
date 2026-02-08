@@ -343,6 +343,17 @@ body {
   opacity: 1;
 }
 
+/* Column header: info icon + title (connected devices list) */
+.devices-col-header-title-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+}
+.devices-col-header-info-wrap {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
 /* Disconnect indicator (refresh-every): cycling warning bulb + tooltip on hover */
 .disconnect-indicator {
   position: relative;

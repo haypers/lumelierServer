@@ -12,6 +12,7 @@ declare module "tabulator-tables" {
   }
   export interface TabulatorColumn {
     getDefinition(): { title?: string; field?: string };
+    getElement(): HTMLElement;
     show(): void;
     hide(): void;
     getVisible(): boolean;

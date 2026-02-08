@@ -22,6 +22,8 @@ pub struct DeviceRow {
     pub connection_status: String,
     pub first_connected_at_ms: u64,
     pub average_ping_ms: Option<f64>,
+    /// Most recent RTT (ms) reported by the client (last element of ping_samples).
+    pub latest_rtt_ms: Option<u32>,
     pub disconnect_events: u32,
     pub estimated_uptime_ms: u64,
     /// Milliseconds since this device last contacted the server.
@@ -150,6 +152,7 @@ impl ConnectionRegistry {
                     connection_status,
                     first_connected_at_ms: d.first_connected_at_ms,
                     average_ping_ms: d.average_ping_ms(),
+                    latest_rtt_ms: d.ping_samples.last().copied(),
                     disconnect_events: d.disconnect_events,
                     estimated_uptime_ms: d.estimated_uptime_ms(now_ms),
                     time_since_last_contact_ms: now_ms.saturating_sub(d.last_seen_at_ms),

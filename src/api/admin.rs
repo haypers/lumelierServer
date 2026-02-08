@@ -23,6 +23,8 @@ pub struct DeviceRowResponse {
     pub first_connected_at_ms: u64,
     #[serde(rename = "averagePingMs")]
     pub average_ping_ms: Option<f64>,
+    #[serde(rename = "lastClientRttMs")]
+    pub last_rtt_ms: Option<u32>,
     #[serde(rename = "disconnectEvents")]
     pub disconnect_events: u32,
     #[serde(rename = "estimatedUptimeMs")]
@@ -90,6 +92,7 @@ pub async fn get_connected_devices(
             connection_status: r.connection_status,
             first_connected_at_ms: r.first_connected_at_ms,
             average_ping_ms: r.average_ping_ms,
+            last_rtt_ms: r.latest_rtt_ms,
             disconnect_events: r.disconnect_events,
             estimated_uptime_ms: r.estimated_uptime_ms,
             time_since_last_contact_ms: r.time_since_last_contact_ms,
