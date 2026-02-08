@@ -26,9 +26,11 @@ body {
 }
 
 #app {
-  min-height: 100vh;
+  height: 100vh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .admin-header {
@@ -73,6 +75,7 @@ body {
 
 .admin-content {
   flex: 1;
+  min-height: 0;
   padding: var(--space);
   overflow: auto;
 }
@@ -729,6 +732,195 @@ body {
 }
 .modal-show-item:hover {
   background: var(--border);
+}
+
+/* Simulate Extra Devices page */
+.admin-content:has(.simulate-devices-page) {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.simulate-devices-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.simulate-devices-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 6px;
+  flex-shrink: 0;
+}
+.simulate-devices-toolbar-secondary {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  padding: var(--space) 0;
+  flex-shrink: 0;
+  min-height: 40px;
+}
+.simulate-devices-toolbar-secondary .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  line-height: 1.2;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.simulate-devices-toolbar-secondary .btn:hover {
+  background: var(--border);
+}
+.simulate-devices-toolbar-secondary .btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.simulate-devices-toolbar-secondary .btn-danger {
+  color: #e87a7a;
+  border-color: #e87a7a;
+}
+.simulate-devices-toolbar-secondary .btn-danger:hover {
+  background: rgba(232, 122, 122, 0.2);
+}
+.simulate-devices-body {
+  display: grid;
+  grid-template-rows: 1fr 1fr;
+  min-height: 0;
+  overflow: hidden;
+  gap: var(--space);
+  flex: 1;
+}
+/* Grid children must shrink so each pane gets a fixed half; content scrolls inside. */
+.simulate-devices-body > * {
+  min-height: 0;
+}
+.simulate-devices-grid-panel {
+  overflow: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space);
+}
+.simulate-devices-grid-wrap {
+  display: inline-block;
+  min-height: min-content;
+}
+.simulate-devices-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.simulate-devices-grid-square {
+  width: 24px;
+  height: 24px;
+  min-width: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--bg-elevated);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.simulate-devices-grid-square:hover {
+  filter: brightness(1.1);
+}
+.simulate-devices-grid-square--selected {
+  border-color: var(--accent);
+  border-width: 2px;
+}
+.simulate-devices-grid-square--disabled {
+  background: var(--bg) !important;
+}
+.simulate-devices-grid-square--disabled svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+  color: var(--text-muted);
+}
+.simulate-devices-details-section {
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.simulate-devices-details-pane {
+  min-height: 0;
+  overflow: auto;
+  flex: 1;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space);
+}
+.simulate-devices-details-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0;
+}
+.simulate-devices-details-pane .detail-grid {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+.simulate-devices-details-pane .detail-grid dt {
+  color: var(--text-muted);
+  margin: 0;
+}
+.simulate-devices-details-pane .detail-grid dd {
+  margin: 0;
+}
+.simulate-devices-charts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: var(--space);
+  margin-top: 16px;
+}
+.simulate-devices-chart-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space);
+  min-width: 0;
+}
+.simulate-devices-chart-title {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.simulate-devices-chart-container {
+  width: 100%;
+  aspect-ratio: 1;
+  min-height: 0;
+}
+.simulate-devices-chart-container .distribution-chart {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.distribution-chart line {
+  stroke: var(--border);
+  stroke-width: 1;
+}
+.distribution-chart .distribution-chart-grid-v,
+.distribution-chart .distribution-chart-grid-h {
+  stroke-opacity: 0.5;
+}
+.distribution-chart text {
+  fill: var(--text-muted);
 }
 
 /* Timeline page: fixed 50/50 split, no content shift */

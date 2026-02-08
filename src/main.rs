@@ -94,6 +94,7 @@ async fn main() {
         .route("/timeline", any(serve_admin_index))
         .route("/connectedDevicesList", any(serve_admin_index))
         .route("/connectedDevicesMap", any(serve_admin_index))
+        .route("/simulateDevices", any(serve_admin_index))
         .fallback_service(ServeDir::new("dist-admin"));
 
     let addr_main = SocketAddr::from(([0, 0, 0, 0], PORT));

@@ -4,20 +4,23 @@ import dashboardIcon from "./icons/dashboard.svg?raw";
 import timelineIcon from "./icons/timeline.svg?raw";
 import tableIcon from "./icons/table.svg?raw";
 import mapIcon from "./icons/map.svg?raw";
+import robotIcon from "./icons/robot.svg?raw";
 import { render as renderDashboard } from "./pages/dashboard";
 import { render as renderTimeline } from "./pages/timeline";
 import { render as renderConnectedDevicesList } from "./pages/connected-devices-list";
 import { render as renderConnectedDevicesMap } from "./pages/connected-devices-map";
+import { render as renderSimulateDevices } from "./pages/simulate-devices";
 
 const AUTH_TOKEN_KEY = "lumelier_admin_auth";
 
-type RoutePath = "/" | "/timeline" | "/connectedDevicesList" | "/connectedDevicesMap";
+type RoutePath = "/" | "/timeline" | "/connectedDevicesList" | "/connectedDevicesMap" | "/simulateDevices";
 
 const ROUTES: { path: RoutePath; title: string; icon: string }[] = [
   { path: "/", title: "Dashboard", icon: dashboardIcon },
   { path: "/timeline", title: "Timeline", icon: timelineIcon },
   { path: "/connectedDevicesList", title: "Connected Devices List", icon: tableIcon },
   { path: "/connectedDevicesMap", title: "Connected Devices Map", icon: mapIcon },
+  { path: "/simulateDevices", title: "Simulate Extra Devices", icon: robotIcon },
 ];
 
 function getAuthToken(): string | null {
@@ -112,6 +115,8 @@ function renderPageContent(path: RoutePath): void {
       return renderConnectedDevicesList(main);
     case "/connectedDevicesMap":
       return renderConnectedDevicesMap(main);
+    case "/simulateDevices":
+      return renderSimulateDevices(main);
   }
 }
 
