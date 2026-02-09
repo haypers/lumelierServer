@@ -711,6 +711,69 @@ body {
 .modal .btn-confirm:hover {
   filter: brightness(1.1);
 }
+
+/* Create Clients modal */
+.create-clients-modal {
+  max-width: 560px;
+}
+.create-clients-modal .create-clients-row {
+  margin-bottom: var(--space);
+}
+.create-clients-modal .create-clients-row label {
+  display: block;
+  font-size: 12px;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.create-clients-modal .create-clients-row input {
+  width: 100%;
+  max-width: 120px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+}
+.create-clients-chart-block {
+  margin-bottom: var(--space);
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.create-clients-chart-block:last-of-type {
+  border-bottom: none;
+}
+.create-clients-chart-title {
+  margin: 0 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+.create-clients-range-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+}
+.create-clients-range-row label {
+  font-size: 11px;
+  color: var(--text-muted, var(--text));
+}
+.create-clients-range-row input {
+  width: 60px;
+  padding: 4px 6px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+}
+.create-clients-modal .modal-actions {
+  margin-top: var(--space);
+  padding-top: var(--space);
+  border-top: 1px solid var(--border);
+}
+
 .modal-show-list {
   list-style: none;
   margin: 0 0 var(--space);
@@ -762,6 +825,10 @@ body {
   padding: var(--space) 0;
   flex-shrink: 0;
   min-height: 40px;
+}
+.simulate-devices-toolbar-secondary[hidden] {
+  visibility: hidden;
+  pointer-events: none;
 }
 .simulate-devices-toolbar-secondary .btn {
   display: inline-flex;

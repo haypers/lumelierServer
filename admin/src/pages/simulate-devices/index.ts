@@ -1,14 +1,106 @@
 import noSignalSvg from "../../icons/noSignal.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import type { SimulatedClient, SimulatedClientDistKey, DistributionCurve } from "./types";
-import { createClient, deleteClient, cloneClient, toggleConnection } from "./client-store";
+import { createClientWithRandomCurves, deleteClient, cloneClient, toggleConnection } from "./client-store";
 import { renderClientGrid } from "./client-grid";
 import {
   renderDetailsPane,
+  DISTRIBUTION_CHART_PRESETS,
   type DistributionChartSelection,
 } from "./details-pane";
 
 const MAX_SAMPLE_POINTS = 100;
+
+const MIN_CURVE_POINTS = 1;
+const MAX_CURVE_POINTS = 100;
+const DEFAULT_MAX_CURVE_POINTS = 15;
+
+function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => void): void {
+  const chartBlocksHtml = DISTRIBUTION_CHART_PRESETS.map(
+    (preset, i) => `
+  <div class="create-clients-chart-block" data-index="${i}">
+    <h4 class="create-clients-chart-title">${escapeHtml(preset.title)}</h4>
+    <div class="create-clients-range-row">
+      <label for="create-modal-min-${i}">Min:</label>
+      <input type="number" id="create-modal-min-${i}" min="${MIN_CURVE_POINTS}" max="${MAX_CURVE_POINTS}" value="${MIN_CURVE_POINTS}" />
+      <label for="create-modal-max-${i}">Max:</label>
+      <input type="number" id="create-modal-max-${i}" min="${MIN_CURVE_POINTS}" max="${MAX_CURVE_POINTS}" value="${DEFAULT_MAX_CURVE_POINTS}" />
+    </div>
+  </div>`
+  ).join("");
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+  overlay.innerHTML = `
+    <div class="modal create-clients-modal">
+      <div class="create-clients-row">
+        <label for="create-modal-count">New Client Count:</label>
+        <input type="number" id="create-modal-count" min="1" value="1" />
+      </div>
+      ${chartBlocksHtml}
+      <div class="modal-actions">
+        <button type="button" class="btn-cancel">Cancel</button>
+        <button type="button" class="btn-confirm">Create</button>
+      </div>
+    </div>`;
+
+  const close = (): void => overlay.remove();
+
+  overlay.querySelector(".btn-cancel")?.addEventListener("click", close);
+
+  overlay.querySelector(".btn-confirm")?.addEventListener("click", () => {
+    const countInput = overlay.querySelector("#create-modal-count") as HTMLInputElement | null;
+    const count = countInput != null ? parseInt(countInput.value.trim(), 10) : NaN;
+    if (!Number.isInteger(count) || count < 1) {
+      alert("New Client Count must be an integer ≥ 1.");
+      return;
+    }
+    const mins: number[] = [];
+    const maxs: number[] = [];
+    for (let i = 0; i < DISTRIBUTION_CHART_PRESETS.length; i++) {
+      const minInput = overlay.querySelector(`#create-modal-min-${i}`) as HTMLInputElement | null;
+      const maxInput = overlay.querySelector(`#create-modal-max-${i}`) as HTMLInputElement | null;
+      const minVal = minInput != null ? parseInt(minInput.value.trim(), 10) : NaN;
+      const maxVal = maxInput != null ? parseInt(maxInput.value.trim(), 10) : NaN;
+      if (!Number.isInteger(minVal) || minVal < MIN_CURVE_POINTS || minVal > MAX_CURVE_POINTS) {
+        alert(`Chart "${DISTRIBUTION_CHART_PRESETS[i].title}": Min must be an integer between ${MIN_CURVE_POINTS} and ${MAX_CURVE_POINTS}.`);
+        return;
+      }
+      if (!Number.isInteger(maxVal) || maxVal < MIN_CURVE_POINTS || maxVal > MAX_CURVE_POINTS) {
+        alert(`Chart "${DISTRIBUTION_CHART_PRESETS[i].title}": Max must be an integer between ${MIN_CURVE_POINTS} and ${MAX_CURVE_POINTS}.`);
+        return;
+      }
+      if (minVal > maxVal) {
+        alert(`Chart "${DISTRIBUTION_CHART_PRESETS[i].title}": Min must not exceed Max.`);
+        return;
+      }
+      mins.push(minVal);
+      maxs.push(maxVal);
+    }
+    const bounds = DISTRIBUTION_CHART_PRESETS.map((p) => ({
+      xMin: p.xAxis.min,
+      xMax: p.xAxis.max,
+    }));
+    const newClients: SimulatedClient[] = [];
+    for (let c = 0; c < count; c++) {
+      const pointCounts = mins.map((min, i) => {
+        const max = maxs[i];
+        return min === max ? min : min + Math.floor(Math.random() * (max - min + 1));
+      });
+      newClients.push(createClientWithRandomCurves(bounds, pointCounts));
+    }
+    close();
+    onCreate(newClients);
+  });
+
+  document.body.appendChild(overlay);
+}
+
+function escapeHtml(s: string): string {
+  const div = document.createElement("div");
+  div.textContent = s;
+  return div.innerHTML;
+}
 
 let clients: SimulatedClient[] = [];
 let selectedId: string | null = null;
@@ -71,7 +163,10 @@ function refresh(): void {
   );
 
   if (secondaryToolbar) {
-    secondaryToolbar.hidden = selectedId == null;
+    const hide = selectedId == null;
+    secondaryToolbar.hidden = hide;
+    secondaryToolbar.style.visibility = hide ? "hidden" : "";
+    secondaryToolbar.style.pointerEvents = hide ? "none" : "";
   }
   if (btnToggleConnection) {
     const sel = getSelected();
@@ -110,8 +205,20 @@ export function render(container: HTMLElement): void {
   btnClone = document.getElementById("simulate-devices-clone");
   btnToggleConnection = document.getElementById("simulate-devices-toggle-connection");
 
+  const pageRoot = (): HTMLElement | null => gridContainer?.closest(".simulate-devices-page") ?? null;
+  const bodyEl = (): HTMLElement | null => gridContainer?.parentElement ?? null;
+
   document.addEventListener("click", (e: MouseEvent) => {
-    if (detailsContainer && !detailsContainer.contains(e.target as Node)) {
+    const target = e.target as Node;
+    const el = e.target as Element;
+    if (detailsContainer && !detailsContainer.contains(target)) {
+      selectedAnchor = null;
+      refresh();
+    }
+    const page = pageRoot();
+    const body = bodyEl();
+    if (page?.contains(target) && body && !body.contains(target) && !el.closest?.("button")) {
+      selectedId = null;
       selectedAnchor = null;
       refresh();
     }
@@ -133,8 +240,10 @@ export function render(container: HTMLElement): void {
   });
 
   document.getElementById("simulate-devices-create")?.addEventListener("click", () => {
-    clients = [...clients, createClient()];
-    refresh();
+    showCreateClientsModal((newClients) => {
+      clients = [...clients, ...newClients];
+      refresh();
+    });
   });
 
   document.getElementById("simulate-devices-destroy")?.addEventListener("click", () => {

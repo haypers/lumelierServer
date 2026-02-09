@@ -36,7 +36,7 @@ export const DISTRIBUTION_CHART_PRESETS: DistributionChartPreset[] = [
   },
 ];
 
-const DIST_KEYS_BY_PRESET_INDEX: SimulatedClientDistKey[] = [
+export const DIST_KEYS_BY_PRESET_INDEX: SimulatedClientDistKey[] = [
   "pingsEverySecDist",
   "clientToServerDelayDist",
   "serverToClientDelayDist",
