@@ -12,11 +12,11 @@ export function createClient(): SimulatedClient {
     connectionEnabled: true,
     serverTimeEstimate: null,
     currentDisplayColor: "#888",
-    pingsEverySecDist: {},
-    clientToServerDelayDist: {},
-    serverToClientDelayDist: {},
-    timeBetweenLagSpikesDist: {},
-    lagSpikeDurationDist: {},
+    pingsEverySecDist: { anchors: [] },
+    clientToServerDelayDist: { anchors: [] },
+    serverToClientDelayDist: { anchors: [] },
+    timeBetweenLagSpikesDist: { anchors: [] },
+    lagSpikeDurationDist: { anchors: [] },
   };
 }
 
@@ -30,11 +30,11 @@ export function cloneClient(client: SimulatedClient): SimulatedClient {
     ...client,
     id: newId,
     deviceId: newId,
-    pingsEverySecDist: { ...client.pingsEverySecDist },
-    clientToServerDelayDist: { ...client.clientToServerDelayDist },
-    serverToClientDelayDist: { ...client.serverToClientDelayDist },
-    timeBetweenLagSpikesDist: { ...client.timeBetweenLagSpikesDist },
-    lagSpikeDurationDist: { ...client.lagSpikeDurationDist },
+    pingsEverySecDist: { anchors: client.pingsEverySecDist.anchors.map((a) => ({ ...a })) },
+    clientToServerDelayDist: { anchors: client.clientToServerDelayDist.anchors.map((a) => ({ ...a })) },
+    serverToClientDelayDist: { anchors: client.serverToClientDelayDist.anchors.map((a) => ({ ...a })) },
+    timeBetweenLagSpikesDist: { anchors: client.timeBetweenLagSpikesDist.anchors.map((a) => ({ ...a })) },
+    lagSpikeDurationDist: { anchors: client.lagSpikeDurationDist.anchors.map((a) => ({ ...a })) },
   };
 }
 

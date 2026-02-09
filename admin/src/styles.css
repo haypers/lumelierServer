@@ -895,11 +895,42 @@ body {
   padding: var(--space);
   min-width: 0;
 }
+.simulate-devices-chart-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
 .simulate-devices-chart-title {
-  margin: 0 0 8px;
+  margin: 0;
   font-size: 12px;
   font-weight: 600;
   color: var(--text-muted);
+}
+.simulate-devices-chart-actions {
+  display: flex;
+  gap: 4px;
+}
+.simulate-devices-chart-action-btn {
+  padding: 4px;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #fff;
+  border-radius: var(--radius);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.simulate-devices-chart-action-btn:hover {
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+.simulate-devices-chart-action-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 .simulate-devices-chart-container {
   width: 100%;
@@ -911,6 +942,10 @@ body {
   height: 100%;
   display: block;
 }
+.distribution-chart .distribution-chart-area {
+  pointer-events: all;
+  cursor: crosshair;
+}
 .distribution-chart line {
   stroke: var(--border);
   stroke-width: 1;
@@ -921,6 +956,32 @@ body {
 }
 .distribution-chart text {
   fill: var(--text-muted);
+}
+.distribution-chart .distribution-chart-curve {
+  fill: none;
+  stroke: var(--color-accent, var(--text));
+  stroke-width: 2;
+  pointer-events: none;
+}
+.distribution-chart .distribution-chart-anchor {
+  fill: var(--bg-elevated);
+  stroke: var(--color-accent, var(--text));
+  stroke-width: 1.5;
+  cursor: grab;
+  pointer-events: all;
+}
+.distribution-chart .distribution-chart-anchor:active {
+  cursor: grabbing;
+}
+.distribution-chart .distribution-chart-anchor--selected {
+  fill: var(--color-accent, #3b82f6);
+  stroke: var(--color-accent, #3b82f6);
+  stroke-width: 2;
+}
+.distribution-chart .distribution-chart-sample-point {
+  fill: #888;
+  stroke: none;
+  pointer-events: none;
 }
 
 /* Timeline page: fixed 50/50 split, no content shift */
