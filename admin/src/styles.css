@@ -871,11 +871,64 @@ body {
   min-height: 0;
 }
 .simulate-devices-grid-panel {
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: var(--space);
+}
+.simulate-devices-grid-panel-inner {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+.simulate-devices-grid-area {
+  flex: 1;
+  min-height: 120px;
+  overflow: auto;
+}
+.simulate-devices-grid-pagination {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding-top: 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+.simulate-devices-grid-pagination button {
+  padding: 4px 10px;
+  font-size: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+.simulate-devices-grid-pagination button:hover:not(:disabled) {
+  background: var(--bg-elevated);
+}
+.simulate-devices-grid-pagination button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.simulate-devices-toolbar-label {
+  font-size: 12px;
+  color: var(--text);
+  margin-left: 12px;
+}
+.simulate-devices-toolbar input[type="range"] {
+  width: 80px;
+  vertical-align: middle;
+}
+.simulate-devices-toolbar #simulate-devices-square-size-value {
+  font-size: 12px;
+  color: var(--text-muted, var(--text));
+  min-width: 32px;
 }
 .simulate-devices-grid-wrap {
   display: inline-block;

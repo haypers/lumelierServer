@@ -11,6 +11,11 @@ import {
 
 const MAX_SAMPLE_POINTS = 100;
 
+const SQUARE_SIZE_MIN = 12;
+const SQUARE_SIZE_MAX = 48;
+const SQUARE_SIZE_DEFAULT = 24;
+const GRID_GAP_PX = 4;
+
 const MIN_CURVE_POINTS = 1;
 const MAX_CURVE_POINTS = 100;
 const DEFAULT_MAX_CURVE_POINTS = 15;
@@ -130,6 +135,110 @@ let btnDelete: HTMLElement | null = null;
 let btnClone: HTMLElement | null = null;
 let btnToggleConnection: HTMLElement | null = null;
 
+let squareSizePx = SQUARE_SIZE_DEFAULT;
+let pageIndex = 0;
+let resizeObserver: ResizeObserver | null = null;
+let lastContainerWidth = 0;
+let lastContainerHeight = 0;
+let scheduledGridUpdate = false;
+let paginationInfoEl: HTMLElement | null = null;
+let pagePrevBtn: HTMLButtonElement | null = null;
+let pageNextBtn: HTMLButtonElement | null = null;
+
+function computeGridLayout(
+  containerWidth: number,
+  containerHeight: number,
+  squareSizePxVal: number,
+  gapPx: number,
+  paddingPx: number,
+  totalClients: number
+): { squaresPerRow: number; rowsVisible: number; pageSize: number; totalPages: number } {
+  const innerW = Math.max(0, containerWidth - paddingPx * 2);
+  const innerH = Math.max(0, containerHeight - paddingPx * 2);
+  const cellSize = squareSizePxVal + gapPx;
+  const squaresPerRow = Math.max(1, Math.floor((innerW + gapPx) / cellSize));
+  const rowsVisible = Math.max(1, Math.floor((innerH + gapPx) / cellSize));
+  const pageSize = squaresPerRow * rowsVisible;
+  const totalPages = Math.max(1, Math.ceil(totalClients / pageSize));
+  return { squaresPerRow, rowsVisible, pageSize, totalPages };
+}
+
+function scheduleGridUpdate(): void {
+  if (scheduledGridUpdate) return;
+  scheduledGridUpdate = true;
+  requestAnimationFrame(() => {
+    scheduledGridUpdate = false;
+    if (!gridContainer) return;
+    updateGridLayoutAndRender();
+  });
+}
+
+function observeGridPanel(panel: HTMLElement): void {
+  resizeObserver?.disconnect();
+  resizeObserver = new ResizeObserver((entries) => {
+    const entry = entries[0];
+    if (!entry || !gridContainer) return;
+    const { width, height } = entry.contentRect;
+    const w = Math.round(width);
+    const h = Math.round(height);
+    if (w === lastContainerWidth && h === lastContainerHeight) return;
+    lastContainerWidth = w;
+    lastContainerHeight = h;
+    scheduleGridUpdate();
+  });
+  resizeObserver.observe(panel);
+  const rect = panel.getBoundingClientRect();
+  lastContainerWidth = Math.round(rect.width);
+  lastContainerHeight = Math.round(rect.height);
+}
+
+function updatePaginationUI(totalPages: number, currentPageIndex: number): void {
+  if (paginationInfoEl) {
+    paginationInfoEl.textContent = `Page ${currentPageIndex + 1} of ${totalPages}`;
+  }
+  if (pagePrevBtn) {
+    pagePrevBtn.disabled = currentPageIndex === 0;
+  }
+  if (pageNextBtn) {
+    pageNextBtn.disabled = currentPageIndex >= totalPages - 1 || totalPages <= 1;
+  }
+}
+
+const FALLBACK_GRID_WIDTH = 400;
+const FALLBACK_GRID_HEIGHT = 300;
+
+function getGridAvailableSize(): { w: number; h: number } {
+  const panel = document.getElementById("simulate-devices-grid-panel");
+  const paginationEl = document.getElementById("simulate-devices-grid-pagination");
+  if (!panel) return { w: FALLBACK_GRID_WIDTH, h: FALLBACK_GRID_HEIGHT };
+  const style = getComputedStyle(panel);
+  const padT = parseFloat(style.paddingTop) || 0;
+  const padB = parseFloat(style.paddingBottom) || 0;
+  const padL = parseFloat(style.paddingLeft) || 0;
+  const padR = parseFloat(style.paddingRight) || 0;
+  const paginationHeight = paginationEl ? paginationEl.offsetHeight : 0;
+  const w = Math.max(0, panel.clientWidth - padL - padR);
+  const h = Math.max(0, panel.clientHeight - padT - padB - paginationHeight);
+  if (w <= 0 || h <= 0) return { w: FALLBACK_GRID_WIDTH, h: FALLBACK_GRID_HEIGHT };
+  return { w, h };
+}
+
+function updateGridLayoutAndRender(): void {
+  if (!gridContainer) return;
+  const { w, h } = getGridAvailableSize();
+  const layout = computeGridLayout(w, h, squareSizePx, GRID_GAP_PX, 0, clients.length);
+  const { pageSize, totalPages } = layout;
+  pageIndex = Math.min(pageIndex, Math.max(0, totalPages - 1));
+  const start = pageIndex * pageSize;
+  const pageClients = clients.slice(start, start + pageSize);
+  renderClientGrid(gridContainer, pageClients, selectedId, noSignalSvg, (id) => {
+    selectedId = id;
+    selectedAnchor = null;
+    refresh();
+  }, squareSizePx);
+  updatePaginationUI(totalPages, pageIndex);
+}
+
 function getSelected(): SimulatedClient | null {
   if (selectedId == null) return null;
   return clients.find((c) => c.id === selectedId) ?? null;
@@ -137,11 +246,7 @@ function getSelected(): SimulatedClient | null {
 
 function refresh(): void {
   if (!gridContainer || !detailsContainer) return;
-  renderClientGrid(gridContainer, clients, selectedId, noSignalSvg, (id) => {
-    selectedId = id;
-    selectedAnchor = null;
-    refresh();
-  });
+  updateGridLayoutAndRender();
   const client = getSelected();
   renderDetailsPane(
     detailsContainer,
@@ -177,12 +282,19 @@ function refresh(): void {
 export function render(container: HTMLElement): void {
   clients = [];
   selectedId = null;
+  pageIndex = 0;
+
+  resizeObserver?.disconnect();
+  resizeObserver = null;
 
   container.innerHTML = `
     <div class="simulate-devices-page">
       <div class="simulate-devices-toolbar">
         <button type="button" class="devices-toolbar-btn" id="simulate-devices-create">Create Clients</button>
         <button type="button" class="devices-toolbar-btn devices-toolbar-btn-danger" id="simulate-devices-destroy">Destroy all Clients</button>
+        <label for="simulate-devices-square-size" class="simulate-devices-toolbar-label">Square size</label>
+        <input type="range" id="simulate-devices-square-size" min="${SQUARE_SIZE_MIN}" max="${SQUARE_SIZE_MAX}" value="${squareSizePx}" />
+        <span id="simulate-devices-square-size-value">${squareSizePx} px</span>
       </div>
       <div class="simulate-devices-toolbar-secondary" id="simulate-devices-toolbar-secondary" hidden>
         <button type="button" class="btn btn-danger" id="simulate-devices-delete">${trashIcon}<span>Delete Client</span></button>
@@ -190,7 +302,16 @@ export function render(container: HTMLElement): void {
         <button type="button" class="btn btn-icon-label" id="simulate-devices-toggle-connection">Disable Connection</button>
       </div>
       <div class="simulate-devices-body">
-        <div class="simulate-devices-grid-panel" id="simulate-devices-grid-panel"></div>
+        <div class="simulate-devices-grid-panel" id="simulate-devices-grid-panel">
+          <div class="simulate-devices-grid-panel-inner">
+            <div class="simulate-devices-grid-area" id="simulate-devices-grid-area"></div>
+            <div class="simulate-devices-grid-pagination" id="simulate-devices-grid-pagination">
+              <span id="simulate-devices-page-info">Page 1 of 1</span>
+              <button type="button" id="simulate-devices-page-prev">Prev</button>
+              <button type="button" id="simulate-devices-page-next">Next</button>
+            </div>
+          </div>
+        </div>
         <section class="simulate-devices-details-section" aria-label="Client details">
           <div id="simulate-devices-details-pane"></div>
         </section>
@@ -198,12 +319,20 @@ export function render(container: HTMLElement): void {
     </div>
   `;
 
-  gridContainer = document.getElementById("simulate-devices-grid-panel");
+  gridContainer = document.getElementById("simulate-devices-grid-area");
   detailsContainer = document.getElementById("simulate-devices-details-pane");
   secondaryToolbar = document.getElementById("simulate-devices-toolbar-secondary");
   btnDelete = document.getElementById("simulate-devices-delete");
   btnClone = document.getElementById("simulate-devices-clone");
   btnToggleConnection = document.getElementById("simulate-devices-toggle-connection");
+  paginationInfoEl = document.getElementById("simulate-devices-page-info");
+  pagePrevBtn = document.getElementById("simulate-devices-page-prev") as HTMLButtonElement | null;
+  pageNextBtn = document.getElementById("simulate-devices-page-next") as HTMLButtonElement | null;
+
+  const gridPanelEl = document.getElementById("simulate-devices-grid-panel");
+  if (gridPanelEl) observeGridPanel(gridPanelEl);
+
+  requestAnimationFrame(() => refresh());
 
   const pageRoot = (): HTMLElement | null => gridContainer?.closest(".simulate-devices-page") ?? null;
   const bodyEl = (): HTMLElement | null => gridContainer?.parentElement ?? null;
@@ -275,5 +404,25 @@ export function render(container: HTMLElement): void {
     refresh();
   });
 
-  refresh();
+  const squareSizeInput = document.getElementById("simulate-devices-square-size") as HTMLInputElement | null;
+  const squareSizeValueEl = document.getElementById("simulate-devices-square-size-value");
+  squareSizeInput?.addEventListener("input", () => {
+    const val = parseInt(squareSizeInput.value, 10);
+    if (!Number.isNaN(val)) {
+      squareSizePx = Math.max(SQUARE_SIZE_MIN, Math.min(SQUARE_SIZE_MAX, val));
+      if (squareSizeValueEl) squareSizeValueEl.textContent = `${squareSizePx} px`;
+      updateGridLayoutAndRender();
+    }
+  });
+
+  pagePrevBtn?.addEventListener("click", () => {
+    pageIndex--;
+    updateGridLayoutAndRender();
+    refresh();
+  });
+  pageNextBtn?.addEventListener("click", () => {
+    pageIndex++;
+    updateGridLayoutAndRender();
+    refresh();
+  });
 }

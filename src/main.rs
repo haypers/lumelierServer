@@ -12,7 +12,7 @@ mod broadcast;
 mod connections;
 mod time;
 
-const PORT: u16 = 3000;
+const PORT: u16 = 3002;
 const ADMIN_PORT: u16 = 3010;
 
 /// Prefer local network IP for QR (so phones can scan). Fallback to 127.0.0.1.

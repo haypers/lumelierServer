@@ -14,7 +14,7 @@ use std::sync::RwLock;
 
 use crate::connections::ConnectionRegistry;
 
-/// Shared state for the app on port 3000 (poll, health).
+/// Shared state for the app on port 3002 (poll, health).
 #[derive(Clone)]
 pub struct MainAppState {
     pub registry: Arc<RwLock<ConnectionRegistry>>,

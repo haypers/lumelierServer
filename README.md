@@ -40,10 +40,10 @@ From the repo root:
 cargo run
 ```
 
-The server listens on **http://0.0.0.0:3000** (all interfaces), so you can use:
+The server listens on **http://0.0.0.0:3002** (all interfaces), so you can use:
 
-- **http://localhost:3000** on this machine
-- **http://\<your-local-ip\>:3000** from other devices on the same network (e.g. for phone/QR testing later)
+- **http://localhost:3002** on this machine
+- **http://\<your-local-ip\>:3002** from other devices on the same network (e.g. for phone/QR testing later)
 
 ### 3. Use the client
 
@@ -55,7 +55,7 @@ Open **http://localhost:3000** in a browser. The page will poll `/api/poll` ever
 - **GET /api/poll** — returns `{ "serverTime", "events" }` (JSON).
 - **GET /** and other paths — static files from `dist-client/` (the client app).
 
-All served by the same process on port 3000. No separate frontend server in production.
+All served by the same process on port 3002. No separate frontend server in production.
 
 ## Admin panel (port 3010)
 
