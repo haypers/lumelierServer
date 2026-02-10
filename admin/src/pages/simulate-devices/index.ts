@@ -18,7 +18,7 @@ const GRID_GAP_PX = 4;
 
 const MIN_CURVE_POINTS = 1;
 const MAX_CURVE_POINTS = 100;
-const DEFAULT_MAX_CURVE_POINTS = 15;
+const DEFAULT_MAX_CURVE_POINTS = 10;
 
 function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => void): void {
   const chartBlocksHtml = DISTRIBUTION_CHART_PRESETS.map(
