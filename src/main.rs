@@ -31,6 +31,7 @@ fn local_ip() -> Option<String> {
 }
 
 fn print_qr(url: &str) {
+    use qrcode::types::Color;
     let code = match qrcode::QrCode::new(url.as_bytes()) {
         Ok(c) => c,
         Err(_) => {
@@ -38,15 +39,29 @@ fn print_qr(url: &str) {
             return;
         }
     };
-    // Terminal-friendly: block chars, one line of quiet zone above/below
-    let body = code.to_debug_str('█', ' ');
-    let width = body.lines().next().map(str::len).unwrap_or(0);
-    let quiet = " ".repeat(width);
-    println!("\nScan to join from a phone on the same network:\n");
+    // Compact: two QR rows per terminal line using upper/lower half-blocks (▀ ▄ █)
+    let w = code.width();
+    let quiet = " ".repeat(w);
+    println!("\nScan to join from a phone on the same network:");
+    println!("{}", url);
     println!("{}", quiet);
-    println!("{}", body);
-    println!("{}", quiet);
-    println!("{}\n", url);
+    let mut y = 0;
+    while y < w {
+        let mut line = String::with_capacity(w);
+        for x in 0..w {
+            let top = code[(x, y)] == Color::Dark;
+            let bot = y + 1 < w && code[(x, y + 1)] == Color::Dark;
+            let ch = match (top, bot) {
+                (false, false) => ' ',
+                (true, false) => '\u{2580}', // ▀ upper half
+                (false, true) => '\u{2584}', // ▄ lower half
+                (true, true) => '█',
+            };
+            line.push(ch);
+        }
+        println!("{}", line);
+        y += 2;
+    }
 }
 
 #[tokio::main]
