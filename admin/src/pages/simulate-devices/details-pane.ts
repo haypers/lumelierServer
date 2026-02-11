@@ -1,6 +1,7 @@
 import type { DistributionChartXAxis } from "../../components/distribution-chart";
 import { renderDistributionChart } from "../../components/distribution-chart";
 import { createRefreshEvery, type RefreshEveryApi } from "../../components/refresh-every";
+import { createInfoBubble } from "../../components/info-bubble";
 import copyIcon from "../../icons/copy.svg?raw";
 import clipboardIcon from "../../icons/clipboard.svg?raw";
 import diceIcon from "../../icons/dice.svg?raw";
@@ -68,6 +69,8 @@ export interface DetailsPaneRefreshEveryOptions {
   name: string;
   defaultMs: number;
   onIntervalChange: (ms: number) => void;
+  /** If set, show an info icon with this tooltip (e.g. "Refreshing often can cause UI lag."). */
+  infoTooltip?: string;
 }
 
 export function renderDetailsPane(
@@ -89,6 +92,7 @@ export function renderDetailsPane(
       name: refreshEveryOptions.name,
       defaultMs: refreshEveryOptions.defaultMs,
       onIntervalChange: refreshEveryOptions.onIntervalChange,
+      infoTooltip: refreshEveryOptions.infoTooltip,
     });
     const refreshWrap = document.createElement("div");
     refreshWrap.className = "simulate-devices-details-refresh-wrap";
@@ -123,6 +127,21 @@ export function renderDetailsPane(
   addRow("Connection", client.connectionEnabled ? "Enabled" : "Disabled");
 
   container.appendChild(dl);
+
+  const chartsLabelWrap = document.createElement("div");
+  chartsLabelWrap.className = "simulate-devices-charts-label-wrap";
+  chartsLabelWrap.appendChild(
+    createInfoBubble({
+      tooltipText:
+        "These distribution charts determine how random network delays are calculated. Higher peaks result in that x value being randomly chosen more often.",
+      ariaLabel: "Info",
+    })
+  );
+  const chartsLabel = document.createElement("span");
+  chartsLabel.className = "simulate-devices-charts-label";
+  chartsLabel.textContent = "Distribution Tables:";
+  chartsLabelWrap.appendChild(chartsLabel);
+  container.appendChild(chartsLabelWrap);
 
   const chartsGrid = document.createElement("div");
   chartsGrid.className = "simulate-devices-charts-grid";

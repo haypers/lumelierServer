@@ -19,10 +19,17 @@ export interface DistributionTablesEditorApi {
   destroy(): void;
 }
 
+export interface DistributionTablesEditorOptions {
+  /** Called whenever curves are updated (user edit or setCurves). */
+  onCurvesChange?: () => void;
+}
+
 export function renderDistributionTablesEditor(
   container: HTMLElement,
-  initialCurves: DistributionCurve[]
+  initialCurves: DistributionCurve[],
+  options?: DistributionTablesEditorOptions
 ): DistributionTablesEditorApi {
+  const onCurvesChange = options?.onCurvesChange;
   container.className = "distribution-tables-editor";
   const curves: DistributionCurve[] = initialCurves.map((c) => ({
     anchors: c.anchors.map((a) => ({ ...a })),
@@ -132,6 +139,7 @@ export function renderDistributionTablesEditor(
       anchors: curves[i].anchors.map((a) => ({ ...a })),
       onAnchorsChange: (anchors) => {
         curves[i] = { anchors: anchors.map((a) => ({ ...a })) };
+        onCurvesChange?.();
       },
       selectedAnchorIndices: isSelected ? selectedAnchorIndices : [],
       onAnchorSelected: (indices) => {
@@ -200,6 +208,7 @@ export function renderDistributionTablesEditor(
     selectedAnchorIndices = [];
     renderChartAt(i);
     refreshCurvePointSettings(i);
+    onCurvesChange?.();
     e.preventDefault();
   };
 
@@ -227,6 +236,7 @@ export function renderDistributionTablesEditor(
       renderChartAt(i);
       refreshCurvePointSettings(i);
     }
+    onCurvesChange?.();
   }
 
   function destroy(): void {

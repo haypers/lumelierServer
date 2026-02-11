@@ -72,6 +72,11 @@ body {
   font-weight: 600;
   color: var(--text);
 }
+.admin-header #page-header-extra {
+  margin-left: 8px;
+  display: inline-flex;
+  align-items: center;
+}
 
 .admin-content {
   flex: 1;
@@ -1268,11 +1273,23 @@ body {
 .simulate-devices-details-pane .detail-grid dd {
   margin: 0;
 }
+.simulate-devices-charts-label-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: var(--space);
+  margin-bottom: 8px;
+}
+.simulate-devices-charts-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
 .simulate-devices-charts-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--space);
-  margin-top: 16px;
+  margin-top: 0;
 }
 .simulate-devices-chart-card {
   background: var(--bg);

@@ -3,6 +3,7 @@ import openIcon from "../../icons/open.svg?raw";
 import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import { createRefreshEvery } from "../../components/refresh-every";
+import { createInfoBubble } from "../../components/info-bubble";
 import type { SimulatedClient, SimulatedClientDistKey, DistributionCurve } from "./types";
 import { createClientWithRandomCurves, deleteClient, toggleConnection } from "./client-store";
 import { generateClientFromProfile } from "./profile-generation";
@@ -14,6 +15,12 @@ import {
   type DistributionChartSelection,
 } from "./details-pane";
 import { renderDistributionTablesEditor } from "./distribution-tables-editor";
+import {
+  SYSTEM_PRESET_REALISTIC_BAD_DEVICE,
+  SYSTEM_PRESET_REALISTIC_BAD_DEVICE_LABEL,
+  REALISTIC_BAD_DEVICE_PROFILE,
+  isReservedSystemPresetName,
+} from "./system-presets";
 
 const MAX_SAMPLE_POINTS = 100;
 
@@ -42,10 +49,26 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
 
   const countRow = document.createElement("div");
   countRow.className = "clone-clients-row";
-  countRow.innerHTML = `
-    <label for="create-modal-count">New Client Count:</label>
-    <input type="number" id="create-modal-count" min="1" value="1" />
-  `;
+  const countLabelWrap = document.createElement("span");
+  countLabelWrap.className = "create-modal-count-label-wrap";
+  countLabelWrap.appendChild(
+    createInfoBubble({
+      tooltipText:
+        "Normally you'll want to generate clients from a profile. Profiles define ranges that distribution table points can be placed in. Chaos clients are built by placing a random number of points in the distribution table at random.",
+      ariaLabel: "Info",
+    })
+  );
+  const countLabel = document.createElement("label");
+  countLabel.htmlFor = "create-modal-count";
+  countLabel.textContent = "New Client Count:";
+  countLabelWrap.appendChild(countLabel);
+  countRow.appendChild(countLabelWrap);
+  const countInput = document.createElement("input");
+  countInput.type = "number";
+  countInput.id = "create-modal-count";
+  countInput.min = "1";
+  countInput.value = "1";
+  countRow.appendChild(countInput);
   content.appendChild(countRow);
 
   const modeRow = document.createElement("div");
@@ -107,6 +130,23 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
   modal.appendChild(actions);
   overlay.appendChild(modal);
 
+  const createBtn = actions.querySelector(".btn-confirm") as HTMLButtonElement | null;
+
+  function updateCreateButtonState(): void {
+    if (!createBtn) return;
+    if (!generateFromProfile) {
+      createBtn.disabled = false;
+      return;
+    }
+    if (!editorApi) {
+      createBtn.disabled = true;
+      return;
+    }
+    const curves = editorApi.getCurves();
+    const hasEmptyChart = curves.some((c) => !c.anchors || c.anchors.length === 0);
+    createBtn.disabled = hasEmptyChart;
+  }
+
   function setMode(useProfile: boolean): void {
     generateFromProfile = useProfile;
     const toggleBtn = content.querySelector("#create-modal-mode-toggle");
@@ -119,8 +159,11 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
     const saveBtn = actions.querySelector(".create-modal-btn-save");
     if (saveBtn) (saveBtn as HTMLElement).hidden = !useProfile;
     if (useProfile && !editorApi) {
-      editorApi = renderDistributionTablesEditor(editorContainer, emptyCurves);
+      editorApi = renderDistributionTablesEditor(editorContainer, emptyCurves, {
+        onCurvesChange: updateCreateButtonState,
+      });
     }
+    updateCreateButtonState();
   }
 
   content.querySelector("#create-modal-mode-toggle")?.addEventListener("click", () => {
@@ -129,12 +172,19 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
 
   async function loadProfileList(): Promise<void> {
     const res = await fetch("/api/admin/simulated-client-profiles");
-    if (!res.ok) return;
-    const names: string[] = await res.json();
+    const names: string[] = res.ok ? await res.json() : [];
     const select = content.querySelector("#create-modal-profile") as HTMLSelectElement | null;
     if (!select) return;
     select.innerHTML = '<option value="">Select a profile...</option>';
+    // System preset always first
+    const systemOpt = document.createElement("option");
+    systemOpt.value = SYSTEM_PRESET_REALISTIC_BAD_DEVICE;
+    systemOpt.textContent = SYSTEM_PRESET_REALISTIC_BAD_DEVICE_LABEL;
+    select.appendChild(systemOpt);
+    const reservedLower = SYSTEM_PRESET_REALISTIC_BAD_DEVICE.toLowerCase();
     for (const name of names) {
+      const normalized = name.replace(/\.json$/i, "").toLowerCase();
+      if (normalized === reservedLower) continue;
       const opt = document.createElement("option");
       opt.value = name;
       opt.textContent = name.replace(/\.json$/i, "");
@@ -146,10 +196,16 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
     const select = content.querySelector("#create-modal-profile") as HTMLSelectElement | null;
     const name = select?.value?.trim();
     if (!name || !editorApi) return;
+    if (name === SYSTEM_PRESET_REALISTIC_BAD_DEVICE) {
+      editorApi.setCurves(REALISTIC_BAD_DEVICE_PROFILE);
+      updateCreateButtonState();
+      return;
+    }
     const res = await fetch(`/api/admin/simulated-client-profiles/${encodeURIComponent(name)}`);
     if (!res.ok) return;
     const profile = (await res.json()) as Record<SimulatedClientDistKey, DistributionCurve>;
     editorApi.setCurves(profile);
+    updateCreateButtonState();
   });
 
   const close = (): void => {
@@ -368,6 +424,10 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
     const name = prompt("What is the name of this client profile?");
     if (name == null || name.trim() === "") return;
     const profileName = name.trim();
+    if (isReservedSystemPresetName(profileName)) {
+      alert(`"${SYSTEM_PRESET_REALISTIC_BAD_DEVICE}" is a reserved system preset name. Please choose a different name.`);
+      return;
+    }
     let result = await saveProfile(profileName, false);
     if (result.exists === true) {
       if (!confirm("A profile with this name already exists. Overwrite it?")) return;
@@ -584,6 +644,7 @@ function refresh(): void {
         name: "simulate-devices-details-refresh",
         defaultMs: 1000,
         onIntervalChange: () => {},
+        infoTooltip: "Refreshing these values often can cause UI lag.",
       }
     ) ?? null;
   detailsContainer.scrollTop = savedScrollTop;
@@ -663,6 +724,7 @@ export function render(container: HTMLElement): void {
       name: "simulate-devices-grid-refresh",
       defaultMs: 1000,
       onIntervalChange: () => {},
+      infoTooltip: "Refreshing these values often can cause UI lag.",
     });
     toolbarEl.insertBefore(gridRefreshApi.root, toolbarEl.firstChild);
   }

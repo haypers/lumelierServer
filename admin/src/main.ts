@@ -10,6 +10,7 @@ import { render as renderTimeline } from "./pages/timeline";
 import { render as renderConnectedDevicesList } from "./pages/connected-devices-list";
 import { render as renderConnectedDevicesMap } from "./pages/connected-devices-map";
 import { render as renderSimulateDevices } from "./pages/simulate-devices";
+import { createInfoBubble } from "./components/info-bubble";
 
 const AUTH_TOKEN_KEY = "lumelier_admin_auth";
 
@@ -61,7 +62,7 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath): void {
   container.innerHTML = `
     <header class="admin-header">
       <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-haspopup="true" aria-controls="${dropdownId}">${menuIcon}</button>
-      <span class="page-title">${current.title}</span>
+      <span class="page-title">${current.title}</span>${currentPath === "/simulateDevices" ? '<span id="page-header-extra"></span>' : ""}
       <div id="${dropdownId}" class="menu-dropdown" hidden role="menu">
         ${ROUTES.map(
           (r) =>
@@ -101,6 +102,19 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath): void {
       menuBtn?.setAttribute("aria-expanded", "false");
     });
   });
+
+  if (currentPath === "/simulateDevices") {
+    const extra = document.getElementById("page-header-extra");
+    if (extra) {
+      extra.appendChild(
+        createInfoBubble({
+          tooltipText:
+            "This page allows you to simulate extra clients with various network configurations and delays to see how they will react to the timeline.",
+          ariaLabel: "Info",
+        })
+      );
+    }
+  }
 }
 
 function renderPageContent(path: RoutePath): void {
