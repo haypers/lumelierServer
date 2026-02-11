@@ -22,6 +22,9 @@ const REFRESH_ICON_SVG = `<svg class="refresh-manual-icon-svg" viewBox="0 0 24 2
 
 export const REFRESH_EVERY_OPTIONS = [
   { value: 16, label: "Frame" },
+  { value: 32, label: "Every 2 Frames" },
+  { value: 48, label: "Every 3 Frames" },
+  { value: 75, label: "Every 5 Frames" },
   { value: 100, label: "0.1 sec" },
   { value: 200, label: "0.2 sec" },
   { value: 500, label: "0.5 sec" },
