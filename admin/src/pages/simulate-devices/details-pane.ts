@@ -1,5 +1,6 @@
 import type { DistributionChartXAxis } from "../../components/distribution-chart";
 import { renderDistributionChart } from "../../components/distribution-chart";
+import { createRefreshEvery, type RefreshEveryApi } from "../../components/refresh-every";
 import copyIcon from "../../icons/copy.svg?raw";
 import clipboardIcon from "../../icons/clipboard.svg?raw";
 import diceIcon from "../../icons/dice.svg?raw";
@@ -63,6 +64,12 @@ export interface DistributionChartSelection {
   indices: number[];
 }
 
+export interface DetailsPaneRefreshEveryOptions {
+  name: string;
+  defaultMs: number;
+  onIntervalChange: (ms: number) => void;
+}
+
 export function renderDetailsPane(
   container: HTMLElement,
   client: SimulatedClient | null,
@@ -70,17 +77,32 @@ export function renderDetailsPane(
   selection?: DistributionChartSelection | null,
   onSelectionChange?: (selection: DistributionChartSelection | null) => void,
   getSamplePoints?: (distKey: SimulatedClientDistKey) => { x: number; y: number }[],
-  recordSample?: (distKey: SimulatedClientDistKey, x: number, y: number) => void
-): void {
+  recordSample?: (distKey: SimulatedClientDistKey, x: number, y: number) => void,
+  refreshEveryOptions?: DetailsPaneRefreshEveryOptions
+): RefreshEveryApi | undefined {
   container.innerHTML = "";
   container.className = "simulate-devices-details-pane";
+
+  let detailsRefreshApi: RefreshEveryApi | undefined = undefined;
+  if (refreshEveryOptions) {
+    detailsRefreshApi = createRefreshEvery({
+      name: refreshEveryOptions.name,
+      defaultMs: refreshEveryOptions.defaultMs,
+      onIntervalChange: refreshEveryOptions.onIntervalChange,
+    });
+    const refreshWrap = document.createElement("div");
+    refreshWrap.className = "simulate-devices-details-refresh-wrap";
+    if (client == null) refreshWrap.classList.add("simulate-devices-details-refresh-wrap--hidden");
+    refreshWrap.appendChild(detailsRefreshApi.root);
+    container.appendChild(refreshWrap);
+  }
 
   if (client == null) {
     const p = document.createElement("p");
     p.className = "simulate-devices-details-empty";
     p.textContent = "Select a client to view or edit its attributes.";
     container.appendChild(p);
-    return;
+    return detailsRefreshApi;
   }
 
   const dl = document.createElement("dl");
@@ -179,4 +201,5 @@ export function renderDetailsPane(
   });
 
   container.appendChild(chartsGrid);
+  return detailsRefreshApi;
 }

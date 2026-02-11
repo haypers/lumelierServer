@@ -1,5 +1,6 @@
 import noSignalSvg from "../../icons/noSignal.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
+import { createRefreshEvery } from "../../components/refresh-every";
 import type { SimulatedClient, SimulatedClientDistKey, DistributionCurve } from "./types";
 import { createClientWithRandomCurves, deleteClient, cloneClient, toggleConnection } from "./client-store";
 import { renderClientGrid } from "./client-grid";
@@ -130,6 +131,9 @@ function recordSample(clientId: string, distKey: SimulatedClientDistKey, x: numb
 }
 let gridContainer: HTMLElement | null = null;
 let detailsContainer: HTMLElement | null = null;
+let gridRefreshApi: ReturnType<typeof createRefreshEvery> | null = null;
+let detailsRefreshApi: ReturnType<typeof createRefreshEvery> | null = null;
+let clockRafId: number | null = null;
 let secondaryToolbar: HTMLElement | null = null;
 let btnDelete: HTMLElement | null = null;
 let btnClone: HTMLElement | null = null;
@@ -216,9 +220,16 @@ function getGridAvailableSize(): { w: number; h: number } {
   const padB = parseFloat(style.paddingBottom) || 0;
   const padL = parseFloat(style.paddingLeft) || 0;
   const padR = parseFloat(style.paddingRight) || 0;
+  const toolbarEl = panel.querySelector<HTMLElement>(".simulate-devices-toolbar");
+  const toolbarSecondaryEl = panel.querySelector<HTMLElement>(".simulate-devices-toolbar-secondary");
+  const toolbarHeight = toolbarEl?.offsetHeight ?? 0;
+  const toolbarSecondaryHeight = toolbarSecondaryEl?.offsetHeight ?? 0;
   const paginationHeight = paginationEl ? paginationEl.offsetHeight : 0;
   const w = Math.max(0, panel.clientWidth - padL - padR);
-  const h = Math.max(0, panel.clientHeight - padT - padB - paginationHeight);
+  const h = Math.max(
+    0,
+    panel.clientHeight - padT - padB - toolbarHeight - toolbarSecondaryHeight - paginationHeight
+  );
   if (w <= 0 || h <= 0) return { w: FALLBACK_GRID_WIDTH, h: FALLBACK_GRID_HEIGHT };
   return { w, h };
 }
@@ -249,24 +260,30 @@ function refresh(): void {
   const savedScrollTop = detailsContainer.scrollTop;
   updateGridLayoutAndRender();
   const client = getSelected();
-  renderDetailsPane(
-    detailsContainer,
-    client,
-    (distKey: SimulatedClientDistKey, curve: DistributionCurve) => {
-      if (selectedId == null) return;
-      clients = clients.map((c) =>
-        c.id === selectedId ? { ...c, [distKey]: curve } : c
-      );
-      refresh();
-    },
-    selectedAnchor,
-    (sel) => {
-      selectedAnchor = sel;
-      refresh();
-    },
-    client ? (distKey) => getSamplePoints(client.id, distKey) : undefined,
-    client ? (distKey, x, y) => recordSample(client.id, distKey, x, y) : undefined
-  );
+  detailsRefreshApi =
+    renderDetailsPane(
+      detailsContainer,
+      client,
+      (distKey: SimulatedClientDistKey, curve: DistributionCurve) => {
+        if (selectedId == null) return;
+        clients = clients.map((c) =>
+          c.id === selectedId ? { ...c, [distKey]: curve } : c
+        );
+        refresh();
+      },
+      selectedAnchor,
+      (sel) => {
+        selectedAnchor = sel;
+        refresh();
+      },
+      client ? (distKey) => getSamplePoints(client.id, distKey) : undefined,
+      client ? (distKey, x, y) => recordSample(client.id, distKey, x, y) : undefined,
+      {
+        name: "simulate-devices-details-refresh",
+        defaultMs: 1000,
+        onIntervalChange: () => {},
+      }
+    ) ?? null;
   detailsContainer.scrollTop = savedScrollTop;
 
   if (secondaryToolbar) {
@@ -282,6 +299,10 @@ function refresh(): void {
 }
 
 export function render(container: HTMLElement): void {
+  if (clockRafId != null) {
+    cancelAnimationFrame(clockRafId);
+    clockRafId = null;
+  }
   clients = [];
   selectedId = null;
   pageIndex = 0;
@@ -291,20 +312,20 @@ export function render(container: HTMLElement): void {
 
   container.innerHTML = `
     <div class="simulate-devices-page">
-      <div class="simulate-devices-toolbar">
-        <button type="button" class="devices-toolbar-btn" id="simulate-devices-create">Create Clients</button>
-        <button type="button" class="devices-toolbar-btn devices-toolbar-btn-danger" id="simulate-devices-destroy">Destroy all Clients</button>
-        <label for="simulate-devices-square-size" class="simulate-devices-toolbar-label">Square size</label>
-        <input type="range" id="simulate-devices-square-size" min="${SQUARE_SIZE_MIN}" max="${SQUARE_SIZE_MAX}" value="${squareSizePx}" />
-        <span id="simulate-devices-square-size-value">${squareSizePx} px</span>
-      </div>
-      <div class="simulate-devices-toolbar-secondary" id="simulate-devices-toolbar-secondary" hidden>
-        <button type="button" class="btn btn-danger" id="simulate-devices-delete">${trashIcon}<span>Delete Client</span></button>
-        <button type="button" class="btn btn-icon-label" id="simulate-devices-clone">Clone Client</button>
-        <button type="button" class="btn btn-icon-label" id="simulate-devices-toggle-connection">Disable Connection</button>
-      </div>
       <div class="simulate-devices-body">
-        <div class="simulate-devices-grid-panel" id="simulate-devices-grid-panel">
+        <div class="simulate-devices-client-array-panel" id="simulate-devices-grid-panel">
+          <div class="simulate-devices-toolbar">
+            <button type="button" class="devices-toolbar-btn" id="simulate-devices-create">Create Clients</button>
+            <button type="button" class="devices-toolbar-btn devices-toolbar-btn-danger" id="simulate-devices-destroy">Destroy all Clients</button>
+            <label for="simulate-devices-square-size" class="simulate-devices-toolbar-label">Square size</label>
+            <input type="range" id="simulate-devices-square-size" min="${SQUARE_SIZE_MIN}" max="${SQUARE_SIZE_MAX}" value="${squareSizePx}" />
+            <span id="simulate-devices-square-size-value">${squareSizePx} px</span>
+          </div>
+          <div class="simulate-devices-toolbar-secondary" id="simulate-devices-toolbar-secondary" hidden>
+            <button type="button" class="btn btn-danger" id="simulate-devices-delete">${trashIcon}<span>Delete Client</span></button>
+            <button type="button" class="btn btn-icon-label" id="simulate-devices-clone">Clone Client</button>
+            <button type="button" class="btn btn-icon-label" id="simulate-devices-toggle-connection">Disable Connection</button>
+          </div>
           <div class="simulate-devices-grid-panel-inner">
             <div class="simulate-devices-grid-area" id="simulate-devices-grid-area"></div>
             <div class="simulate-devices-grid-pagination" id="simulate-devices-grid-pagination">
@@ -332,7 +353,23 @@ export function render(container: HTMLElement): void {
   pageNextBtn = document.getElementById("simulate-devices-page-next") as HTMLButtonElement | null;
 
   const gridPanelEl = document.getElementById("simulate-devices-grid-panel");
+  const toolbarEl = gridPanelEl?.querySelector<HTMLElement>(".simulate-devices-toolbar");
+  if (toolbarEl) {
+    gridRefreshApi = createRefreshEvery({
+      name: "simulate-devices-grid-refresh",
+      defaultMs: 1000,
+      onIntervalChange: () => {},
+    });
+    toolbarEl.insertBefore(gridRefreshApi.root, toolbarEl.firstChild);
+  }
   if (gridPanelEl) observeGridPanel(gridPanelEl);
+
+  function tickClocks(): void {
+    gridRefreshApi?.updateClockHand();
+    detailsRefreshApi?.updateClockHand();
+    clockRafId = requestAnimationFrame(tickClocks);
+  }
+  clockRafId = requestAnimationFrame(tickClocks);
 
   requestAnimationFrame(() => refresh());
 

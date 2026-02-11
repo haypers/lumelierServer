@@ -815,7 +815,6 @@ body {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding-top: 6px;
   flex-shrink: 0;
 }
 .simulate-devices-toolbar-secondary {
@@ -870,6 +869,7 @@ body {
 .simulate-devices-body > * {
   min-height: 0;
 }
+.simulate-devices-client-array-panel,
 .simulate-devices-grid-panel {
   display: flex;
   flex-direction: column;
@@ -885,13 +885,19 @@ body {
   flex-direction: column;
   min-height: 0;
   flex: 1;
+  position: relative;
 }
 .simulate-devices-grid-area {
   flex: 1;
   min-height: 120px;
   overflow: auto;
+  padding-bottom: 44px;
 }
 .simulate-devices-grid-pagination {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -988,6 +994,12 @@ body {
   color: var(--text-muted);
   font-size: 13px;
   margin: 0;
+}
+.simulate-devices-details-pane > .simulate-devices-details-refresh-wrap {
+  margin-bottom: var(--space);
+}
+.simulate-devices-details-refresh-wrap--hidden {
+  display: none;
 }
 .simulate-devices-details-pane .detail-grid {
   display: grid;
