@@ -22,10 +22,10 @@ export interface DistributionChartOptions {
   xAxis: DistributionChartXAxis;
   anchors?: DistributionAnchor[];
   onAnchorsChange?: (anchors: DistributionAnchor[]) => void;
-  /** Index of the selected anchor (highlighted); null when none. */
-  selectedAnchorIndex?: number | null;
-  /** Called when selection changes (add, drag start, click outside, or delete). */
-  onAnchorSelected?: (index: number | null) => void;
+  /** Indices of selected anchors (highlighted); empty when none. */
+  selectedAnchorIndices?: number[];
+  /** Called when selection changes (add, drag, marquee, click outside, or delete). */
+  onAnchorSelected?: (indices: number[] | null) => void;
   /** Debug sample points (x, y) to draw as small grey dots; not persisted. */
   samplePoints?: { x: number; y: number }[];
 }
@@ -50,7 +50,7 @@ function clamp(x: number, min: number, max: number): number {
 }
 
 function renderDistributionChart(container: HTMLElement, options: DistributionChartOptions): void {
-  const { width, height, xAxis, anchors = [], onAnchorsChange, selectedAnchorIndex = null, onAnchorSelected, samplePoints = [] } = options;
+  const { width, height, xAxis, anchors = [], onAnchorsChange, selectedAnchorIndices = [], onAnchorSelected, samplePoints = [] } = options;
   const formatX = xAxis.formatTick ?? ((v: number) => defaultFormatTick(v, xAxis.min, xAxis.max));
 
   const plotLeft = MARGIN_LEFT;
@@ -127,6 +127,15 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
   chartArea.setAttribute("class", "distribution-chart-area");
   g.appendChild(chartArea);
 
+  const marqueeRect = document.createElementNS(svgNs, "rect");
+  marqueeRect.setAttribute("class", "distribution-chart-marquee");
+  marqueeRect.setAttribute("fill", "rgba(59, 130, 246, 0.15)");
+  marqueeRect.setAttribute("stroke", "var(--color-accent, #3b82f6)");
+  marqueeRect.setAttribute("stroke-width", "1");
+  marqueeRect.setAttribute("stroke-dasharray", "4 2");
+  marqueeRect.setAttribute("visibility", "hidden");
+  g.appendChild(marqueeRect);
+
   for (const x of xTickValues) {
     const sx = xToSvg(x);
     addLine(sx, plotBottom, sx, plotTop, "distribution-chart-grid-v");
@@ -190,9 +199,17 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
   const anchorsGroup = document.createElementNS(svgNs, "g");
   anchorsGroup.setAttribute("class", "distribution-chart-anchors");
 
+  const MARQUEE_DRAG_THRESHOLD = 5;
+  const ANCHOR_DRAG_THRESHOLD = 5;
+  const ADD_POINT_MOVE_THRESHOLD = 3;
   let dragIndex: number | null = null;
+  let potentialAnchorDrag: { index: number; startX: number; startY: number } | null = null;
   let curvePath: SVGPathElement | null = null;
   let currentAnchors = [...sortedAnchors];
+  let marqueeStart: { x: number; y: number } | null = null;
+  let potentialMarqueeStart: { x: number; y: number } | null = null;
+  let skipNextChartClick = false;
+  let lastEmptySpaceDown: { x: number; y: number } | null = null;
 
   function getSvgPoint(e: PointerEvent): { x: number; y: number } {
     const rect = svg.getBoundingClientRect();
@@ -208,6 +225,22 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
       if (Math.hypot(svgX - cx, svgY - cy) <= ANCHOR_RADIUS) return i;
     }
     return -1;
+  }
+
+  function anchorIndicesInSvgRect(
+    anchorsList: DistributionAnchor[],
+    left: number,
+    top: number,
+    right: number,
+    bottom: number
+  ): number[] {
+    const out: number[] = [];
+    for (let i = 0; i < anchorsList.length; i++) {
+      const cx = xToSvg(anchorsList[i].x);
+      const cy = yToSvg(anchorsList[i].y);
+      if (cx >= left && cx <= right && cy >= top && cy <= bottom) out.push(i);
+    }
+    return out;
   }
 
   function buildCurvePathD(anchorsList: DistributionAnchor[]): string {
@@ -247,18 +280,93 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
     const idx = hitTestAnchor(pt.x, pt.y, currentAnchors);
     if (idx >= 0) {
       e.preventDefault();
+      e.stopPropagation();
       if (onAnchorsChange) {
-        dragIndex = idx;
+        potentialAnchorDrag = { index: idx, startX: pt.x, startY: pt.y };
         svg.setPointerCapture(e.pointerId);
-        const el = e.currentTarget as SVGElement;
-        if (el) el.setAttribute("class", "distribution-chart-anchor distribution-chart-anchor--selected");
+        anchorsGroup.querySelectorAll("circle").forEach((circle, i) => {
+          const selected = i === idx;
+          circle.setAttribute(
+            "class",
+            "distribution-chart-anchor" + (selected ? " distribution-chart-anchor--selected" : "")
+          );
+        });
       }
     }
   }
 
   function handlePointerMove(e: PointerEvent): void {
-    if (dragIndex === null) return;
     const pt = getSvgPoint(e);
+    if (potentialMarqueeStart !== null) {
+      if ((e.buttons & 1) === 0) {
+        potentialMarqueeStart = null;
+        svg.releasePointerCapture(e.pointerId);
+        return;
+      }
+      const dx = pt.x - potentialMarqueeStart.x;
+      const dy = pt.y - potentialMarqueeStart.y;
+      if (Math.hypot(dx, dy) >= MARQUEE_DRAG_THRESHOLD) {
+        lastEmptySpaceDown = null;
+        marqueeStart = { x: potentialMarqueeStart.x, y: potentialMarqueeStart.y };
+        potentialMarqueeStart = null;
+        marqueeRect.setAttribute("x", String(marqueeStart.x));
+        marqueeRect.setAttribute("y", String(marqueeStart.y));
+        marqueeRect.setAttribute("width", "0");
+        marqueeRect.setAttribute("height", "0");
+        marqueeRect.setAttribute("visibility", "visible");
+      } else {
+        return;
+      }
+    }
+    if (marqueeStart !== null) {
+      if ((e.buttons & 1) === 0) {
+        const x1 = Math.min(marqueeStart.x, pt.x);
+        const y1 = Math.min(marqueeStart.y, pt.y);
+        const x2 = Math.max(marqueeStart.x, pt.x);
+        const y2 = Math.max(marqueeStart.y, pt.y);
+        const indices = anchorIndicesInSvgRect(currentAnchors, x1, y1, x2, y2);
+        onAnchorSelected?.(indices.length > 0 ? indices : null);
+        marqueeRect.setAttribute("visibility", "hidden");
+        svg.releasePointerCapture(e.pointerId);
+        marqueeStart = null;
+        skipNextChartClick = true;
+        return;
+      }
+      const x1 = Math.min(marqueeStart.x, pt.x);
+      const y1 = Math.min(marqueeStart.y, pt.y);
+      const x2 = Math.max(marqueeStart.x, pt.x);
+      const y2 = Math.max(marqueeStart.y, pt.y);
+      marqueeRect.setAttribute("x", String(x1));
+      marqueeRect.setAttribute("y", String(y1));
+      marqueeRect.setAttribute("width", String(Math.max(0, x2 - x1)));
+      marqueeRect.setAttribute("height", String(Math.max(0, y2 - y1)));
+      const indices = anchorIndicesInSvgRect(currentAnchors, x1, y1, x2, y2);
+      anchorsGroup.querySelectorAll("circle").forEach((circle) => {
+        const idx = parseInt(circle.getAttribute("data-index") ?? "", 10);
+        const selected = indices.includes(idx);
+        circle.setAttribute(
+          "class",
+          "distribution-chart-anchor" + (selected ? " distribution-chart-anchor--selected" : "")
+        );
+      });
+      return;
+    }
+    if (potentialAnchorDrag !== null) {
+      if ((e.buttons & 1) === 0) {
+        potentialAnchorDrag = null;
+        svg.releasePointerCapture(e.pointerId);
+        return;
+      }
+      const dx = pt.x - potentialAnchorDrag.startX;
+      const dy = pt.y - potentialAnchorDrag.startY;
+      if (Math.hypot(dx, dy) >= ANCHOR_DRAG_THRESHOLD) {
+        dragIndex = potentialAnchorDrag.index;
+        potentialAnchorDrag = null;
+      } else {
+        return;
+      }
+    }
+    if (dragIndex === null) return;
     const { x, y } = svgToData(pt.x, pt.y);
     const next = [...currentAnchors];
     next[dragIndex] = { x, y };
@@ -270,6 +378,33 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
   }
 
   function handlePointerUp(e: PointerEvent): void {
+    if (potentialMarqueeStart !== null) {
+      lastEmptySpaceDown = { x: potentialMarqueeStart.x, y: potentialMarqueeStart.y };
+      potentialMarqueeStart = null;
+      svg.releasePointerCapture(e.pointerId);
+      return;
+    }
+    if (potentialAnchorDrag !== null) {
+      skipNextChartClick = true;
+      onAnchorSelected?.([potentialAnchorDrag.index]);
+      potentialAnchorDrag = null;
+      svg.releasePointerCapture(e.pointerId);
+      return;
+    }
+    if (marqueeStart !== null) {
+      const pt = getSvgPoint(e);
+      const x1 = Math.min(marqueeStart.x, pt.x);
+      const y1 = Math.min(marqueeStart.y, pt.y);
+      const x2 = Math.max(marqueeStart.x, pt.x);
+      const y2 = Math.max(marqueeStart.y, pt.y);
+      const indices = anchorIndicesInSvgRect(currentAnchors, x1, y1, x2, y2);
+      onAnchorSelected?.(indices.length > 0 ? indices : null);
+      marqueeRect.setAttribute("visibility", "hidden");
+      svg.releasePointerCapture(e.pointerId);
+      marqueeStart = null;
+      skipNextChartClick = true;
+      return;
+    }
     if (dragIndex !== null) {
       const pt = getSvgPoint(e);
       const { x, y } = svgToData(pt.x, pt.y);
@@ -278,22 +413,32 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
       const sorted = next.sort((a, b) => a.x - b.x);
       const finalIndex = sorted.findIndex((p) => p.x === x && p.y === y);
       onAnchorsChange?.(sorted);
-      onAnchorSelected?.(finalIndex >= 0 ? finalIndex : dragIndex);
+      onAnchorSelected?.(finalIndex >= 0 ? [finalIndex] : [dragIndex]);
       svg.releasePointerCapture(e.pointerId);
       dragIndex = null;
     }
   }
 
   function handleChartClick(e: PointerEvent): void {
+    if (skipNextChartClick) {
+      skipNextChartClick = false;
+      lastEmptySpaceDown = null;
+      return;
+    }
     if (!onAnchorsChange) return;
     const pt = getSvgPoint(e);
+    if (lastEmptySpaceDown !== null) {
+      const dist = Math.hypot(pt.x - lastEmptySpaceDown.x, pt.y - lastEmptySpaceDown.y);
+      lastEmptySpaceDown = null;
+      if (dist > ADD_POINT_MOVE_THRESHOLD) return;
+    }
     if (hitTestAnchor(pt.x, pt.y, currentAnchors) >= 0) return;
     if (pt.x < plotLeft || pt.x > plotRight || pt.y < plotTop || pt.y > plotBottom) return;
     const { x, y } = svgToData(pt.x, pt.y);
     const next = [...sortedAnchors, { x, y }].sort((a, b) => a.x - b.x);
     const newIndex = next.findIndex((p) => p.x === x && p.y === y);
     onAnchorsChange?.(next);
-    onAnchorSelected?.(newIndex >= 0 ? newIndex : null);
+    onAnchorSelected?.(newIndex >= 0 ? [newIndex] : null);
   }
 
   function handleAnchorDoubleClick(e: PointerEvent, index: number): void {
@@ -305,13 +450,22 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
     onAnchorSelected?.(null);
   }
 
+  function handleChartAreaPointerDown(e: PointerEvent): void {
+    const pt = getSvgPoint(e);
+    if (hitTestAnchor(pt.x, pt.y, currentAnchors) >= 0) return;
+    e.preventDefault();
+    potentialMarqueeStart = { x: pt.x, y: pt.y };
+    svg.setPointerCapture(e.pointerId);
+  }
+
+  const isSelected = (i: number) => selectedAnchorIndices.includes(i);
   for (let i = 0; i < sortedAnchors.length; i++) {
     const a = sortedAnchors[i];
     const circle = document.createElementNS(svgNs, "circle");
     circle.setAttribute("cx", String(xToSvg(a.x)));
     circle.setAttribute("cy", String(yToSvg(a.y)));
     circle.setAttribute("r", String(ANCHOR_RADIUS));
-    circle.setAttribute("class", "distribution-chart-anchor" + (i === selectedAnchorIndex ? " distribution-chart-anchor--selected" : ""));
+    circle.setAttribute("class", "distribution-chart-anchor" + (isSelected(i) ? " distribution-chart-anchor--selected" : ""));
     circle.setAttribute("data-index", String(i));
     circle.addEventListener("pointerdown", (e) => {
       handlePointerDown(e as PointerEvent);
@@ -332,9 +486,17 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
     g.insertBefore(curvePath, samplePointsGroup);
   }
 
-  chartArea.addEventListener("pointerdown", (e) => handlePointerDown(e as PointerEvent));
-  chartArea.addEventListener("click", (e) => handleChartClick(e as PointerEvent));
+  chartArea.addEventListener("pointerdown", (e) => handleChartAreaPointerDown(e as PointerEvent));
 
+  function handleSvgClick(e: MouseEvent): void {
+    const target = e.target as Node;
+    if (target && anchorsGroup.contains(target)) return;
+    const pt = getSvgPoint(e as unknown as PointerEvent);
+    if (pt.x < plotLeft || pt.x > plotRight || pt.y < plotTop || pt.y > plotBottom) return;
+    handleChartClick(e as unknown as PointerEvent);
+  }
+
+  svg.addEventListener("click", handleSvgClick);
   svg.addEventListener("pointermove", (e) => handlePointerMove(e as PointerEvent));
   svg.addEventListener("pointerup", (e) => handlePointerUp(e as PointerEvent));
   svg.addEventListener("pointerleave", (e) => handlePointerUp(e as PointerEvent));

@@ -1056,11 +1056,15 @@ body {
   width: 100%;
   aspect-ratio: 1;
   min-height: 0;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .simulate-devices-chart-container .distribution-chart {
   width: 100%;
   height: 100%;
   display: block;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .distribution-chart .distribution-chart-area {
   pointer-events: all;
@@ -1069,6 +1073,7 @@ body {
 .distribution-chart line {
   stroke: var(--border);
   stroke-width: 1;
+  pointer-events: none;
 }
 .distribution-chart .distribution-chart-grid-v,
 .distribution-chart .distribution-chart-grid-h {
@@ -1076,6 +1081,7 @@ body {
 }
 .distribution-chart text {
   fill: var(--text-muted);
+  pointer-events: none;
 }
 .distribution-chart .distribution-chart-curve {
   fill: none;
@@ -1101,6 +1107,9 @@ body {
 .distribution-chart .distribution-chart-sample-point {
   fill: #888;
   stroke: none;
+  pointer-events: none;
+}
+.distribution-chart .distribution-chart-marquee {
   pointer-events: none;
 }
 

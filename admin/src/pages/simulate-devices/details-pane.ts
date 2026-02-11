@@ -60,7 +60,7 @@ function isValidChartJson(value: unknown): value is DistributionCurve {
 
 export interface DistributionChartSelection {
   distKey: SimulatedClientDistKey;
-  index: number;
+  indices: number[];
 }
 
 export function renderDetailsPane(
@@ -108,8 +108,8 @@ export function renderDetailsPane(
   DISTRIBUTION_CHART_PRESETS.forEach((preset, index) => {
     const distKey = DIST_KEYS_BY_PRESET_INDEX[index];
     const curve = getCurve(client, distKey);
-    const selectedAnchorIndex =
-      selection?.distKey === distKey ? selection.index : null;
+    const selectedAnchorIndices =
+      selection?.distKey === distKey ? selection.indices : [];
     const card = document.createElement("div");
     card.className = "simulate-devices-chart-card";
     const header = document.createElement("div");
@@ -169,9 +169,9 @@ export function renderDetailsPane(
       xAxis: preset.xAxis,
       anchors: curve.anchors,
       onAnchorsChange: (anchors) => onDistributionChange?.(distKey, { anchors }),
-      selectedAnchorIndex: selectedAnchorIndex ?? undefined,
-      onAnchorSelected: (index) =>
-        onSelectionChange?.(index != null ? { distKey, index } : null),
+      selectedAnchorIndices,
+      onAnchorSelected: (indices) =>
+        onSelectionChange?.(indices != null && indices.length > 0 ? { distKey, indices } : null),
       samplePoints: getSamplePoints?.(distKey) ?? [],
     });
     card.appendChild(chartContainer);

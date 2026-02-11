@@ -246,6 +246,7 @@ function getSelected(): SimulatedClient | null {
 
 function refresh(): void {
   if (!gridContainer || !detailsContainer) return;
+  const savedScrollTop = detailsContainer.scrollTop;
   updateGridLayoutAndRender();
   const client = getSelected();
   renderDetailsPane(
@@ -266,6 +267,7 @@ function refresh(): void {
     client ? (distKey) => getSamplePoints(client.id, distKey) : undefined,
     client ? (distKey, x, y) => recordSample(client.id, distKey, x, y) : undefined
   );
+  detailsContainer.scrollTop = savedScrollTop;
 
   if (secondaryToolbar) {
     const hide = selectedId == null;
@@ -335,7 +337,8 @@ export function render(container: HTMLElement): void {
   requestAnimationFrame(() => refresh());
 
   const pageRoot = (): HTMLElement | null => gridContainer?.closest(".simulate-devices-page") ?? null;
-  const bodyEl = (): HTMLElement | null => gridContainer?.parentElement ?? null;
+  const bodyEl = (): HTMLElement | null =>
+    pageRoot()?.querySelector(".simulate-devices-body") ?? null;
 
   document.addEventListener("click", (e: MouseEvent) => {
     const target = e.target as Node;
@@ -344,9 +347,12 @@ export function render(container: HTMLElement): void {
       selectedAnchor = null;
       refresh();
     }
-    const page = pageRoot();
+    if (detailsContainer?.contains(target)) return;
+    if (el.closest?.(".simulate-devices-chart-container") || el.closest?.(".distribution-chart")) return;
     const body = bodyEl();
-    if (page?.contains(target) && body && !body.contains(target) && !el.closest?.("button")) {
+    const insideBody = body?.contains(target) ?? false;
+    const isButtonOrDropdown = el.closest?.("button") ?? el.closest?.("select") ?? el.closest?.("[role='listbox']") ?? el.closest?.("[role='menu']");
+    if (!insideBody && !isButtonOrDropdown) {
       selectedId = null;
       selectedAnchor = null;
       refresh();
@@ -354,12 +360,13 @@ export function render(container: HTMLElement): void {
   });
   document.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key !== "Delete" && e.key !== "Backspace") return;
-    if (selectedAnchor == null) return;
+    if (selectedAnchor == null || selectedAnchor.indices.length === 0) return;
     const client = getSelected();
     if (client == null) return;
-    const { distKey, index } = selectedAnchor;
+    const { distKey, indices } = selectedAnchor;
     const curve = client[distKey];
-    const anchors = curve.anchors.filter((_, i) => i !== index);
+    const indexSet = new Set(indices);
+    const anchors = curve.anchors.filter((_, i) => !indexSet.has(i));
     clients = clients.map((c) =>
       c.id === selectedId ? { ...c, [distKey]: { anchors } } : c
     );
