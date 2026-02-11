@@ -2,11 +2,15 @@ mod admin;
 mod broadcast;
 mod poll;
 mod shows;
+mod simulated_profiles;
 
 pub use admin::{get_connected_devices, get_stats, post_reset_connections};
 pub use broadcast::{post_broadcast_pause, post_broadcast_play, post_broadcast_timeline};
 pub use poll::{poll, poll_admin};
 pub use shows::{get_show, list_shows, put_show};
+pub use simulated_profiles::{
+    get_simulated_client_profile, list_simulated_client_profiles, post_save_simulated_client_profile,
+};
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -21,11 +25,12 @@ pub struct MainAppState {
     pub broadcast: Arc<RwLock<crate::broadcast::BroadcastState>>,
 }
 
-/// Shared state for the admin app (registry + show timelines storage path + broadcast).
+/// Shared state for the admin app (registry + show timelines storage path + broadcast + simulated client profiles path).
 #[derive(Clone)]
 pub struct AdminAppState {
     pub registry: Arc<ConnectionRegistry>,
     pub show_timelines_path: PathBuf,
+    pub simulated_client_profiles_path: PathBuf,
     pub broadcast: Arc<RwLock<crate::broadcast::BroadcastState>>,
 }
 

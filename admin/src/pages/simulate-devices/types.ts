@@ -1,6 +1,12 @@
 export interface DistributionAnchor {
   x: number;
   y: number;
+  /** Chart units, ≥ 0. Used in clone modal for mutation range rect. */
+  xMutationRange?: number;
+  /** 0–100. Used in clone modal for mutation range rect. */
+  yMutationRange?: number;
+  /** 0–100 integer. Used for presets later. */
+  destructionChance?: number;
 }
 
 export interface DistributionCurve {

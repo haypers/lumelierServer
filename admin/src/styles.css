@@ -714,7 +714,98 @@ body {
 
 /* Create Clients modal */
 .create-clients-modal {
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  min-width: 560px;
   max-width: 560px;
+  max-height: 85vh;
+  padding-left: calc(var(--space) + 8px);
+  padding-right: calc(var(--space) + 8px);
+}
+.create-clients-modal .clone-client-modal-content {
+  overflow-y: auto;
+  max-height: 70vh;
+  margin-bottom: var(--space);
+  padding-right: 8px;
+}
+.create-clients-modal .clone-clients-row {
+  margin-bottom: calc(var(--space) + 8px);
+}
+.create-clients-modal .clone-clients-row label {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.create-clients-modal .clone-clients-row input {
+  width: 100%;
+  max-width: 120px;
+  margin-left: 14px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+}
+.create-modal-mode-row {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-bottom: var(--space);
+  padding: 10px 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated, var(--bg));
+}
+.create-modal-mode-row .mode-switch-toggle {
+  flex-shrink: 0;
+}
+.create-modal-mode-row .mode-switch-label {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.create-modal-mode-row .mode-switch-label.active {
+  color: var(--color-accent, var(--accent));
+}
+.create-modal-mode--chaos .mode-switch-knob {
+  transform: translateX(24px);
+}
+.create-modal-profile-block {
+  margin-top: 4px;
+}
+.create-modal-profile-select-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: calc(var(--space) + 10px);
+}
+.create-modal-profile-select-row label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  display: block;
+}
+.create-modal-profile-select-row select {
+  width: 100%;
+  max-width: 280px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+}
+.create-modal-editor-container {
+  margin-top: calc(var(--space) + 8px);
+}
+.create-modal-chaos-block {
+  margin-top: 0;
 }
 .create-clients-modal .create-clients-row {
   margin-bottom: var(--space);
@@ -768,10 +859,161 @@ body {
   background: var(--bg);
   color: var(--text);
 }
+
+/* Clone Client modal */
+.clone-client-modal {
+  display: flex;
+  flex-direction: column;
+  width: 560px;
+  min-width: 560px;
+  max-height: 85vh;
+  padding-left: calc(var(--space) + 8px);
+  padding-right: calc(var(--space) + 8px);
+}
+.clone-client-modal-content {
+  overflow-y: auto;
+  max-height: 70vh;
+  margin-bottom: var(--space);
+  padding-right: 8px;
+}
+.clone-clients-row {
+  margin-bottom: var(--space);
+}
+.clone-clients-row label {
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.clone-clients-row input {
+  width: 100%;
+  max-width: 120px;
+  margin-left: 14px;
+  padding: 6px 8px;
+  font-size: 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+}
+.clone-mutations-heading {
+  font-size: 13px;
+  color: var(--text);
+  margin: 0 0 var(--space);
+  text-align: center;
+  padding-bottom: var(--space);
+  border-bottom: 1px solid var(--border);
+}
+.clone-mutation-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: var(--space);
+}
+.clone-mutation-label {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text);
+}
+.clone-mutation-chart {
+  margin-top: 8px;
+  margin-bottom: var(--space);
+  width: 100%;
+}
+.clone-mutation-row .clone-mutation-chart {
+  flex-basis: 100%;
+  flex-grow: 0;
+  margin-left: 16px;
+  margin-right: 0;
+}
+.clone-mutation-chart[hidden],
+.clone-curve-point-settings[hidden] {
+  display: none !important;
+}
+.clone-mutation-chart .simulate-devices-chart-container {
+  width: 300px;
+  height: 300px;
+  flex-shrink: 0;
+  border: 1px solid var(--border);
+}
+.clone-curve-point-settings {
+  flex-basis: 100%;
+  margin-top: 4px;
+  margin-bottom: var(--space);
+  margin-left: 16px;
+  padding: 8px 0;
+  font-size: 12px;
+  color: var(--text-muted, var(--text));
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.clone-curve-point-settings-message {
+  font-style: italic;
+}
+.clone-curve-point-settings label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.clone-curve-point-input {
+  width: 72px;
+  padding: 2px 6px;
+  font-size: 12px;
+}
+.clone-client-modal .modal-actions {
+  margin-top: 0;
+  padding-top: var(--space);
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.clone-client-modal .modal-actions .btn-save-profile {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--border);
+  color: var(--text);
+}
+.clone-client-modal .modal-actions .btn-save-profile svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
 .create-clients-modal .modal-actions {
+  flex-shrink: 0;
   margin-top: var(--space);
   padding-top: var(--space);
   border-top: 1px solid var(--border);
+}
+.create-clients-modal .modal-actions .btn-save-profile {
+  margin-right: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  background: var(--border);
+  color: var(--text);
+}
+.create-clients-modal .modal-actions .btn-save-profile svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.create-clients-modal .modal-actions .create-modal-btn-save[hidden] {
+  display: none !important;
 }
 
 .modal-show-list {
@@ -1123,6 +1365,18 @@ body {
 }
 .distribution-chart .distribution-chart-marquee {
   pointer-events: none;
+}
+
+.distribution-chart .distribution-chart-mutation-range-rect {
+  fill: rgba(255, 255, 0, 0.2);
+  stroke: rgba(180, 160, 0, 0.9);
+  stroke-width: 1;
+  stroke-dasharray: 4 2;
+  pointer-events: none;
+}
+
+.distribution-chart .distribution-chart-mutation-range line.distribution-chart-mutation-range-rect {
+  fill: none;
 }
 
 /* Timeline page: fixed 50/50 split, no content shift */

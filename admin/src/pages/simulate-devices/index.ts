@@ -1,4 +1,6 @@
 import noSignalSvg from "../../icons/noSignal.svg?raw";
+import openIcon from "../../icons/open.svg?raw";
+import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import { createRefreshEvery } from "../../components/refresh-every";
 import type { SimulatedClient, SimulatedClientDistKey, DistributionCurve } from "./types";
@@ -7,8 +9,10 @@ import { renderClientGrid } from "./client-grid";
 import {
   renderDetailsPane,
   DISTRIBUTION_CHART_PRESETS,
+  DIST_KEYS_BY_PRESET_INDEX,
   type DistributionChartSelection,
 } from "./details-pane";
+import { renderDistributionTablesEditor } from "./distribution-tables-editor";
 
 const MAX_SAMPLE_POINTS = 100;
 
@@ -22,6 +26,59 @@ const MAX_CURVE_POINTS = 100;
 const DEFAULT_MAX_CURVE_POINTS = 10;
 
 function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => void): void {
+  let generateFromProfile = true;
+  let editorApi: ReturnType<typeof renderDistributionTablesEditor> | null = null;
+  const emptyCurves: DistributionCurve[] = DIST_KEYS_BY_PRESET_INDEX.map(() => ({ anchors: [] }));
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+
+  const modal = document.createElement("div");
+  modal.className = "modal create-clients-modal";
+
+  const content = document.createElement("div");
+  content.className = "clone-client-modal-content";
+
+  const countRow = document.createElement("div");
+  countRow.className = "clone-clients-row";
+  countRow.innerHTML = `
+    <label for="create-modal-count">New Client Count:</label>
+    <input type="number" id="create-modal-count" min="1" value="1" />
+  `;
+  content.appendChild(countRow);
+
+  const modeRow = document.createElement("div");
+  modeRow.className = "create-modal-mode-row";
+  modeRow.innerHTML = `
+    <span class="mode-switch-label create-modal-mode-label-profile active">Generate from Profile</span>
+    <button type="button" class="mode-switch-toggle" id="create-modal-mode-toggle" aria-pressed="true" aria-label="Generate from Profile or Create from Chaos">
+      <span class="mode-switch-track">
+        <span class="mode-switch-knob"></span>
+      </span>
+    </button>
+    <span class="mode-switch-label create-modal-mode-label-chaos">Create from Chaos</span>
+  `;
+  content.appendChild(modeRow);
+
+  const profileBlock = document.createElement("div");
+  profileBlock.className = "create-modal-profile-block";
+  const profileSelectRow = document.createElement("div");
+  profileSelectRow.className = "create-modal-profile-select-row";
+  profileSelectRow.innerHTML = `
+    <label for="create-modal-profile">Profile:</label>
+    <select id="create-modal-profile">
+      <option value="">Select a profile...</option>
+    </select>
+  `;
+  profileBlock.appendChild(profileSelectRow);
+  const editorContainer = document.createElement("div");
+  editorContainer.className = "create-modal-editor-container";
+  profileBlock.appendChild(editorContainer);
+  content.appendChild(profileBlock);
+
+  const chaosBlock = document.createElement("div");
+  chaosBlock.className = "create-modal-chaos-block";
+  chaosBlock.hidden = true;
   const chartBlocksHtml = DISTRIBUTION_CHART_PRESETS.map(
     (preset, i) => `
   <div class="create-clients-chart-block" data-index="${i}">
@@ -34,70 +91,187 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
     </div>
   </div>`
   ).join("");
+  chaosBlock.innerHTML = chartBlocksHtml;
+  content.appendChild(chaosBlock);
 
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal create-clients-modal">
-      <div class="create-clients-row">
-        <label for="create-modal-count">New Client Count:</label>
-        <input type="number" id="create-modal-count" min="1" value="1" />
-      </div>
-      ${chartBlocksHtml}
-      <div class="modal-actions">
-        <button type="button" class="btn-cancel">Cancel</button>
-        <button type="button" class="btn-confirm">Create</button>
-      </div>
-    </div>`;
+  modal.appendChild(content);
 
-  const close = (): void => overlay.remove();
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+  actions.innerHTML = `
+    <button type="button" class="btn-save-profile create-modal-btn-save">${saveIcon}<span>Save Profile</span></button>
+    <button type="button" class="btn-cancel">Cancel</button>
+    <button type="button" class="btn-confirm">Create</button>
+  `;
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
 
-  overlay.querySelector(".btn-cancel")?.addEventListener("click", close);
+  function setMode(useProfile: boolean): void {
+    generateFromProfile = useProfile;
+    const toggleBtn = content.querySelector("#create-modal-mode-toggle");
+    toggleBtn?.setAttribute("aria-pressed", String(useProfile));
+    modeRow.classList.toggle("create-modal-mode--chaos", !useProfile);
+    content.querySelector(".create-modal-mode-label-profile")?.classList.toggle("active", useProfile);
+    content.querySelector(".create-modal-mode-label-chaos")?.classList.toggle("active", !useProfile);
+    profileBlock.hidden = !useProfile;
+    chaosBlock.hidden = useProfile;
+    const saveBtn = actions.querySelector(".create-modal-btn-save");
+    if (saveBtn) (saveBtn as HTMLElement).hidden = !useProfile;
+    if (useProfile && !editorApi) {
+      editorApi = renderDistributionTablesEditor(editorContainer, emptyCurves);
+    }
+  }
 
-  overlay.querySelector(".btn-confirm")?.addEventListener("click", () => {
-    const countInput = overlay.querySelector("#create-modal-count") as HTMLInputElement | null;
+  content.querySelector("#create-modal-mode-toggle")?.addEventListener("click", () => {
+    setMode(!generateFromProfile);
+  });
+
+  async function loadProfileList(): Promise<void> {
+    const res = await fetch("/api/admin/simulated-client-profiles");
+    if (!res.ok) return;
+    const names: string[] = await res.json();
+    const select = content.querySelector("#create-modal-profile") as HTMLSelectElement | null;
+    if (!select) return;
+    select.innerHTML = '<option value="">Select a profile...</option>';
+    for (const name of names) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = name.replace(/\.json$/i, "");
+      select.appendChild(opt);
+    }
+  }
+
+  content.querySelector("#create-modal-profile")?.addEventListener("change", async () => {
+    const select = content.querySelector("#create-modal-profile") as HTMLSelectElement | null;
+    const name = select?.value?.trim();
+    if (!name || !editorApi) return;
+    const res = await fetch(`/api/admin/simulated-client-profiles/${encodeURIComponent(name)}`);
+    if (!res.ok) return;
+    const profile = (await res.json()) as Record<SimulatedClientDistKey, DistributionCurve>;
+    editorApi.setCurves(profile);
+  });
+
+  const close = (): void => {
+    if (editorApi) {
+      editorApi.destroy();
+      editorApi = null;
+    }
+    overlay.remove();
+  };
+
+  actions.querySelector(".btn-cancel")?.addEventListener("click", close);
+
+  actions.querySelector(".create-modal-btn-save")?.addEventListener("click", async () => {
+    if (!editorApi) return;
+    const name = prompt("What is the name of this client profile?");
+    if (name == null || name.trim() === "") return;
+    const profileName = name.trim();
+    const curves = editorApi.getCurves();
+    const profile = {} as Record<SimulatedClientDistKey, DistributionCurve>;
+    for (let i = 0; i < DIST_KEYS_BY_PRESET_INDEX.length; i++) {
+      const key = DIST_KEYS_BY_PRESET_INDEX[i];
+      const curve = curves[i];
+      profile[key] = {
+        anchors: curve.anchors.map((a) => ({
+          x: a.x,
+          y: a.y,
+          xMutationRange: a.xMutationRange ?? 0,
+          yMutationRange: a.yMutationRange ?? 0,
+          destructionChance: a.destructionChance ?? 0,
+        })),
+      };
+    }
+    let res = await fetch("/api/admin/simulated-client-profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: profileName, overwrite: false, profile }),
+    });
+    const data = await res.json();
+    if (res.status === 409 && data.exists === true) {
+      if (!confirm("A profile with this name already exists. Overwrite it?")) return;
+      res = await fetch("/api/admin/simulated-client-profiles", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: profileName, overwrite: true, profile }),
+      });
+    }
+    if (res.ok) {
+      alert("Profile saved successfully.");
+    } else {
+      alert("Failed to save profile.");
+    }
+  });
+
+  actions.querySelector(".btn-confirm")?.addEventListener("click", () => {
+    const countInput = content.querySelector("#create-modal-count") as HTMLInputElement | null;
     const count = countInput != null ? parseInt(countInput.value.trim(), 10) : NaN;
     if (!Number.isInteger(count) || count < 1) {
       alert("New Client Count must be an integer ≥ 1.");
       return;
     }
-    const mins: number[] = [];
-    const maxs: number[] = [];
-    for (let i = 0; i < DISTRIBUTION_CHART_PRESETS.length; i++) {
-      const minInput = overlay.querySelector(`#create-modal-min-${i}`) as HTMLInputElement | null;
-      const maxInput = overlay.querySelector(`#create-modal-max-${i}`) as HTMLInputElement | null;
-      const minVal = minInput != null ? parseInt(minInput.value.trim(), 10) : NaN;
-      const maxVal = maxInput != null ? parseInt(maxInput.value.trim(), 10) : NaN;
-      if (!Number.isInteger(minVal) || minVal < MIN_CURVE_POINTS || minVal > MAX_CURVE_POINTS) {
-        alert(`Chart "${DISTRIBUTION_CHART_PRESETS[i].title}": Min must be an integer between ${MIN_CURVE_POINTS} and ${MAX_CURVE_POINTS}.`);
-        return;
+    if (generateFromProfile) {
+      if (!editorApi) return;
+      const curves = editorApi.getCurves();
+      const bounds = DISTRIBUTION_CHART_PRESETS.map((p) => ({
+        xMin: p.xAxis.min,
+        xMax: p.xAxis.max,
+      }));
+      const template = createClientWithRandomCurves(
+        bounds,
+        curves.map((c) => c.anchors.length || 1)
+      );
+      for (let i = 0; i < DIST_KEYS_BY_PRESET_INDEX.length; i++) {
+        const key = DIST_KEYS_BY_PRESET_INDEX[i];
+        template[key] = { anchors: curves[i].anchors.map((a) => ({ ...a })) };
       }
-      if (!Number.isInteger(maxVal) || maxVal < MIN_CURVE_POINTS || maxVal > MAX_CURVE_POINTS) {
-        alert(`Chart "${DISTRIBUTION_CHART_PRESETS[i].title}": Max must be an integer between ${MIN_CURVE_POINTS} and ${MAX_CURVE_POINTS}.`);
-        return;
+      const newClients: SimulatedClient[] = [];
+      for (let k = 0; k < count; k++) {
+        newClients.push(cloneClient(template));
       }
-      if (minVal > maxVal) {
-        alert(`Chart "${DISTRIBUTION_CHART_PRESETS[i].title}": Min must not exceed Max.`);
-        return;
+      close();
+      onCreate(newClients);
+    } else {
+      const mins: number[] = [];
+      const maxs: number[] = [];
+      for (let i = 0; i < DISTRIBUTION_CHART_PRESETS.length; i++) {
+        const minInput = content.querySelector(`#create-modal-min-${i}`) as HTMLInputElement | null;
+        const maxInput = content.querySelector(`#create-modal-max-${i}`) as HTMLInputElement | null;
+        const minVal = minInput != null ? parseInt(minInput.value.trim(), 10) : NaN;
+        const maxVal = maxInput != null ? parseInt(maxInput.value.trim(), 10) : NaN;
+        if (!Number.isInteger(minVal) || minVal < MIN_CURVE_POINTS || minVal > MAX_CURVE_POINTS) {
+          alert(`Chart "${DISTRIBUTION_CHART_PRESETS[i].title}": Min must be an integer between ${MIN_CURVE_POINTS} and ${MAX_CURVE_POINTS}.`);
+          return;
+        }
+        if (!Number.isInteger(maxVal) || maxVal < MIN_CURVE_POINTS || maxVal > MAX_CURVE_POINTS) {
+          alert(`Chart "${DISTRIBUTION_CHART_PRESETS[i].title}": Max must be an integer between ${MIN_CURVE_POINTS} and ${MAX_CURVE_POINTS}.`);
+          return;
+        }
+        if (minVal > maxVal) {
+          alert(`Chart "${DISTRIBUTION_CHART_PRESETS[i].title}": Min must not exceed Max.`);
+          return;
+        }
+        mins.push(minVal);
+        maxs.push(maxVal);
       }
-      mins.push(minVal);
-      maxs.push(maxVal);
+      const bounds = DISTRIBUTION_CHART_PRESETS.map((p) => ({
+        xMin: p.xAxis.min,
+        xMax: p.xAxis.max,
+      }));
+      const newClients: SimulatedClient[] = [];
+      for (let c = 0; c < count; c++) {
+        const pointCounts = mins.map((min, i) => {
+          const max = maxs[i];
+          return min === max ? min : min + Math.floor(Math.random() * (max - min + 1));
+        });
+        newClients.push(createClientWithRandomCurves(bounds, pointCounts));
+      }
+      close();
+      onCreate(newClients);
     }
-    const bounds = DISTRIBUTION_CHART_PRESETS.map((p) => ({
-      xMin: p.xAxis.min,
-      xMax: p.xAxis.max,
-    }));
-    const newClients: SimulatedClient[] = [];
-    for (let c = 0; c < count; c++) {
-      const pointCounts = mins.map((min, i) => {
-        const max = maxs[i];
-        return min === max ? min : min + Math.floor(Math.random() * (max - min + 1));
-      });
-      newClients.push(createClientWithRandomCurves(bounds, pointCounts));
-    }
-    close();
-    onCreate(newClients);
   });
+
+  loadProfileList();
+  setMode(true);
 
   document.body.appendChild(overlay);
 }
@@ -106,6 +280,133 @@ function escapeHtml(s: string): string {
   const div = document.createElement("div");
   div.textContent = s;
   return div.innerHTML;
+}
+
+function getCurveCopy(client: SimulatedClient, key: SimulatedClientDistKey): DistributionCurve {
+  const cur = client[key];
+  return cur && Array.isArray(cur.anchors)
+    ? { anchors: cur.anchors.map((a) => ({ ...a })) }
+    : { anchors: [] };
+}
+
+function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClients: SimulatedClient[]) => void): void {
+  const initialCurves: DistributionCurve[] = DIST_KEYS_BY_PRESET_INDEX.map((key) =>
+    getCurveCopy(sourceClient, key)
+  );
+
+  const overlay = document.createElement("div");
+  overlay.className = "modal-overlay";
+
+  const modal = document.createElement("div");
+  modal.className = "modal clone-client-modal";
+
+  const content = document.createElement("div");
+  content.className = "clone-client-modal-content";
+
+  const countRow = document.createElement("div");
+  countRow.className = "clone-clients-row";
+  countRow.innerHTML = `
+    <label for="clone-modal-count">Number of clones to create:</label>
+    <input type="number" id="clone-modal-count" min="1" value="1" />
+  `;
+  content.appendChild(countRow);
+
+  const editorContainer = document.createElement("div");
+  content.appendChild(editorContainer);
+  const editorApi = renderDistributionTablesEditor(editorContainer, initialCurves);
+
+  modal.appendChild(content);
+
+  const actions = document.createElement("div");
+  actions.className = "modal-actions";
+  actions.innerHTML = `
+    <button type="button" class="btn-save-profile">${saveIcon}<span>Save Profile</span></button>
+    <button type="button" class="btn-cancel">Cancel</button>
+    <button type="button" class="btn-confirm">Confirm Clone</button>
+  `;
+  modal.appendChild(actions);
+  overlay.appendChild(modal);
+
+  const close = (): void => {
+    editorApi.destroy();
+    overlay.remove();
+  };
+
+  function buildProfilePayload(): Record<SimulatedClientDistKey, DistributionCurve> {
+    const profile = {} as Record<SimulatedClientDistKey, DistributionCurve>;
+    const curves = editorApi.getCurves();
+    for (let i = 0; i < DIST_KEYS_BY_PRESET_INDEX.length; i++) {
+      const key = DIST_KEYS_BY_PRESET_INDEX[i];
+      const curve = curves[i];
+      profile[key] = {
+        anchors: curve.anchors.map((a) => ({
+          x: a.x,
+          y: a.y,
+          xMutationRange: a.xMutationRange ?? 0,
+          yMutationRange: a.yMutationRange ?? 0,
+          destructionChance: a.destructionChance ?? 0,
+        })),
+      };
+    }
+    return profile;
+  }
+
+  async function saveProfile(
+    profileName: string,
+    overwrite: boolean
+  ): Promise<{ success: boolean; exists?: boolean }> {
+    const profile = buildProfilePayload();
+    const res = await fetch("/api/admin/simulated-client-profiles", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: profileName, overwrite, profile }),
+    });
+    await res.json();
+    if (res.status === 409) return { success: false, exists: true };
+    if (!res.ok) return { success: false };
+    return { success: true };
+  }
+
+  actions.querySelector(".btn-save-profile")?.addEventListener("click", async () => {
+    const name = prompt("What is the name of this client profile?");
+    if (name == null || name.trim() === "") return;
+    const profileName = name.trim();
+    let result = await saveProfile(profileName, false);
+    if (result.exists === true) {
+      if (!confirm("A profile with this name already exists. Overwrite it?")) return;
+      result = await saveProfile(profileName, true);
+    }
+    if (result.success) {
+      alert("Profile saved successfully.");
+    } else {
+      alert("Failed to save profile.");
+    }
+  });
+
+  actions.querySelector(".btn-cancel")?.addEventListener("click", close);
+
+  actions.querySelector(".btn-confirm")?.addEventListener("click", () => {
+    const countInput = content.querySelector("#clone-modal-count") as HTMLInputElement | null;
+    const count = countInput != null ? parseInt(countInput.value.trim(), 10) : NaN;
+    if (!Number.isInteger(count) || count < 1) {
+      alert("Number of clones must be an integer ≥ 1.");
+      return;
+    }
+    const curves = editorApi.getCurves();
+    const newClients: SimulatedClient[] = [];
+    for (let k = 0; k < count; k++) {
+      const c = cloneClient(sourceClient);
+      for (let i = 0; i < DIST_KEYS_BY_PRESET_INDEX.length; i++) {
+        const key = DIST_KEYS_BY_PRESET_INDEX[i];
+        c[key] = { anchors: curves[i].anchors.map((a) => ({ ...a })) };
+      }
+      newClients.push(c);
+    }
+    close();
+    onCreate(newClients);
+  });
+
+  document.body.appendChild(overlay);
 }
 
 let clients: SimulatedClient[] = [];
@@ -257,6 +558,7 @@ function getSelected(): SimulatedClient | null {
 
 function refresh(): void {
   if (!gridContainer || !detailsContainer) return;
+  if (clients.length > 0 && getSelected() === null) selectedId = clients[0].id;
   const savedScrollTop = detailsContainer.scrollTop;
   updateGridLayoutAndRender();
   const client = getSelected();
@@ -315,7 +617,7 @@ export function render(container: HTMLElement): void {
       <div class="simulate-devices-body">
         <div class="simulate-devices-client-array-panel" id="simulate-devices-grid-panel">
           <div class="simulate-devices-toolbar">
-            <button type="button" class="devices-toolbar-btn" id="simulate-devices-create">Create Clients</button>
+            <button type="button" class="devices-toolbar-btn devices-toolbar-btn-icon" id="simulate-devices-create">${openIcon}<span>Create Clients</span></button>
             <button type="button" class="devices-toolbar-btn devices-toolbar-btn-danger" id="simulate-devices-destroy">Destroy all Clients</button>
             <label for="simulate-devices-square-size" class="simulate-devices-toolbar-label">Square size</label>
             <input type="range" id="simulate-devices-square-size" min="${SQUARE_SIZE_MIN}" max="${SQUARE_SIZE_MAX}" value="${squareSizePx}" />
@@ -373,30 +675,17 @@ export function render(container: HTMLElement): void {
 
   requestAnimationFrame(() => refresh());
 
-  const pageRoot = (): HTMLElement | null => gridContainer?.closest(".simulate-devices-page") ?? null;
-  const bodyEl = (): HTMLElement | null =>
-    pageRoot()?.querySelector(".simulate-devices-body") ?? null;
-
-  document.addEventListener("click", (e: MouseEvent) => {
-    const target = e.target as Node;
-    const el = e.target as Element;
-    if (detailsContainer && !detailsContainer.contains(target)) {
-      selectedAnchor = null;
-      refresh();
-    }
-    if (detailsContainer?.contains(target)) return;
-    if (el.closest?.(".simulate-devices-chart-container") || el.closest?.(".distribution-chart")) return;
-    const body = bodyEl();
-    const insideBody = body?.contains(target) ?? false;
-    const isButtonOrDropdown = el.closest?.("button") ?? el.closest?.("select") ?? el.closest?.("[role='listbox']") ?? el.closest?.("[role='menu']");
-    if (!insideBody && !isButtonOrDropdown) {
-      selectedId = null;
-      selectedAnchor = null;
-      refresh();
-    }
-  });
   document.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key !== "Delete" && e.key !== "Backspace") return;
+    const active = document.activeElement;
+    if (
+      active &&
+      (active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        active instanceof HTMLSelectElement ||
+        (active as HTMLElement).isContentEditable)
+    )
+      return;
     if (selectedAnchor == null || selectedAnchor.indices.length === 0) return;
     const client = getSelected();
     if (client == null) return;
@@ -428,17 +717,18 @@ export function render(container: HTMLElement): void {
   btnDelete?.addEventListener("click", () => {
     if (selectedId == null) return;
     clients = deleteClient(clients, selectedId);
-    selectedId = null;
+    selectedId = clients[0]?.id ?? null;
     refresh();
   });
 
   btnClone?.addEventListener("click", () => {
     const sel = getSelected();
     if (sel == null) return;
-    const cloned = cloneClient(sel);
-    clients = [...clients, cloned];
-    selectedId = cloned.id;
-    refresh();
+    showCloneClientModal(sel, (newClients) => {
+      clients = [...clients, ...newClients];
+      selectedId = newClients[newClients.length - 1].id;
+      refresh();
+    });
   });
 
   btnToggleConnection?.addEventListener("click", () => {

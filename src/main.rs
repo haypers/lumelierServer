@@ -76,9 +76,15 @@ async fn main() {
         eprintln!("could not create show timelines dir: {}", e);
     }
 
+    let simulated_client_profiles_path = PathBuf::from("./userData/simulatedClientProfiles");
+    if let Err(e) = std::fs::create_dir_all(&simulated_client_profiles_path) {
+        eprintln!("could not create simulated client profiles dir: {}", e);
+    }
+
     let admin_state = api::AdminAppState {
         registry: registry.clone(),
         show_timelines_path,
+        simulated_client_profiles_path,
         broadcast: broadcast_state.clone(),
     };
 
@@ -119,6 +125,14 @@ async fn main() {
         .route("/api/admin/broadcast/pause", post(api::post_broadcast_pause))
         .route("/api/admin/shows", get(api::list_shows))
         .route("/api/admin/shows/:name", get(api::get_show).put(api::put_show))
+        .route(
+            "/api/admin/simulated-client-profiles",
+            get(api::list_simulated_client_profiles).post(api::post_save_simulated_client_profile),
+        )
+        .route(
+            "/api/admin/simulated-client-profiles/:name",
+            get(api::get_simulated_client_profile),
+        )
         .with_state(admin_state)
         .route("/timeline", any(serve_admin_index))
         .route("/connectedDevicesList", any(serve_admin_index))

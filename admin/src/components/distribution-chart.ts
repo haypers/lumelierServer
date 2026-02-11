@@ -14,6 +14,12 @@ export interface DistributionChartXAxis {
 export interface DistributionAnchor {
   x: number;
   y: number;
+  /** Chart units, ≥ 0. When drawMutationRangeRects, draw rect/line for selected point. */
+  xMutationRange?: number;
+  /** 0–100. When drawMutationRangeRects, draw rect/line for selected point. */
+  yMutationRange?: number;
+  /** 0–100 integer. Stored in chart JSON; not rendered. */
+  destructionChance?: number;
 }
 
 export interface DistributionChartOptions {
@@ -28,13 +34,15 @@ export interface DistributionChartOptions {
   onAnchorSelected?: (indices: number[] | null) => void;
   /** Debug sample points (x, y) to draw as small grey dots; not persisted. */
   samplePoints?: { x: number; y: number }[];
+  /** When true and exactly one anchor selected, draw mutation range rect/lines for that anchor. */
+  drawMutationRangeRects?: boolean;
 }
 
 const MARGIN_LEFT = 48;
 const MARGIN_RIGHT = 24;
 const MARGIN_TOP = 32;
 const MARGIN_BOTTOM = 48;
-const ANCHOR_RADIUS = 4;
+const ANCHOR_RADIUS = 6;
 const SAMPLE_POINT_RADIUS = 2;
 
 function defaultFormatTick(value: number, min: number, max: number): string {
@@ -50,7 +58,17 @@ function clamp(x: number, min: number, max: number): number {
 }
 
 function renderDistributionChart(container: HTMLElement, options: DistributionChartOptions): void {
-  const { width, height, xAxis, anchors = [], onAnchorsChange, selectedAnchorIndices = [], onAnchorSelected, samplePoints = [] } = options;
+  const {
+    width,
+    height,
+    xAxis,
+    anchors = [],
+    onAnchorsChange,
+    selectedAnchorIndices = [],
+    onAnchorSelected,
+    samplePoints = [],
+    drawMutationRangeRects = false,
+  } = options;
   const formatX = xAxis.formatTick ?? ((v: number) => defaultFormatTick(v, xAxis.min, xAxis.max));
 
   const plotLeft = MARGIN_LEFT;
@@ -181,6 +199,49 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
     path.setAttribute("d", `M ${xToSvg(xMin)} ${y} L ${xToSvg(xMax)} ${y}`);
     path.setAttribute("class", "distribution-chart-curve");
     g.appendChild(path);
+  }
+
+  // --- Mutation range rect/lines (drawMutationRangeRects: draw for every anchor with non-zero range) ---
+  if (drawMutationRangeRects) {
+    const mutationGroup = document.createElementNS(svgNs, "g");
+    mutationGroup.setAttribute("class", "distribution-chart-mutation-range");
+    for (const a of sortedAnchors) {
+      const xRange = Math.max(0, a.xMutationRange ?? 0);
+      const yRange = Math.max(0, a.yMutationRange ?? 0);
+      if (xRange === 0 && yRange === 0) continue;
+      const ax = a.x;
+      const ay = a.y;
+      if (xRange > 0 && yRange > 0) {
+        const xLeft = xToSvg(ax - xRange / 2);
+        const xRight = xToSvg(ax + xRange / 2);
+        const yTop = yToSvg(ay + yRange / 2);
+        const yBottom = yToSvg(ay - yRange / 2);
+        const rect = document.createElementNS(svgNs, "rect");
+        rect.setAttribute("x", String(xLeft));
+        rect.setAttribute("y", String(yTop));
+        rect.setAttribute("width", String(Math.max(0, xRight - xLeft)));
+        rect.setAttribute("height", String(Math.max(0, yBottom - yTop)));
+        rect.setAttribute("class", "distribution-chart-mutation-range-rect");
+        mutationGroup.appendChild(rect);
+      } else if (xRange > 0) {
+        const line = document.createElementNS(svgNs, "line");
+        line.setAttribute("x1", String(xToSvg(ax - xRange / 2)));
+        line.setAttribute("y1", String(yToSvg(ay)));
+        line.setAttribute("x2", String(xToSvg(ax + xRange / 2)));
+        line.setAttribute("y2", String(yToSvg(ay)));
+        line.setAttribute("class", "distribution-chart-mutation-range-rect");
+        mutationGroup.appendChild(line);
+      } else {
+        const line = document.createElementNS(svgNs, "line");
+        line.setAttribute("x1", String(xToSvg(ax)));
+        line.setAttribute("y1", String(yToSvg(ay + yRange / 2)));
+        line.setAttribute("x2", String(xToSvg(ax)));
+        line.setAttribute("y2", String(yToSvg(ay - yRange / 2)));
+        line.setAttribute("class", "distribution-chart-mutation-range-rect");
+        mutationGroup.appendChild(line);
+      }
+    }
+    if (mutationGroup.childNodes.length > 0) g.appendChild(mutationGroup);
   }
 
   // --- Sample points (debug; small grey dots) ---
@@ -369,7 +430,7 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
     if (dragIndex === null) return;
     const { x, y } = svgToData(pt.x, pt.y);
     const next = [...currentAnchors];
-    next[dragIndex] = { x, y };
+    next[dragIndex] = { ...currentAnchors[dragIndex], x, y };
     const sorted = next.sort((a, b) => a.x - b.x);
     dragIndex = sorted.findIndex((p) => p.x === x && p.y === y);
     if (dragIndex < 0) dragIndex = 0;
@@ -409,7 +470,7 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
       const pt = getSvgPoint(e);
       const { x, y } = svgToData(pt.x, pt.y);
       const next = [...currentAnchors];
-      next[dragIndex] = { x, y };
+      next[dragIndex] = { ...currentAnchors[dragIndex], x, y };
       const sorted = next.sort((a, b) => a.x - b.x);
       const finalIndex = sorted.findIndex((p) => p.x === x && p.y === y);
       onAnchorsChange?.(sorted);
