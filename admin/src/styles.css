@@ -1164,6 +1164,18 @@ body {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.simulate-devices-square-size-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+}
+.simulate-devices-square-size-wrap .simulate-devices-toolbar-label {
+  margin-left: 0;
+}
 .simulate-devices-toolbar-label {
   font-size: 12px;
   color: var(--text);

@@ -4,7 +4,8 @@ import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import { createRefreshEvery } from "../../components/refresh-every";
 import type { SimulatedClient, SimulatedClientDistKey, DistributionCurve } from "./types";
-import { createClientWithRandomCurves, deleteClient, cloneClient, toggleConnection } from "./client-store";
+import { createClientWithRandomCurves, deleteClient, toggleConnection } from "./client-store";
+import { generateClientFromProfile } from "./profile-generation";
 import { renderClientGrid } from "./client-grid";
 import {
   renderDetailsPane,
@@ -212,21 +213,17 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
     if (generateFromProfile) {
       if (!editorApi) return;
       const curves = editorApi.getCurves();
-      const bounds = DISTRIBUTION_CHART_PRESETS.map((p) => ({
-        xMin: p.xAxis.min,
-        xMax: p.xAxis.max,
-      }));
-      const template = createClientWithRandomCurves(
-        bounds,
-        curves.map((c) => c.anchors.length || 1)
-      );
-      for (let i = 0; i < DIST_KEYS_BY_PRESET_INDEX.length; i++) {
-        const key = DIST_KEYS_BY_PRESET_INDEX[i];
-        template[key] = { anchors: curves[i].anchors.map((a) => ({ ...a })) };
-      }
       const newClients: SimulatedClient[] = [];
-      for (let k = 0; k < count; k++) {
-        newClients.push(cloneClient(template));
+      const maxAttempts = count * 20 + 100;
+      let attempts = 0;
+      while (newClients.length < count && attempts < maxAttempts) {
+        attempts++;
+        const c = generateClientFromProfile(curves);
+        if (c) {
+          newClients.push(c);
+        } else {
+          console.log("generated client thrown out for having invalid chart of 0 points");
+        }
       }
       close();
       onCreate(newClients);
@@ -394,13 +391,16 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
     }
     const curves = editorApi.getCurves();
     const newClients: SimulatedClient[] = [];
-    for (let k = 0; k < count; k++) {
-      const c = cloneClient(sourceClient);
-      for (let i = 0; i < DIST_KEYS_BY_PRESET_INDEX.length; i++) {
-        const key = DIST_KEYS_BY_PRESET_INDEX[i];
-        c[key] = { anchors: curves[i].anchors.map((a) => ({ ...a })) };
+    const maxAttempts = count * 20 + 100;
+    let attempts = 0;
+    while (newClients.length < count && attempts < maxAttempts) {
+      attempts++;
+      const c = generateClientFromProfile(curves);
+      if (c) {
+        newClients.push(c);
+      } else {
+        console.log("generated client thrown out for having invalid chart of 0 points");
       }
-      newClients.push(c);
     }
     close();
     onCreate(newClients);
@@ -619,9 +619,11 @@ export function render(container: HTMLElement): void {
           <div class="simulate-devices-toolbar">
             <button type="button" class="devices-toolbar-btn devices-toolbar-btn-icon" id="simulate-devices-create">${openIcon}<span>Create Clients</span></button>
             <button type="button" class="devices-toolbar-btn devices-toolbar-btn-danger" id="simulate-devices-destroy">Destroy all Clients</button>
-            <label for="simulate-devices-square-size" class="simulate-devices-toolbar-label">Square size</label>
-            <input type="range" id="simulate-devices-square-size" min="${SQUARE_SIZE_MIN}" max="${SQUARE_SIZE_MAX}" value="${squareSizePx}" />
-            <span id="simulate-devices-square-size-value">${squareSizePx} px</span>
+            <span class="simulate-devices-square-size-wrap">
+              <label for="simulate-devices-square-size" class="simulate-devices-toolbar-label">Square size</label>
+              <input type="range" id="simulate-devices-square-size" min="${SQUARE_SIZE_MIN}" max="${SQUARE_SIZE_MAX}" value="${squareSizePx}" />
+              <span id="simulate-devices-square-size-value">${squareSizePx} px</span>
+            </span>
           </div>
           <div class="simulate-devices-toolbar-secondary" id="simulate-devices-toolbar-secondary" hidden>
             <button type="button" class="btn btn-danger" id="simulate-devices-delete">${trashIcon}<span>Delete Client</span></button>
