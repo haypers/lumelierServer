@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use dashmap::DashMap;
 
 const CONNECTED_THRESHOLD_MS: u64 = 20_000;
 const PING_SAMPLES_MAX: usize = 10;
@@ -53,26 +53,27 @@ impl DeviceState {
     }
 }
 
-#[derive(Clone, Default)]
+#[derive(Default)]
 pub struct ConnectionRegistry {
-    devices: HashMap<String, DeviceState>,
+    devices: DashMap<String, DeviceState>,
 }
 
 impl ConnectionRegistry {
     pub fn new() -> Self {
         Self {
-            devices: HashMap::new(),
+            devices: DashMap::new(),
         }
     }
 
+    /// Upsert: only this key is locked; no global write lock.
     pub fn upsert(
-        &mut self,
+        &self,
         device_id: String,
         now_ms: u64,
         ping_ms: Option<u32>,
         handshake_returned: bool,
     ) {
-        let entry = self.devices.entry(device_id.clone()).or_insert_with(|| DeviceState {
+        let mut entry = self.devices.entry(device_id.clone()).or_insert_with(|| DeviceState {
             device_id: device_id.clone(),
             first_connected_at_ms: now_ms,
             last_seen_at_ms: now_ms,
@@ -81,10 +82,7 @@ impl ConnectionRegistry {
             handshake_returned: false,
             disconnect_counted: false,
         });
-
-        // Mark as connected again so we'll count the next disconnect when they go silent.
         entry.disconnect_counted = false;
-
         if handshake_returned {
             entry.handshake_returned = true;
         }
@@ -98,15 +96,17 @@ impl ConnectionRegistry {
     }
 
     /// Update disconnect counts for devices that have gone silent (not on reconnect).
-    pub fn tick_disconnects(&mut self, now_ms: u64) {
-        for (_id, d) in self.devices.iter_mut() {
+    /// Per-entry mutation via iter_mut(); no global lock.
+    pub fn tick_disconnects(&self, now_ms: u64) {
+        self.devices.iter_mut().for_each(|mut r| {
+            let d = r.value_mut();
             if d.is_connected(now_ms) {
                 d.disconnect_counted = false;
             } else if !d.disconnect_counted {
                 d.disconnect_events = d.disconnect_events.saturating_add(1);
                 d.disconnect_counted = true;
             }
-        }
+        });
     }
 
     /// Returns (total_connected, average_ping_ms) without allocating device rows.
@@ -114,7 +114,8 @@ impl ConnectionRegistry {
         let mut total_connected = 0u32;
         let mut ping_sum = 0f64;
         let mut ping_count = 0usize;
-        for d in self.devices.values() {
+        for r in self.devices.iter() {
+            let d = r.value();
             if !d.is_connected(now_ms) {
                 continue;
             }
@@ -135,8 +136,9 @@ impl ConnectionRegistry {
     pub fn list_with_stats(&self, now_ms: u64) -> (u32, Option<f64>, Vec<DeviceRow>) {
         let rows: Vec<DeviceRow> = self
             .devices
-            .values()
-            .map(|d| {
+            .iter()
+            .map(|r| {
+                let d = r.value();
                 let connected = d.is_connected(now_ms);
                 let connection_status = if connected {
                     if d.handshake_returned {
@@ -160,13 +162,19 @@ impl ConnectionRegistry {
             })
             .collect();
 
-        let connected_rows: Vec<_> = rows.iter().filter(|r| r.connection_status.starts_with("connected")).collect();
+        let connected_rows: Vec<_> = rows
+            .iter()
+            .filter(|r| r.connection_status.starts_with("connected"))
+            .collect();
         let total_connected = connected_rows.len() as u32;
         let average_ping_ms = if connected_rows.is_empty() {
             None
         } else {
             let sum: f64 = connected_rows.iter().filter_map(|r| r.average_ping_ms).sum();
-            let count = connected_rows.iter().filter(|r| r.average_ping_ms.is_some()).count();
+            let count = connected_rows
+                .iter()
+                .filter(|r| r.average_ping_ms.is_some())
+                .count();
             if count == 0 {
                 None
             } else {
@@ -177,7 +185,7 @@ impl ConnectionRegistry {
         (total_connected, average_ping_ms, rows)
     }
 
-    pub fn remove_disconnected(&mut self, now_ms: u64) {
+    pub fn remove_disconnected(&self, now_ms: u64) {
         self.devices.retain(|_, d| d.is_connected(now_ms));
     }
 }

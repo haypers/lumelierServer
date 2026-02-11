@@ -11,6 +11,7 @@ mod api;
 mod broadcast;
 mod connections;
 mod time;
+mod timeline_validator;
 
 const PORT: u16 = 3002;
 const ADMIN_PORT: u16 = 3010;
@@ -50,8 +51,8 @@ fn print_qr(url: &str) {
 
 #[tokio::main]
 async fn main() {
-    let registry: Arc<RwLock<connections::ConnectionRegistry>> =
-        Arc::new(RwLock::new(connections::ConnectionRegistry::new()));
+    let registry: Arc<connections::ConnectionRegistry> =
+        Arc::new(connections::ConnectionRegistry::new());
     let broadcast_state: Arc<RwLock<broadcast::BroadcastState>> =
         Arc::new(RwLock::new(broadcast::BroadcastState::new()));
 
@@ -65,6 +66,17 @@ async fn main() {
         show_timelines_path,
         broadcast: broadcast_state.clone(),
     };
+
+    let registry_tick = registry.clone();
+    tokio::spawn(async move {
+        let mut interval =
+            tokio::time::interval(std::time::Duration::from_secs(10));
+        loop {
+            interval.tick().await;
+            let now_ms = crate::time::unix_now_ms();
+            registry_tick.tick_disconnects(now_ms);
+        }
+    });
 
     let app_main = Router::new()
         .route("/api/health", get(api::health))
@@ -82,6 +94,8 @@ async fn main() {
         }
     }
     let app_admin = Router::new()
+        .route("/api/poll", get(api::poll_admin))
+        .route("/api/health", get(api::health))
         .route("/api/admin/connected-devices", get(api::get_connected_devices))
         .route("/api/admin/stats", get(api::get_stats))
         .route("/api/admin/connections/reset", post(api::post_reset_connections))

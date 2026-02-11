@@ -2,10 +2,15 @@ use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Serialize;
+use std::sync::Arc;
+use std::sync::RwLock;
 use uuid::Uuid;
 
-use crate::api::MainAppState;
+use crate::api::{AdminAppState, MainAppState};
+use crate::connections::ConnectionRegistry;
 use crate::time;
+
+const MAX_DEVICE_ID_LEN: usize = 255;
 
 #[derive(Serialize)]
 pub struct PollEvent {
@@ -62,19 +67,32 @@ pub async fn poll(
     State(state): State<MainAppState>,
     headers: HeaderMap,
 ) -> Result<Json<PollResponse>, StatusCode> {
+    poll_impl(state.registry.clone(), state.broadcast.clone(), headers).await
+}
+
+pub async fn poll_admin(
+    State(state): State<AdminAppState>,
+    headers: HeaderMap,
+) -> Result<Json<PollResponse>, StatusCode> {
+    poll_impl(state.registry.clone(), state.broadcast.clone(), headers).await
+}
+
+async fn poll_impl(
+    registry: Arc<ConnectionRegistry>,
+    broadcast: Arc<RwLock<crate::broadcast::BroadcastState>>,
+    headers: HeaderMap,
+) -> Result<Json<PollResponse>, StatusCode> {
     let now_ms = time::unix_now_ms();
 
     let (device_id, handshake_returned) = device_id_from_headers(&headers);
+    if device_id.len() > MAX_DEVICE_ID_LEN {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let ping_ms = ping_ms_from_headers(&headers);
-    state
-        .registry
-        .write()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .upsert(device_id.clone(), now_ms, ping_ms, handshake_returned);
+    registry.upsert(device_id.clone(), now_ms, ping_ms, handshake_returned);
 
-    let broadcast = {
-        let b = state
-            .broadcast
+    let broadcast_value = {
+        let b = broadcast
             .read()
             .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
         b.timeline_json.as_ref().map(|json| {
@@ -89,10 +107,7 @@ pub async fn poll(
         })
     };
 
-    let events = vec![PollEvent {
-        t: 0,
-        color: "#ff0000".to_string(),
-    }];
+    let events: Vec<PollEvent> = vec![];
 
     let server_time_at_send = time::unix_now_ms();
 
@@ -101,6 +116,6 @@ pub async fn poll(
         server_time_at_send,
         device_id,
         events,
-        broadcast,
+        broadcast: broadcast_value,
     }))
 }

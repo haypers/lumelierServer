@@ -53,11 +53,8 @@ pub async fn get_stats(
 ) -> Result<Json<StatsResponse>, StatusCode> {
     let now_ms = time::unix_now_ms();
 
-    let mut guard = state.registry
-        .write()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    guard.tick_disconnects(now_ms);
-    let (total_connected, average_ping_ms) = guard.list_stats_only(now_ms);
+    state.registry.tick_disconnects(now_ms);
+    let (total_connected, average_ping_ms) = state.registry.list_stats_only(now_ms);
 
     let stats = Stats {
         total_connected,
@@ -75,11 +72,8 @@ pub async fn get_connected_devices(
 ) -> Result<Json<ConnectedDevicesResponse>, StatusCode> {
     let now_ms = time::unix_now_ms();
 
-    let mut guard = state.registry
-        .write()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    guard.tick_disconnects(now_ms);
-    let (total_connected, average_ping_ms, rows) = guard.list_with_stats(now_ms);
+    state.registry.tick_disconnects(now_ms);
+    let (total_connected, average_ping_ms, rows) = state.registry.list_with_stats(now_ms);
 
     let stats = Stats {
         total_connected,
@@ -111,9 +105,6 @@ pub async fn post_reset_connections(
 ) -> Result<StatusCode, StatusCode> {
     let now_ms = time::unix_now_ms();
 
-    state.registry
-        .write()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .remove_disconnected(now_ms);
+    state.registry.remove_disconnected(now_ms);
     Ok(StatusCode::OK)
 }

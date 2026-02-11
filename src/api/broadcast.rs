@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::AdminAppState;
 use crate::time;
+use crate::timeline_validator;
 
 #[derive(Deserialize)]
 pub struct PlayBody {
@@ -34,6 +35,9 @@ pub async fn post_broadcast_timeline(
     State(state): State<AdminAppState>,
     body: axum::body::Bytes,
 ) -> Result<StatusCode, StatusCode> {
+    if timeline_validator::validate_broadcast_timeline(body.as_ref()).is_err() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
     let json = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
     state
         .broadcast
