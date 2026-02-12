@@ -4,10 +4,18 @@ import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
-import type { SimulatedClient, SimulatedClientDistKey, DistributionCurve, SimulatedClientWithSampleHistory } from "./types";
+import type {
+  SimulatedClient,
+  SimulatedClientDistKey,
+  DistributionCurve,
+  SimulatedClientWithSampleHistory,
+  ClientSummaryForGrid,
+  ClientSummarySummary,
+} from "./types";
 import {
   getClients,
   getClient,
+  getSummaries,
   postClients,
   patchClient,
   deleteClient as apiDeleteClient,
@@ -39,6 +47,17 @@ const GRID_GAP_PX = 4;
 const MIN_CURVE_POINTS = 1;
 const MAX_CURVE_POINTS = 100;
 const DEFAULT_MAX_CURVE_POINTS = 10;
+
+const PROFILE_VALIDATION_TOOLTIP =
+  "Every Distribution Table in the profile must have at least 1 point with a 0% chance of destruction.";
+
+/** True iff every curve has at least one anchor with destructionChance 0 (or undefined). Used to enable Create/Save/Confirm in profile mode. */
+function hasZeroDestructionPointInAllCharts(curves: DistributionCurve[]): boolean {
+  if (!curves || curves.length !== 5) return false;
+  return curves.every(
+    (c) => c.anchors?.some((a) => (a.destructionChance ?? 0) === 0) ?? false
+  );
+}
 
 function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => void): void {
   let generateFromProfile = true;
@@ -96,7 +115,7 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
   const profileSelectRow = document.createElement("div");
   profileSelectRow.className = "create-modal-profile-select-row";
   profileSelectRow.innerHTML = `
-    <label for="create-modal-profile">Profile:</label>
+    <label for="create-modal-profile">Load from Saved Profile:</label>
     <select id="create-modal-profile">
       <option value="">Select a profile...</option>
     </select>
@@ -138,20 +157,36 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
   overlay.appendChild(modal);
 
   const createBtn = actions.querySelector(".btn-confirm") as HTMLButtonElement | null;
+  const saveProfileBtn = actions.querySelector(".create-modal-btn-save") as HTMLButtonElement | null;
 
   function updateCreateButtonState(): void {
     if (!createBtn) return;
     if (!generateFromProfile) {
       createBtn.disabled = false;
+      createBtn.title = "";
+      if (saveProfileBtn) {
+        saveProfileBtn.disabled = false;
+        saveProfileBtn.title = "";
+      }
       return;
     }
     if (!editorApi) {
       createBtn.disabled = true;
+      createBtn.title = PROFILE_VALIDATION_TOOLTIP;
+      if (saveProfileBtn) {
+        saveProfileBtn.disabled = true;
+        saveProfileBtn.title = PROFILE_VALIDATION_TOOLTIP;
+      }
       return;
     }
     const curves = editorApi.getCurves();
-    const hasEmptyChart = curves.some((c) => !c.anchors || c.anchors.length === 0);
-    createBtn.disabled = hasEmptyChart;
+    const valid = hasZeroDestructionPointInAllCharts(curves);
+    createBtn.disabled = !valid;
+    createBtn.title = valid ? "" : PROFILE_VALIDATION_TOOLTIP;
+    if (saveProfileBtn) {
+      saveProfileBtn.disabled = !valid;
+      saveProfileBtn.title = valid ? "" : PROFILE_VALIDATION_TOOLTIP;
+    }
   }
 
   function setMode(useProfile: boolean): void {
@@ -373,7 +408,6 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
 
   const editorContainer = document.createElement("div");
   content.appendChild(editorContainer);
-  const editorApi = renderDistributionTablesEditor(editorContainer, initialCurves);
 
   modal.appendChild(content);
 
@@ -386,6 +420,28 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
   `;
   modal.appendChild(actions);
   overlay.appendChild(modal);
+
+  const cloneConfirmBtn = actions.querySelector(".btn-confirm") as HTMLButtonElement | null;
+  const cloneSaveBtn = actions.querySelector(".btn-save-profile") as HTMLButtonElement | null;
+
+  function updateCloneButtonsState(): void {
+    const curves = editorApi.getCurves();
+    const valid = hasZeroDestructionPointInAllCharts(curves);
+    const t = valid ? "" : PROFILE_VALIDATION_TOOLTIP;
+    if (cloneConfirmBtn) {
+      cloneConfirmBtn.disabled = !valid;
+      cloneConfirmBtn.title = t;
+    }
+    if (cloneSaveBtn) {
+      cloneSaveBtn.disabled = !valid;
+      cloneSaveBtn.title = t;
+    }
+  }
+
+  const editorApi = renderDistributionTablesEditor(editorContainer, initialCurves, {
+    onCurvesChange: updateCloneButtonsState,
+  });
+  updateCloneButtonsState();
 
   const close = (): void => {
     editorApi.destroy();
@@ -476,7 +532,7 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
   document.body.appendChild(overlay);
 }
 
-let clients: SimulatedClient[] = [];
+let clients: ClientSummaryForGrid[] = [];
 let selectedId: string | null = null;
 /** Full client + sampleHistory from GET /clients/:id; used for details pane. */
 let selectedClientFull: SimulatedClientWithSampleHistory | null = null;
@@ -615,9 +671,58 @@ function updateGridLayoutAndRender(): void {
   updatePaginationUI(totalPages, pageIndex);
 }
 
-function getSelected(): SimulatedClient | null {
+function getSelected(): ClientSummaryForGrid | null {
   if (selectedId == null) return null;
   return clients.find((c) => c.id === selectedId) ?? null;
+}
+
+/** Merge summaries (same order as requested ids) into clients at the given start index; optionally merge one extra for selectedId. */
+function mergeSummariesIntoClients(
+  summaries: ClientSummarySummary[],
+  visibleIds: string[],
+  start: number,
+  selectedIdExtra: boolean
+): void {
+  for (let i = 0; i < visibleIds.length; i++) {
+    const c = clients[start + i];
+    const s = summaries[i];
+    if (c && s) {
+      c.connectionEnabled = s.connectionEnabled;
+      c.currentDisplayColor = s.currentDisplayColor;
+    }
+  }
+  if (selectedIdExtra && visibleIds.length < summaries.length) {
+    const selSummary = summaries[visibleIds.length];
+    const selClient = clients.find((c) => c.id === selSummary.id);
+    if (selClient) {
+      selClient.connectionEnabled = selSummary.connectionEnabled;
+      selClient.currentDisplayColor = selSummary.currentDisplayColor;
+    }
+  }
+}
+
+/** Fetch summaries for currently visible page (and selected client if not on page), merge into clients, then refresh. */
+async function fetchVisibleSummariesAndRefresh(): Promise<void> {
+  const { w, h } = getGridAvailableSize();
+  const layout = computeGridLayout(w, h, squareSizePx, GRID_GAP_PX, 0, clients.length);
+  const { pageSize } = layout;
+  const start = pageIndex * pageSize;
+  const visibleIds = clients.slice(start, start + pageSize).map((c) => c.id);
+  const includeSelected =
+    selectedId != null && !visibleIds.includes(selectedId);
+  const idsToFetch: string[] = [...visibleIds];
+  if (includeSelected && selectedId != null) idsToFetch.push(selectedId);
+  if (idsToFetch.length === 0) {
+    refresh();
+    return;
+  }
+  try {
+    const summaries = await getSummaries(idsToFetch);
+    mergeSummariesIntoClients(summaries, visibleIds, start, includeSelected);
+  } catch {
+    // leave existing merged data as-is
+  }
+  refresh();
 }
 
 function refresh(): void {
@@ -685,6 +790,7 @@ function refresh(): void {
             if (ms > 0 && selectedId != null) {
               detailsRefreshTimer = setInterval(() => {
                 if (selectedId == null) return;
+                detailsRefreshApi?.recordRefresh();
                 getClient(selectedId)
                   .then((full) => {
                     if (selectedId != null) {
@@ -703,6 +809,7 @@ function refresh(): void {
       if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
       detailsRefreshTimer = setInterval(() => {
         if (selectedId == null) return;
+        detailsRefreshApi?.recordRefresh();
         getClient(selectedId)
           .then((full) => {
             if (selectedId != null) {
@@ -742,12 +849,12 @@ async function runGridRefresh(): Promise<void> {
     }
     if (clients.length > 0 && selectedId == null) selectedId = clients[0].id;
     success = true;
+    await fetchVisibleSummariesAndRefresh();
   } catch {
     // Leave clients as-is; disconnect indicator will show
   } finally {
     gridRefreshApi?.requestCompleted(success);
   }
-  refresh();
 }
 
 export function render(container: HTMLElement): void {
@@ -952,12 +1059,10 @@ export function render(container: HTMLElement): void {
 
   pagePrevBtn?.addEventListener("click", () => {
     pageIndex--;
-    updateGridLayoutAndRender();
-    refresh();
+    fetchVisibleSummariesAndRefresh();
   });
   pageNextBtn?.addEventListener("click", () => {
     pageIndex++;
-    updateGridLayoutAndRender();
-    refresh();
+    fetchVisibleSummariesAndRefresh();
   });
 }

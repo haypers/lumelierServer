@@ -1,11 +1,31 @@
-import type { SimulatedClient, SimulatedClientDistKey, SimulatedClientWithSampleHistory } from "./types";
+import type {
+  SimulatedClient,
+  SimulatedClientDistKey,
+  SimulatedClientWithSampleHistory,
+  ClientSummaryForGrid,
+  ClientSummarySummary,
+} from "./types";
 
 const BASE = "http://localhost:3003";
 
-export async function getClients(): Promise<SimulatedClient[]> {
+/** Minimal list (id, deviceId only) for pagination; use getSummaries(visibleIds) for colors/connection. */
+export async function getClients(): Promise<ClientSummaryForGrid[]> {
   const res = await fetch(`${BASE}/clients`);
   if (!res.ok) throw new Error(`GET /clients failed: ${res.status}`);
   return res.json();
+}
+
+/** Fetch connectionEnabled + currentDisplayColor only for the given IDs (e.g. visible page). Same order as ids. */
+export async function getSummaries(ids: string[]): Promise<ClientSummarySummary[]> {
+  if (ids.length === 0) return [];
+  const res = await fetch(`${BASE}/clients/summaries`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) throw new Error(`POST /clients/summaries failed: ${res.status}`);
+  const data = await res.json();
+  return data.summaries ?? [];
 }
 
 export async function getClient(id: string): Promise<SimulatedClientWithSampleHistory | null> {

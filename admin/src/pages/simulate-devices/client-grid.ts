@@ -1,8 +1,8 @@
-import type { SimulatedClient } from "./types";
+import type { ClientSummaryForGrid } from "./types";
 
 export function renderClientGrid(
   container: HTMLElement,
-  clients: SimulatedClient[],
+  clients: ClientSummaryForGrid[],
   selectedId: string | null,
   noSignalSvg: string,
   onSelect: (id: string) => void,
@@ -25,7 +25,7 @@ export function renderClientGrid(
     if (client.id === selectedId) {
       btn.classList.add("simulate-devices-grid-square--selected");
     }
-    if (!client.connectionEnabled) {
+    if (client.connectionEnabled === false) {
       btn.classList.add("simulate-devices-grid-square--disabled");
       btn.innerHTML = noSignalSvg;
     } else {
@@ -40,7 +40,7 @@ export function renderClientGrid(
 
 export function updateClientGrid(
   container: HTMLElement,
-  clients: SimulatedClient[],
+  clients: ClientSummaryForGrid[],
   selectedId: string | null,
   noSignalSvg: string,
   onSelect: (id: string) => void,

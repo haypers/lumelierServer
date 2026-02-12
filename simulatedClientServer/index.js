@@ -50,6 +50,11 @@ function clientToSummary(record) {
   };
 }
 
+/** Minimal list for grid pagination; no color/connection to save bandwidth. */
+function clientToSummaryMinimal(record) {
+  return { id: record.id, deviceId: record.deviceId };
+}
+
 function addClients(incoming) {
   const list = Array.isArray(incoming) ? incoming : [];
   let created = 0;
@@ -77,6 +82,24 @@ function addClients(incoming) {
 
 function getClientList() {
   return Array.from(clients.values()).map(clientToSummary);
+}
+
+function getClientListMinimal() {
+  return Array.from(clients.values()).map(clientToSummaryMinimal);
+}
+
+/** Return summaries (connectionEnabled, currentDisplayColor) for requested ids, same order. */
+function getSummariesForIds(ids) {
+  if (!Array.isArray(ids)) return [];
+  return ids.map((id) => {
+    const record = clients.get(id);
+    if (!record) return { id, connectionEnabled: false, currentDisplayColor: null };
+    return {
+      id: record.id,
+      connectionEnabled: record.connectionEnabled,
+      currentDisplayColor: record.currentDisplayColor,
+    };
+  });
 }
 
 function getClientFull(id) {
@@ -158,9 +181,9 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // GET /clients -> list summaries
+  // GET /clients -> minimal list (id, deviceId only) for pagination; use POST /clients/summaries for visible colors
   if (req.method === "GET" && pathParts.length === 1 && pathParts[0] === "clients") {
-    sendJson(res, 200, getClientList());
+    sendJson(res, 200, getClientListMinimal());
     return;
   }
 
@@ -174,6 +197,23 @@ const server = http.createServer(async (req, res) => {
       return;
     }
     sendJson(res, 200, full);
+    return;
+  }
+
+  // POST /clients/summaries -> body { ids: string[] }, returns { summaries: Array<{ id, connectionEnabled, currentDisplayColor }> } for visible squares only
+  if (req.method === "POST" && pathParts.length === 2 && pathParts[0] === "clients" && pathParts[1] === "summaries") {
+    let body;
+    try {
+      const raw = await readBody(req);
+      body = JSON.parse(raw || "{}");
+    } catch {
+      res.writeHead(400, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ error: "Invalid JSON" }));
+      return;
+    }
+    const ids = Array.isArray(body.ids) ? body.ids.map((x) => String(x)) : [];
+    const summaries = getSummariesForIds(ids);
+    sendJson(res, 200, { summaries });
     return;
   }
 
