@@ -21,13 +21,19 @@ export interface PopupTooltipOptions {
   wrapperClass: string;
 }
 
+export interface TooltipPortalOptions {
+  /** When true, always show tooltip above the trigger (e.g. for disabled buttons). */
+  above?: boolean;
+}
+
 /**
  * Show tooltip in a portal (appended to body) so it isn't clipped by overflow/stacking
  * and always has a high z-index. Positions with position:fixed from trigger rect.
  */
-function showTooltipPortal(trigger: HTMLElement, text: string): HTMLElement {
+function showTooltipPortal(trigger: HTMLElement, text: string, opts?: TooltipPortalOptions): HTMLElement {
   const rect = trigger.getBoundingClientRect();
-  const inTopHalf = rect.top + rect.height / 2 < window.innerHeight / 2;
+  const forceAbove = opts?.above === true;
+  const inTopHalf = !forceAbove && (rect.top + rect.height / 2 < window.innerHeight / 2);
   const portal = document.createElement("div");
   portal.className = "info-tooltip info-tooltip--portal " + (inTopHalf ? "info-tooltip--below" : "info-tooltip--above");
   portal.setAttribute("role", "tooltip");
@@ -60,6 +66,25 @@ export function attachTooltipBehavior(trigger: HTMLElement, tooltipEl: HTMLEleme
   trigger.addEventListener("mouseenter", () => {
     const text = tooltipEl.textContent ?? "";
     portal = showTooltipPortal(trigger, text);
+  });
+  trigger.addEventListener("mouseleave", () => {
+    if (portal?.parentNode) {
+      portal.remove();
+      portal = null;
+    }
+  });
+}
+
+/**
+ * Show tooltip only when getTooltipText() returns non-empty (e.g. when a button is disabled).
+ * Use for disabled buttons: wrap the button in a span, call this with the span; tooltip appears above on hover when disabled.
+ */
+export function attachTooltipWhen(trigger: HTMLElement, getTooltipText: () => string): void {
+  let portal: HTMLElement | null = null;
+  trigger.addEventListener("mouseenter", () => {
+    const text = getTooltipText();
+    if (!text) return;
+    portal = showTooltipPortal(trigger, text, { above: true });
   });
   trigger.addEventListener("mouseleave", () => {
     if (portal?.parentNode) {

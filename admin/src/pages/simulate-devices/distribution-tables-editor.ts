@@ -121,6 +121,7 @@ export function renderDistributionTablesEditor(
       anchor.yMutationRange = y;
       anchor.destructionChance = d;
       renderChartAt(chartIndex);
+      onCurvesChange?.();
     };
     xInput.addEventListener("input", apply);
     yInput.addEventListener("input", apply);

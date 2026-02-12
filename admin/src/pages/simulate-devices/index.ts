@@ -4,6 +4,7 @@ import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
+import { attachTooltipWhen } from "../../components/popup-tooltip";
 import type {
   SimulatedClient,
   SimulatedClientDistKey,
@@ -159,34 +160,42 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
   const createBtn = actions.querySelector(".btn-confirm") as HTMLButtonElement | null;
   const saveProfileBtn = actions.querySelector(".create-modal-btn-save") as HTMLButtonElement | null;
 
+  function wrapButtonForTooltip(btn: HTMLButtonElement): HTMLElement {
+    const wrap = document.createElement("span");
+    wrap.className = "modal-btn-tooltip-wrap";
+    btn.parentNode?.insertBefore(wrap, btn);
+    wrap.appendChild(btn);
+    return wrap;
+  }
+  if (createBtn) {
+    const wrap = wrapButtonForTooltip(createBtn);
+    attachTooltipWhen(wrap, () =>
+      createBtn.disabled ? PROFILE_VALIDATION_TOOLTIP : ""
+    );
+  }
+  if (saveProfileBtn) {
+    const wrap = wrapButtonForTooltip(saveProfileBtn);
+    attachTooltipWhen(wrap, () =>
+      saveProfileBtn!.disabled ? PROFILE_VALIDATION_TOOLTIP : ""
+    );
+  }
+
   function updateCreateButtonState(): void {
     if (!createBtn) return;
     if (!generateFromProfile) {
       createBtn.disabled = false;
-      createBtn.title = "";
-      if (saveProfileBtn) {
-        saveProfileBtn.disabled = false;
-        saveProfileBtn.title = "";
-      }
+      if (saveProfileBtn) saveProfileBtn.disabled = false;
       return;
     }
     if (!editorApi) {
       createBtn.disabled = true;
-      createBtn.title = PROFILE_VALIDATION_TOOLTIP;
-      if (saveProfileBtn) {
-        saveProfileBtn.disabled = true;
-        saveProfileBtn.title = PROFILE_VALIDATION_TOOLTIP;
-      }
+      if (saveProfileBtn) saveProfileBtn.disabled = true;
       return;
     }
     const curves = editorApi.getCurves();
     const valid = hasZeroDestructionPointInAllCharts(curves);
     createBtn.disabled = !valid;
-    createBtn.title = valid ? "" : PROFILE_VALIDATION_TOOLTIP;
-    if (saveProfileBtn) {
-      saveProfileBtn.disabled = !valid;
-      saveProfileBtn.title = valid ? "" : PROFILE_VALIDATION_TOOLTIP;
-    }
+    if (saveProfileBtn) saveProfileBtn.disabled = !valid;
   }
 
   function setMode(useProfile: boolean): void {
@@ -424,21 +433,35 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
   const cloneConfirmBtn = actions.querySelector(".btn-confirm") as HTMLButtonElement | null;
   const cloneSaveBtn = actions.querySelector(".btn-save-profile") as HTMLButtonElement | null;
 
+  function wrapCloneButtonForTooltip(btn: HTMLButtonElement): HTMLElement {
+    const wrap = document.createElement("span");
+    wrap.className = "modal-btn-tooltip-wrap";
+    btn.parentNode?.insertBefore(wrap, btn);
+    wrap.appendChild(btn);
+    return wrap;
+  }
+  if (cloneConfirmBtn) {
+    const wrap = wrapCloneButtonForTooltip(cloneConfirmBtn);
+    attachTooltipWhen(wrap, () =>
+      cloneConfirmBtn.disabled ? PROFILE_VALIDATION_TOOLTIP : ""
+    );
+  }
+  if (cloneSaveBtn) {
+    const wrap = wrapCloneButtonForTooltip(cloneSaveBtn);
+    attachTooltipWhen(wrap, () =>
+      cloneSaveBtn!.disabled ? PROFILE_VALIDATION_TOOLTIP : ""
+    );
+  }
+
+  let editorApi: ReturnType<typeof renderDistributionTablesEditor>;
   function updateCloneButtonsState(): void {
     const curves = editorApi.getCurves();
     const valid = hasZeroDestructionPointInAllCharts(curves);
-    const t = valid ? "" : PROFILE_VALIDATION_TOOLTIP;
-    if (cloneConfirmBtn) {
-      cloneConfirmBtn.disabled = !valid;
-      cloneConfirmBtn.title = t;
-    }
-    if (cloneSaveBtn) {
-      cloneSaveBtn.disabled = !valid;
-      cloneSaveBtn.title = t;
-    }
+    if (cloneConfirmBtn) cloneConfirmBtn.disabled = !valid;
+    if (cloneSaveBtn) cloneSaveBtn.disabled = !valid;
   }
 
-  const editorApi = renderDistributionTablesEditor(editorContainer, initialCurves, {
+  editorApi = renderDistributionTablesEditor(editorContainer, initialCurves, {
     onCurvesChange: updateCloneButtonsState,
   });
   updateCloneButtonsState();
@@ -732,6 +755,10 @@ function refresh(): void {
   updateGridLayoutAndRender();
   const client = selectedClientFull;
   const showDetailsLoading = selectedId != null && selectedClientFull == null;
+  const detailsRefreshWrapEl = document.getElementById("simulate-devices-details-refresh-wrap");
+  if (detailsRefreshWrapEl) {
+    detailsRefreshWrapEl.classList.toggle("simulate-devices-details-refresh-wrap--hidden", showDetailsLoading || client == null);
+  }
   if (showDetailsLoading) {
     detailsContainer.innerHTML = "";
     detailsContainer.className = "simulate-devices-details-pane";
@@ -739,74 +766,48 @@ function refresh(): void {
     loading.className = "simulate-devices-details-empty";
     loading.textContent = "Loading client details…";
     detailsContainer.appendChild(loading);
-    detailsRefreshApi = null;
   } else {
-    if (detailsRefreshTimer) {
+    if (client == null && detailsRefreshTimer) {
       clearInterval(detailsRefreshTimer);
       detailsRefreshTimer = null;
     }
-    detailsRefreshApi =
-      renderDetailsPane(
-        detailsContainer,
-        client,
-        (distKey: SimulatedClientDistKey, curve: DistributionCurve) => {
-          if (selectedId == null || !selectedClientFull) return;
-          patchClient(selectedId, { [distKey]: curve }).then(() => {
-            selectedClientFull = selectedClientFull
-              ? { ...selectedClientFull, [distKey]: curve }
-              : null;
-            refresh();
-          });
-        },
-        selectedAnchor,
-        (sel) => {
-          selectedAnchor = sel;
+    renderDetailsPane(
+      detailsContainer,
+      client,
+      (distKey: SimulatedClientDistKey, curve: DistributionCurve) => {
+        if (selectedId == null || !selectedClientFull) return;
+        patchClient(selectedId, { [distKey]: curve }).then(() => {
+          selectedClientFull = selectedClientFull
+            ? { ...selectedClientFull, [distKey]: curve }
+            : null;
           refresh();
-        },
-        client ? (distKey) => selectedClientFull?.sampleHistory?.[distKey] ?? [] : undefined,
-        client && selectedId
-          ? (distKey) => {
-              postSample(selectedId!, distKey)
-                .then((point) => {
-                  if (selectedClientFull?.sampleHistory?.[distKey]) {
-                    selectedClientFull.sampleHistory[distKey].push(point);
-                    if (selectedClientFull.sampleHistory[distKey].length > 100) {
-                      selectedClientFull.sampleHistory[distKey] =
-                        selectedClientFull.sampleHistory[distKey].slice(-100);
-                    }
+        });
+      },
+      selectedAnchor,
+      (sel) => {
+        selectedAnchor = sel;
+        refresh();
+      },
+      client ? (distKey) => selectedClientFull?.sampleHistory?.[distKey] ?? [] : undefined,
+      client && selectedId
+        ? (distKey) => {
+            postSample(selectedId!, distKey)
+              .then((point) => {
+                if (selectedClientFull?.sampleHistory?.[distKey]) {
+                  selectedClientFull.sampleHistory[distKey].push(point);
+                  if (selectedClientFull.sampleHistory[distKey].length > 100) {
+                    selectedClientFull.sampleHistory[distKey] =
+                      selectedClientFull.sampleHistory[distKey].slice(-100);
                   }
-                  navigator.clipboard.writeText(String(point.x)).catch(() => {});
-                  refresh();
-                })
-                .catch(() => refresh());
-            }
-          : undefined,
-        {
-          name: "simulate-devices-details-refresh",
-          defaultMs: 1000,
-          onIntervalChange(ms) {
-            if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
-            detailsRefreshTimer = null;
-            if (ms > 0 && selectedId != null) {
-              detailsRefreshTimer = setInterval(() => {
-                if (selectedId == null) return;
-                detailsRefreshApi?.recordRefresh();
-                getClient(selectedId)
-                  .then((full) => {
-                    if (selectedId != null) {
-                      selectedClientFull = full;
-                      refresh();
-                    }
-                  })
-                  .catch(() => {});
-              }, ms);
-            }
-          },
-          infoTooltip: "Refreshing these values often can cause UI lag.",
-        }
-      ) ?? null;
-    if (detailsRefreshApi && detailsRefreshApi.getIntervalMs() > 0 && selectedId != null) {
-      if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
+                }
+                navigator.clipboard.writeText(String(point.x)).catch(() => {});
+                refresh();
+              })
+              .catch(() => refresh());
+          }
+        : undefined
+    );
+    if (detailsRefreshApi && detailsRefreshApi.getIntervalMs() > 0 && selectedId != null && !detailsRefreshTimer) {
       detailsRefreshTimer = setInterval(() => {
         if (selectedId == null) return;
         detailsRefreshApi?.recordRefresh();
@@ -907,6 +908,7 @@ export function render(container: HTMLElement): void {
           </div>
         </div>
         <section class="simulate-devices-details-section" aria-label="Client details">
+          <div class="simulate-devices-details-refresh-wrap" id="simulate-devices-details-refresh-wrap"></div>
           <div id="simulate-devices-details-pane"></div>
         </section>
       </div>
@@ -915,6 +917,7 @@ export function render(container: HTMLElement): void {
 
   gridContainer = document.getElementById("simulate-devices-grid-area");
   detailsContainer = document.getElementById("simulate-devices-details-pane");
+  const detailsRefreshWrapEl = document.getElementById("simulate-devices-details-refresh-wrap");
   secondaryToolbar = document.getElementById("simulate-devices-toolbar-secondary");
   btnDelete = document.getElementById("simulate-devices-delete");
   btnClone = document.getElementById("simulate-devices-clone");
@@ -940,6 +943,32 @@ export function render(container: HTMLElement): void {
       onManualRefresh: runGridRefresh,
     });
     toolbarEl.insertBefore(gridRefreshApi.root, toolbarEl.firstChild);
+  }
+  if (detailsRefreshWrapEl) {
+    detailsRefreshApi = createRefreshEvery({
+      name: "simulate-devices-details-refresh",
+      defaultMs: 1000,
+      infoTooltip: "Refreshing these values often can cause UI lag.",
+      onIntervalChange(ms) {
+        if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
+        detailsRefreshTimer = null;
+        if (ms > 0 && selectedId != null) {
+          detailsRefreshTimer = setInterval(() => {
+            if (selectedId == null) return;
+            detailsRefreshApi?.recordRefresh();
+            getClient(selectedId)
+              .then((full) => {
+                if (selectedId != null) {
+                  selectedClientFull = full;
+                  refresh();
+                }
+              })
+              .catch(() => {});
+          }, ms);
+        }
+      },
+    });
+    detailsRefreshWrapEl.appendChild(detailsRefreshApi.root);
   }
   if (gridPanelEl) observeGridPanel(gridPanelEl);
   const gridMs = gridRefreshApi?.getIntervalMs() ?? 1000;
