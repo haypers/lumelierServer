@@ -1,3 +1,4 @@
+import "./styles.css";
 import noSignalSvg from "../../icons/noSignal.svg?raw";
 import openIcon from "../../icons/open.svg?raw";
 import saveIcon from "../../icons/save.svg?raw";

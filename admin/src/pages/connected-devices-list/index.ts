@@ -1,5 +1,6 @@
 import { TabulatorFull as Tabulator } from "tabulator-tables";
 import "tabulator-tables/dist/css/tabulator_midnight.min.css"; // dark theme
+import "./styles.css";
 import resetIcon from "../../icons/reset.svg?raw";
 import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";

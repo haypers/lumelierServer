@@ -1,4 +1,5 @@
 import "vis-timeline/styles/vis-timeline-graph2d.css";
+import "./styles.css";
 import { DataSet } from "vis-data";
 import { Timeline, type DataItem, type DataGroup, type IdType } from "vis-timeline";
 import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
