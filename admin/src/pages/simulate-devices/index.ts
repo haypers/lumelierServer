@@ -4,8 +4,17 @@ import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
-import type { SimulatedClient, SimulatedClientDistKey, DistributionCurve } from "./types";
-import { createClientWithRandomCurves, deleteClient, toggleConnection } from "./client-store";
+import type { SimulatedClient, SimulatedClientDistKey, DistributionCurve, SimulatedClientWithSampleHistory } from "./types";
+import {
+  getClients,
+  getClient,
+  postClients,
+  patchClient,
+  deleteClient as apiDeleteClient,
+  deleteAllClients,
+  postSample,
+} from "./api";
+import { createClientWithRandomCurves } from "./client-store";
 import { generateClientFromProfile } from "./profile-generation";
 import { renderClientGrid } from "./client-grid";
 import {
@@ -21,23 +30,6 @@ import {
   REALISTIC_BAD_DEVICE_PROFILE,
   isReservedSystemPresetName,
 } from "./system-presets";
-
-const SIMULATED_CLIENT_SERVER_URL = "http://localhost:3003";
-const SIMULATED_CLIENT_SERVER_HEALTH_TIMEOUT_MS = 2000;
-
-async function pingSimulatedClientServerHealth(): Promise<boolean> {
-  try {
-    const res = await fetch(`${SIMULATED_CLIENT_SERVER_URL}/health`, {
-      method: "GET",
-      signal: AbortSignal.timeout(SIMULATED_CLIENT_SERVER_HEALTH_TIMEOUT_MS),
-    });
-    return res.ok;
-  } catch {
-    return false;
-  }
-}
-
-const MAX_SAMPLE_POINTS = 100;
 
 const SQUARE_SIZE_MIN = 12;
 const SQUARE_SIZE_MAX = 48;
@@ -486,30 +478,15 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
 
 let clients: SimulatedClient[] = [];
 let selectedId: string | null = null;
+/** Full client + sampleHistory from GET /clients/:id; used for details pane. */
+let selectedClientFull: SimulatedClientWithSampleHistory | null = null;
 let selectedAnchor: DistributionChartSelection | null = null;
-/** Per client per distKey: rolling list of (x,y) sample points for debug; not persisted. */
-const sampleHistory: Record<string, { x: number; y: number }[]> = {};
-
-function sampleHistoryKey(clientId: string, distKey: SimulatedClientDistKey): string {
-  return `${clientId}:${distKey}`;
-}
-
-function getSamplePoints(clientId: string, distKey: SimulatedClientDistKey): { x: number; y: number }[] {
-  return sampleHistory[sampleHistoryKey(clientId, distKey)] ?? [];
-}
-
-function recordSample(clientId: string, distKey: SimulatedClientDistKey, x: number, y: number): void {
-  const key = sampleHistoryKey(clientId, distKey);
-  const list = sampleHistory[key] ?? [];
-  list.push({ x, y });
-  sampleHistory[key] = list.slice(-MAX_SAMPLE_POINTS);
-  refresh();
-}
 let gridContainer: HTMLElement | null = null;
 let detailsContainer: HTMLElement | null = null;
 let gridRefreshApi: ReturnType<typeof createRefreshEvery> | null = null;
 let detailsRefreshApi: ReturnType<typeof createRefreshEvery> | null = null;
 let gridRefreshTimer: ReturnType<typeof setInterval> | null = null;
+let detailsRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let clockRafId: number | null = null;
 let secondaryToolbar: HTMLElement | null = null;
 let btnDelete: HTMLElement | null = null;
@@ -621,8 +598,19 @@ function updateGridLayoutAndRender(): void {
   const pageClients = clients.slice(start, start + pageSize);
   renderClientGrid(gridContainer, pageClients, selectedId, noSignalSvg, (id) => {
     selectedId = id;
+    selectedClientFull = null;
     selectedAnchor = null;
     refresh();
+    getClient(id)
+      .then((full) => {
+        if (selectedId === id) {
+          selectedClientFull = full;
+          refresh();
+        }
+      })
+      .catch(() => {
+        if (selectedId === id) refresh();
+      });
   }, squareSizePx);
   updatePaginationUI(totalPages, pageIndex);
 }
@@ -637,32 +625,95 @@ function refresh(): void {
   if (clients.length > 0 && getSelected() === null) selectedId = clients[0].id;
   const savedScrollTop = detailsContainer.scrollTop;
   updateGridLayoutAndRender();
-  const client = getSelected();
-  detailsRefreshApi =
-    renderDetailsPane(
-      detailsContainer,
-      client,
-      (distKey: SimulatedClientDistKey, curve: DistributionCurve) => {
+  const client = selectedClientFull;
+  const showDetailsLoading = selectedId != null && selectedClientFull == null;
+  if (showDetailsLoading) {
+    detailsContainer.innerHTML = "";
+    detailsContainer.className = "simulate-devices-details-pane";
+    const loading = document.createElement("p");
+    loading.className = "simulate-devices-details-empty";
+    loading.textContent = "Loading client details…";
+    detailsContainer.appendChild(loading);
+    detailsRefreshApi = null;
+  } else {
+    if (detailsRefreshTimer) {
+      clearInterval(detailsRefreshTimer);
+      detailsRefreshTimer = null;
+    }
+    detailsRefreshApi =
+      renderDetailsPane(
+        detailsContainer,
+        client,
+        (distKey: SimulatedClientDistKey, curve: DistributionCurve) => {
+          if (selectedId == null || !selectedClientFull) return;
+          patchClient(selectedId, { [distKey]: curve }).then(() => {
+            selectedClientFull = selectedClientFull
+              ? { ...selectedClientFull, [distKey]: curve }
+              : null;
+            refresh();
+          });
+        },
+        selectedAnchor,
+        (sel) => {
+          selectedAnchor = sel;
+          refresh();
+        },
+        client ? (distKey) => selectedClientFull?.sampleHistory?.[distKey] ?? [] : undefined,
+        client && selectedId
+          ? (distKey) => {
+              postSample(selectedId!, distKey)
+                .then((point) => {
+                  if (selectedClientFull?.sampleHistory?.[distKey]) {
+                    selectedClientFull.sampleHistory[distKey].push(point);
+                    if (selectedClientFull.sampleHistory[distKey].length > 100) {
+                      selectedClientFull.sampleHistory[distKey] =
+                        selectedClientFull.sampleHistory[distKey].slice(-100);
+                    }
+                  }
+                  navigator.clipboard.writeText(String(point.x)).catch(() => {});
+                  refresh();
+                })
+                .catch(() => refresh());
+            }
+          : undefined,
+        {
+          name: "simulate-devices-details-refresh",
+          defaultMs: 1000,
+          onIntervalChange(ms) {
+            if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
+            detailsRefreshTimer = null;
+            if (ms > 0 && selectedId != null) {
+              detailsRefreshTimer = setInterval(() => {
+                if (selectedId == null) return;
+                getClient(selectedId)
+                  .then((full) => {
+                    if (selectedId != null) {
+                      selectedClientFull = full;
+                      refresh();
+                    }
+                  })
+                  .catch(() => {});
+              }, ms);
+            }
+          },
+          infoTooltip: "Refreshing these values often can cause UI lag.",
+        }
+      ) ?? null;
+    if (detailsRefreshApi && detailsRefreshApi.getIntervalMs() > 0 && selectedId != null) {
+      if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
+      detailsRefreshTimer = setInterval(() => {
         if (selectedId == null) return;
-        clients = clients.map((c) =>
-          c.id === selectedId ? { ...c, [distKey]: curve } : c
-        );
-        refresh();
-      },
-      selectedAnchor,
-      (sel) => {
-        selectedAnchor = sel;
-        refresh();
-      },
-      client ? (distKey) => getSamplePoints(client.id, distKey) : undefined,
-      client ? (distKey, x, y) => recordSample(client.id, distKey, x, y) : undefined,
-      {
-        name: "simulate-devices-details-refresh",
-        defaultMs: 1000,
-        onIntervalChange: () => {},
-        infoTooltip: "Refreshing these values often can cause UI lag.",
-      }
-    ) ?? null;
+        getClient(selectedId)
+          .then((full) => {
+            if (selectedId != null) {
+              selectedClientFull = full;
+              refresh();
+            }
+          })
+          .catch(() => {});
+      }, detailsRefreshApi.getIntervalMs());
+    }
+  }
   detailsContainer.scrollTop = savedScrollTop;
 
   if (secondaryToolbar) {
@@ -682,7 +733,17 @@ async function runGridRefresh(): Promise<void> {
   gridRefreshApi?.recordRefresh();
   let success = false;
   try {
-    success = await pingSimulatedClientServerHealth();
+    const list = await getClients();
+    clients.length = 0;
+    clients.push(...list);
+    if (selectedId != null && !clients.some((c) => c.id === selectedId)) {
+      selectedId = null;
+      selectedClientFull = null;
+    }
+    if (clients.length > 0 && selectedId == null) selectedId = clients[0].id;
+    success = true;
+  } catch {
+    // Leave clients as-is; disconnect indicator will show
   } finally {
     gridRefreshApi?.requestCompleted(success);
   }
@@ -696,7 +757,12 @@ export function render(container: HTMLElement): void {
   }
   clients = [];
   selectedId = null;
+  selectedClientFull = null;
   pageIndex = 0;
+  if (detailsRefreshTimer) {
+    clearInterval(detailsRefreshTimer);
+    detailsRefreshTimer = null;
+  }
 
   resizeObserver?.disconnect();
   resizeObserver = null;
@@ -795,55 +861,82 @@ export function render(container: HTMLElement): void {
     )
       return;
     if (selectedAnchor == null || selectedAnchor.indices.length === 0) return;
-    const client = getSelected();
-    if (client == null) return;
+    const client = selectedClientFull;
+    if (client == null || selectedId == null) return;
     const { distKey, indices } = selectedAnchor;
     const curve = client[distKey];
     const indexSet = new Set(indices);
     const anchors = curve.anchors.filter((_, i) => !indexSet.has(i));
-    clients = clients.map((c) =>
-      c.id === selectedId ? { ...c, [distKey]: { anchors } } : c
-    );
-    selectedAnchor = null;
     e.preventDefault();
-    refresh();
-  });
-
-  document.getElementById("simulate-devices-create")?.addEventListener("click", () => {
-    showCreateClientsModal((newClients) => {
-      clients = [...clients, ...newClients];
+    patchClient(selectedId, { [distKey]: { anchors } }).then(() => {
+      selectedClientFull = selectedClientFull
+        ? { ...selectedClientFull, [distKey]: { anchors } }
+        : null;
+      selectedAnchor = null;
       refresh();
     });
   });
 
+  document.getElementById("simulate-devices-create")?.addEventListener("click", () => {
+    showCreateClientsModal((newClients) => {
+      postClients(newClients)
+        .then(() => runGridRefresh())
+        .catch(() => runGridRefresh());
+    });
+  });
+
   document.getElementById("simulate-devices-destroy")?.addEventListener("click", () => {
-    clients = [];
-    selectedId = null;
-    refresh();
+    deleteAllClients()
+      .then(() => {
+        selectedId = null;
+        selectedClientFull = null;
+        runGridRefresh();
+      })
+      .catch(() => runGridRefresh());
   });
 
   btnDelete?.addEventListener("click", () => {
     if (selectedId == null) return;
-    clients = deleteClient(clients, selectedId);
-    selectedId = clients[0]?.id ?? null;
-    refresh();
+    const idToDelete = selectedId;
+    apiDeleteClient(idToDelete)
+      .then(() => {
+        selectedId = null;
+        selectedClientFull = null;
+        runGridRefresh();
+      })
+      .catch(() => runGridRefresh());
   });
 
   btnClone?.addEventListener("click", () => {
-    const sel = getSelected();
+    const sel = selectedClientFull;
     if (sel == null) return;
     showCloneClientModal(sel, (newClients) => {
-      clients = [...clients, ...newClients];
-      selectedId = newClients[newClients.length - 1].id;
-      refresh();
+      postClients(newClients)
+        .then(() => runGridRefresh())
+        .then(() => {
+          const lastId = newClients[newClients.length - 1]?.id;
+          if (lastId && clients.some((c) => c.id === lastId)) {
+            selectedId = lastId;
+            selectedClientFull = null;
+            getClient(lastId).then((full) => {
+              if (selectedId === lastId) {
+                selectedClientFull = full;
+                refresh();
+              }
+            });
+          }
+          refresh();
+        })
+        .catch(() => runGridRefresh());
     });
   });
 
   btnToggleConnection?.addEventListener("click", () => {
     const sel = getSelected();
     if (sel == null) return;
-    toggleConnection(sel);
-    refresh();
+    patchClient(sel.id, { connectionEnabled: !sel.connectionEnabled })
+      .then(() => runGridRefresh())
+      .catch(() => runGridRefresh());
   });
 
   const squareSizeInput = document.getElementById("simulate-devices-square-size") as HTMLInputElement | null;

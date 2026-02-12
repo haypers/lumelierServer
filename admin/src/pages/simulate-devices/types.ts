@@ -32,3 +32,8 @@ export interface SimulatedClient {
   timeBetweenLagSpikesDist: DistributionCurve;
   lagSpikeDurationDist: DistributionCurve;
 }
+
+/** Response from GET /clients/:id — full client plus per-chart sample history. */
+export interface SimulatedClientWithSampleHistory extends SimulatedClient {
+  sampleHistory: Record<SimulatedClientDistKey, { x: number; y: number }[]>;
+}
