@@ -1017,6 +1017,16 @@ export function render(container: HTMLElement): void {
     showCreateClientsModal((newClients) => {
       postClients(newClients)
         .then(() => runGridRefresh())
+        .then(() => {
+          if (selectedId != null && selectedClientFull == null) {
+            getClient(selectedId).then((full) => {
+              if (selectedId != null) {
+                selectedClientFull = full;
+                refresh();
+              }
+            });
+          }
+        })
         .catch(() => runGridRefresh());
     });
   });
