@@ -76,10 +76,8 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
   content.className = "clone-client-modal-content";
 
   const countRow = document.createElement("div");
-  countRow.className = "clone-clients-row";
-  const countLabelWrap = document.createElement("span");
-  countLabelWrap.className = "create-modal-count-label-wrap";
-  countLabelWrap.appendChild(
+  countRow.className = "create-modal-count-row";
+  countRow.appendChild(
     createInfoBubble({
       tooltipText:
         "Normally you'll want to generate clients from a profile. Profiles define ranges that distribution table points can be placed in. Chaos clients are built by placing a random number of points in the distribution table at random.",
@@ -88,9 +86,8 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
   );
   const countLabel = document.createElement("label");
   countLabel.htmlFor = "create-modal-count";
-  countLabel.textContent = "New Client Count:";
-  countLabelWrap.appendChild(countLabel);
-  countRow.appendChild(countLabelWrap);
+  countLabel.textContent = "New Client Count: ";
+  countRow.appendChild(countLabel);
   const countInput = document.createElement("input");
   countInput.type = "number";
   countInput.id = "create-modal-count";
@@ -114,15 +111,28 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
 
   const profileBlock = document.createElement("div");
   profileBlock.className = "create-modal-profile-block";
-  const profileSelectRow = document.createElement("div");
-  profileSelectRow.className = "create-modal-profile-select-row";
-  profileSelectRow.innerHTML = `
-    <label for="create-modal-profile">Load from Saved Profile:</label>
-    <select id="create-modal-profile">
-      <option value="">Select a profile...</option>
-    </select>
-  `;
-  profileBlock.appendChild(profileSelectRow);
+  const distributionHeading = document.createElement("h4");
+  distributionHeading.className = "modal-distribution-heading";
+  distributionHeading.textContent = "Distribution Tables";
+  profileBlock.appendChild(distributionHeading);
+  const distributionHr = document.createElement("hr");
+  distributionHr.className = "modal-distribution-hr";
+  profileBlock.appendChild(distributionHr);
+  const profileDropdownWrap = document.createElement("div");
+  profileDropdownWrap.className = "modal-profile-dropdown";
+  const profileDropdownBtn = document.createElement("button");
+  profileDropdownBtn.type = "button";
+  profileDropdownBtn.className = "modal-profile-dropdown-btn";
+  profileDropdownBtn.setAttribute("aria-haspopup", "listbox");
+  profileDropdownBtn.setAttribute("aria-expanded", "false");
+  profileDropdownBtn.innerHTML = `${openIcon}<span>Load From Saved Profile</span>`;
+  const profileDropdownList = document.createElement("div");
+  profileDropdownList.className = "modal-profile-dropdown-list";
+  profileDropdownList.setAttribute("role", "listbox");
+  profileDropdownList.hidden = true;
+  profileDropdownWrap.appendChild(profileDropdownBtn);
+  profileDropdownWrap.appendChild(profileDropdownList);
+  profileBlock.appendChild(profileDropdownWrap);
   const editorContainer = document.createElement("div");
   editorContainer.className = "create-modal-editor-container";
   profileBlock.appendChild(editorContainer);
@@ -213,6 +223,7 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
     if (useProfile && !editorApi) {
       editorApi = renderDistributionTablesEditor(editorContainer, emptyCurves, {
         onCurvesChange: updateCreateButtonState,
+        showHeading: false,
       });
     }
     updateCreateButtonState();
@@ -222,32 +233,54 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
     setMode(!generateFromProfile);
   });
 
+  function closeProfileDropdown(): void {
+    profileDropdownList.hidden = true;
+    profileDropdownBtn.setAttribute("aria-expanded", "false");
+  }
+
+  profileDropdownBtn.addEventListener("click", () => {
+    const open = profileDropdownList.hidden;
+    profileDropdownList.hidden = !open;
+    profileDropdownBtn.setAttribute("aria-expanded", String(!open));
+  });
+  function closeOnClickOutside(e: MouseEvent): void {
+    if (!overlay.contains(e.target as Node)) return;
+    if (profileDropdownWrap.contains(e.target as Node)) return;
+    closeProfileDropdown();
+  }
+  document.addEventListener("click", closeOnClickOutside);
+
   async function loadProfileList(): Promise<void> {
     const res = await fetch("/api/admin/simulated-client-profiles");
     const names: string[] = res.ok ? await res.json() : [];
-    const select = content.querySelector("#create-modal-profile") as HTMLSelectElement | null;
-    if (!select) return;
-    select.innerHTML = '<option value="">Select a profile...</option>';
-    // System preset always first
-    const systemOpt = document.createElement("option");
-    systemOpt.value = SYSTEM_PRESET_REALISTIC_BAD_DEVICE;
-    systemOpt.textContent = SYSTEM_PRESET_REALISTIC_BAD_DEVICE_LABEL;
-    select.appendChild(systemOpt);
+    profileDropdownList.innerHTML = "";
+    const placeholder = document.createElement("button");
+    placeholder.type = "button";
+    placeholder.className = "modal-profile-dropdown-item";
+    placeholder.textContent = "Select a profile...";
+    placeholder.disabled = true;
+    profileDropdownList.appendChild(placeholder);
+    const systemBtn = document.createElement("button");
+    systemBtn.type = "button";
+    systemBtn.className = "modal-profile-dropdown-item";
+    systemBtn.dataset.profileName = SYSTEM_PRESET_REALISTIC_BAD_DEVICE;
+    systemBtn.textContent = SYSTEM_PRESET_REALISTIC_BAD_DEVICE_LABEL;
+    profileDropdownList.appendChild(systemBtn);
     const reservedLower = SYSTEM_PRESET_REALISTIC_BAD_DEVICE.toLowerCase();
     for (const name of names) {
       const normalized = name.replace(/\.json$/i, "").toLowerCase();
       if (normalized === reservedLower) continue;
-      const opt = document.createElement("option");
-      opt.value = name;
-      opt.textContent = name.replace(/\.json$/i, "");
-      select.appendChild(opt);
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "modal-profile-dropdown-item";
+      btn.dataset.profileName = name;
+      btn.textContent = name.replace(/\.json$/i, "");
+      profileDropdownList.appendChild(btn);
     }
   }
 
-  content.querySelector("#create-modal-profile")?.addEventListener("change", async () => {
-    const select = content.querySelector("#create-modal-profile") as HTMLSelectElement | null;
-    const name = select?.value?.trim();
-    if (!name || !editorApi) return;
+  async function loadProfileByName(name: string): Promise<void> {
+    if (!editorApi) return;
     if (name === SYSTEM_PRESET_REALISTIC_BAD_DEVICE) {
       editorApi.setCurves(REALISTIC_BAD_DEVICE_PROFILE);
       updateCreateButtonState();
@@ -258,9 +291,20 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
     const profile = (await res.json()) as Record<SimulatedClientDistKey, DistributionCurve>;
     editorApi.setCurves(profile);
     updateCreateButtonState();
+  }
+
+  profileDropdownList.addEventListener("click", (e) => {
+    const item = (e.target as HTMLElement).closest(".modal-profile-dropdown-item");
+    if (!item || (item as HTMLButtonElement).disabled) return;
+    const name = (item as HTMLButtonElement).dataset.profileName;
+    if (name) {
+      loadProfileByName(name);
+      closeProfileDropdown();
+    }
   });
 
   const close = (): void => {
+    document.removeEventListener("click", closeOnClickOutside);
     if (editorApi) {
       editorApi.destroy();
       editorApi = null;
@@ -416,6 +460,29 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
   `;
   content.appendChild(countRow);
 
+  const distributionHeading = document.createElement("h4");
+  distributionHeading.className = "modal-distribution-heading";
+  distributionHeading.textContent = "Distribution Tables";
+  content.appendChild(distributionHeading);
+  const distributionHr = document.createElement("hr");
+  distributionHr.className = "modal-distribution-hr";
+  content.appendChild(distributionHr);
+  const profileDropdownWrap = document.createElement("div");
+  profileDropdownWrap.className = "modal-profile-dropdown";
+  const profileDropdownBtn = document.createElement("button");
+  profileDropdownBtn.type = "button";
+  profileDropdownBtn.className = "modal-profile-dropdown-btn";
+  profileDropdownBtn.setAttribute("aria-haspopup", "listbox");
+  profileDropdownBtn.setAttribute("aria-expanded", "false");
+  profileDropdownBtn.innerHTML = `${openIcon}<span>Load From Saved Profile</span>`;
+  const profileDropdownList = document.createElement("div");
+  profileDropdownList.className = "modal-profile-dropdown-list";
+  profileDropdownList.setAttribute("role", "listbox");
+  profileDropdownList.hidden = true;
+  profileDropdownWrap.appendChild(profileDropdownBtn);
+  profileDropdownWrap.appendChild(profileDropdownList);
+  content.appendChild(profileDropdownWrap);
+
   const editorContainer = document.createElement("div");
   content.appendChild(editorContainer);
 
@@ -462,12 +529,81 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
     if (cloneSaveBtn) cloneSaveBtn.disabled = !valid;
   }
 
+  function closeCloneProfileDropdown(): void {
+    profileDropdownList.hidden = true;
+    profileDropdownBtn.setAttribute("aria-expanded", "false");
+  }
+  profileDropdownBtn.addEventListener("click", () => {
+    const open = profileDropdownList.hidden;
+    profileDropdownList.hidden = !open;
+    profileDropdownBtn.setAttribute("aria-expanded", String(!open));
+  });
+  function closeOnClickOutsideClone(e: MouseEvent): void {
+    if (!overlay.contains(e.target as Node)) return;
+    if (profileDropdownWrap.contains(e.target as Node)) return;
+    closeCloneProfileDropdown();
+  }
+  document.addEventListener("click", closeOnClickOutsideClone);
+
+  async function loadCloneProfileList(): Promise<void> {
+    const res = await fetch("/api/admin/simulated-client-profiles");
+    const names: string[] = res.ok ? await res.json() : [];
+    profileDropdownList.innerHTML = "";
+    const placeholder = document.createElement("button");
+    placeholder.type = "button";
+    placeholder.className = "modal-profile-dropdown-item";
+    placeholder.textContent = "Select a profile...";
+    placeholder.disabled = true;
+    profileDropdownList.appendChild(placeholder);
+    const systemBtn = document.createElement("button");
+    systemBtn.type = "button";
+    systemBtn.className = "modal-profile-dropdown-item";
+    systemBtn.dataset.profileName = SYSTEM_PRESET_REALISTIC_BAD_DEVICE;
+    systemBtn.textContent = SYSTEM_PRESET_REALISTIC_BAD_DEVICE_LABEL;
+    profileDropdownList.appendChild(systemBtn);
+    const reservedLower = SYSTEM_PRESET_REALISTIC_BAD_DEVICE.toLowerCase();
+    for (const name of names) {
+      const normalized = name.replace(/\.json$/i, "").toLowerCase();
+      if (normalized === reservedLower) continue;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "modal-profile-dropdown-item";
+      btn.dataset.profileName = name;
+      btn.textContent = name.replace(/\.json$/i, "");
+      profileDropdownList.appendChild(btn);
+    }
+  }
+  async function loadCloneProfileByName(name: string): Promise<void> {
+    if (name === SYSTEM_PRESET_REALISTIC_BAD_DEVICE) {
+      editorApi.setCurves(REALISTIC_BAD_DEVICE_PROFILE);
+      updateCloneButtonsState();
+      return;
+    }
+    const res = await fetch(`/api/admin/simulated-client-profiles/${encodeURIComponent(name)}`);
+    if (!res.ok) return;
+    const profile = (await res.json()) as Record<SimulatedClientDistKey, DistributionCurve>;
+    editorApi.setCurves(profile);
+    updateCloneButtonsState();
+  }
+  profileDropdownList.addEventListener("click", (e) => {
+    const item = (e.target as HTMLElement).closest(".modal-profile-dropdown-item");
+    if (!item || (item as HTMLButtonElement).disabled) return;
+    const name = (item as HTMLButtonElement).dataset.profileName;
+    if (name) {
+      loadCloneProfileByName(name);
+      closeCloneProfileDropdown();
+    }
+  });
+
   editorApi = renderDistributionTablesEditor(editorContainer, initialCurves, {
     onCurvesChange: updateCloneButtonsState,
+    showHeading: false,
   });
   updateCloneButtonsState();
+  loadCloneProfileList();
 
   const close = (): void => {
+    document.removeEventListener("click", closeOnClickOutsideClone);
     editorApi.destroy();
     overlay.remove();
   };

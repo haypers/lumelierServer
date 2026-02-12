@@ -22,6 +22,8 @@ export interface DistributionTablesEditorApi {
 export interface DistributionTablesEditorOptions {
   /** Called whenever curves are updated (user edit or setCurves). */
   onCurvesChange?: () => void;
+  /** If false, do not render the "Distribution Tables" heading (parent provides it). Default true. */
+  showHeading?: boolean;
 }
 
 export function renderDistributionTablesEditor(
@@ -30,6 +32,7 @@ export function renderDistributionTablesEditor(
   options?: DistributionTablesEditorOptions
 ): DistributionTablesEditorApi {
   const onCurvesChange = options?.onCurvesChange;
+  const showHeading = options?.showHeading !== false;
   container.className = "distribution-tables-editor";
   const curves: DistributionCurve[] = initialCurves.map((c) => ({
     anchors: c.anchors.map((a) => ({ ...a })),
@@ -45,10 +48,12 @@ export function renderDistributionTablesEditor(
   let selectedChartIndex: number | null = null;
   let selectedAnchorIndices: number[] = [];
 
-  const heading = document.createElement("h4");
-  heading.className = "clone-mutations-heading";
-  heading.textContent = "Distribution Tables:";
-  container.appendChild(heading);
+  if (showHeading) {
+    const heading = document.createElement("h4");
+    heading.className = "clone-mutations-heading";
+    heading.textContent = "Distribution Tables";
+    container.appendChild(heading);
+  }
 
   function refreshCurvePointSettings(chartIndex: number): void {
     const wrap = settingsContainers[chartIndex];
