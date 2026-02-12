@@ -2,7 +2,8 @@ import noSignalSvg from "../../icons/noSignal.svg?raw";
 import openIcon from "../../icons/open.svg?raw";
 import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
-import { createRefreshEvery } from "../../components/refresh-every";
+import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
+import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
 import type { SimulatedClient, SimulatedClientDistKey, DistributionCurve } from "./types";
 import { createClientWithRandomCurves, deleteClient, toggleConnection } from "./client-store";
@@ -21,6 +22,23 @@ import {
   REALISTIC_BAD_DEVICE_PROFILE,
   isReservedSystemPresetName,
 } from "./system-presets";
+
+const SIMULATED_CLIENT_SERVER_URL = "http://localhost:3003";
+const SIMULATED_CLIENT_SERVER_HEALTH_TIMEOUT_MS = 2000;
+const SIMULATED_CLIENT_SERVER_POLL_INTERVAL_MS = 500;
+const SIMULATED_CLIENT_SERVER_START_TIMEOUT_MS = 30000;
+
+async function pingSimulatedClientServerHealth(): Promise<boolean> {
+  try {
+    const res = await fetch(`${SIMULATED_CLIENT_SERVER_URL}/health`, {
+      method: "GET",
+      signal: AbortSignal.timeout(SIMULATED_CLIENT_SERVER_HEALTH_TIMEOUT_MS),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
 
 const MAX_SAMPLE_POINTS = 100;
 
@@ -494,6 +512,7 @@ let gridContainer: HTMLElement | null = null;
 let detailsContainer: HTMLElement | null = null;
 let gridRefreshApi: ReturnType<typeof createRefreshEvery> | null = null;
 let detailsRefreshApi: ReturnType<typeof createRefreshEvery> | null = null;
+let gridRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let clockRafId: number | null = null;
 let secondaryToolbar: HTMLElement | null = null;
 let btnDelete: HTMLElement | null = null;
@@ -661,19 +680,20 @@ function refresh(): void {
   }
 }
 
-export function render(container: HTMLElement): void {
-  if (clockRafId != null) {
-    cancelAnimationFrame(clockRafId);
-    clockRafId = null;
+async function runGridRefresh(): Promise<void> {
+  gridRefreshApi?.requestStarted();
+  gridRefreshApi?.recordRefresh();
+  let success = false;
+  try {
+    success = await pingSimulatedClientServerHealth();
+  } finally {
+    gridRefreshApi?.requestCompleted(success);
   }
-  clients = [];
-  selectedId = null;
-  pageIndex = 0;
+  refresh();
+}
 
-  resizeObserver?.disconnect();
-  resizeObserver = null;
-
-  container.innerHTML = `
+function renderMainContent(mainView: HTMLElement): void {
+  mainView.innerHTML = `
     <div class="simulate-devices-page">
       <div class="simulate-devices-body">
         <div class="simulate-devices-client-array-panel" id="simulate-devices-grid-panel">
@@ -723,12 +743,23 @@ export function render(container: HTMLElement): void {
     gridRefreshApi = createRefreshEvery({
       name: "simulate-devices-grid-refresh",
       defaultMs: 1000,
-      onIntervalChange: () => {},
+      responseTimeoutMs: DEFAULT_RESPONSE_TIMEOUT_MS,
+      disconnectTooltip: "The Simulated Client Server is not responding. It may be down.",
       infoTooltip: "Refreshing these values often can cause UI lag.",
+      onIntervalChange(ms) {
+        if (gridRefreshTimer) clearInterval(gridRefreshTimer);
+        gridRefreshTimer = null;
+        if (ms > 0) gridRefreshTimer = setInterval(() => runGridRefresh(), ms);
+      },
+      onManualRefresh: runGridRefresh,
     });
     toolbarEl.insertBefore(gridRefreshApi.root, toolbarEl.firstChild);
   }
   if (gridPanelEl) observeGridPanel(gridPanelEl);
+  const gridMs = gridRefreshApi?.getIntervalMs() ?? 1000;
+  if (gridRefreshTimer) clearInterval(gridRefreshTimer);
+  gridRefreshTimer = null;
+  if (gridMs > 0) gridRefreshTimer = setInterval(runGridRefresh, gridMs);
 
   function tickClocks(): void {
     gridRefreshApi?.updateClockHand();
@@ -822,5 +853,94 @@ export function render(container: HTMLElement): void {
     pageIndex++;
     updateGridLayoutAndRender();
     refresh();
+  });
+}
+
+export function render(container: HTMLElement): void {
+  if (clockRafId != null) {
+    cancelAnimationFrame(clockRafId);
+    clockRafId = null;
+  }
+  clients = [];
+  selectedId = null;
+  pageIndex = 0;
+
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+
+  if (gridRefreshTimer != null) {
+    clearInterval(gridRefreshTimer);
+    gridRefreshTimer = null;
+  }
+
+  container.innerHTML = `
+    <div id="simulate-devices-setup-view" class="simulate-devices-setup-view">
+      <h2>Setup Simulated Device Server</h2>
+      <h3>Click below to attempt to start a server that will mimic the behavior of thousands of connected devices. The state of the simulated clients will be streamed here, and the show server will not know the difference between these clients and real clients. Use this feature to test various network situations, and synchronization issues.</h3>
+      <button type="button" id="simulate-devices-start-server">Start Simulated Client Server</button>
+      <div id="simulate-devices-setup-loading"></div>
+      <p id="simulate-devices-setup-error" class="simulate-devices-setup-error" hidden></p>
+    </div>
+    <div id="simulate-devices-main-view" class="simulate-devices-main-view" hidden></div>
+  `;
+
+  const setupView = container.querySelector("#simulate-devices-setup-view") as HTMLElement;
+  const mainView = container.querySelector("#simulate-devices-main-view") as HTMLElement;
+  const startBtn = container.querySelector("#simulate-devices-start-server") as HTMLButtonElement | null;
+  const loadingContainer = container.querySelector("#simulate-devices-setup-loading") as HTMLElement | null;
+  const errorP = container.querySelector("#simulate-devices-setup-error") as HTMLParagraphElement | null;
+
+  (async () => {
+    const up = await pingSimulatedClientServerHealth();
+    if (up && mainView && setupView) {
+      renderMainContent(mainView);
+      setupView.setAttribute("hidden", "");
+      mainView.removeAttribute("hidden");
+    }
+  })();
+
+  startBtn?.addEventListener("click", async () => {
+    if (!mainView || !loadingContainer || !errorP) return;
+    startBtn.disabled = true;
+    errorP.hidden = true;
+    loadingContainer.innerHTML = `<span class="simulate-devices-setup-loading-icon">${animatedLoadingIcon}</span>`;
+    let rustOk = false;
+    try {
+      const res = await fetch("/api/admin/start-simulated-client-server", { method: "POST" });
+      const data = (await res.json()) as { ok?: boolean; message?: string };
+      rustOk = res.ok && data.ok === true;
+      if (!rustOk && data.message) errorP.textContent = data.message;
+    } catch {
+      errorP.textContent = "Failed to contact server.";
+    }
+    if (!rustOk) {
+      loadingContainer.innerHTML = "";
+      errorP.hidden = false;
+      startBtn.disabled = false;
+      return;
+    }
+    const deadline = Date.now() + SIMULATED_CLIENT_SERVER_START_TIMEOUT_MS;
+    const poll = (): void => {
+      if (Date.now() > deadline) {
+        loadingContainer.innerHTML = "";
+        errorP.textContent =
+          "Server didn't come up in time. Check that Node is installed and the simulatedClientServer folder exists.";
+        errorP.hidden = false;
+        startBtn.disabled = false;
+        return;
+      }
+      pingSimulatedClientServerHealth().then((up) => {
+        if (up && mainView && setupView) {
+          loadingContainer.innerHTML = "";
+          renderMainContent(mainView);
+          setupView.setAttribute("hidden", "");
+          mainView.removeAttribute("hidden");
+          startBtn.disabled = false;
+        } else {
+          setTimeout(poll, SIMULATED_CLIENT_SERVER_POLL_INTERVAL_MS);
+        }
+      });
+    };
+    setTimeout(poll, SIMULATED_CLIENT_SERVER_POLL_INTERVAL_MS);
   });
 }

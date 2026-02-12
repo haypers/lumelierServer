@@ -51,6 +51,8 @@ export interface RefreshEveryOptions {
    * Call requestStarted() before each request and requestCompleted(success) when it finishes.
    */
   responseTimeoutMs?: number;
+  /** Custom tooltip for the disconnect indicator when responseTimeoutMs is set. Defaults to a generic server-not-responding message. */
+  disconnectTooltip?: string;
 }
 
 export interface RefreshEveryApi {
@@ -82,7 +84,7 @@ function removeFlashAfterFrames(clockEl: HTMLElement, framesLeft: number): void 
 const DISCONNECT_TOOLTIP = "The server is not responding to our requests to update this value.";
 
 export function createRefreshEvery(opts: RefreshEveryOptions): RefreshEveryApi {
-  const { name, defaultMs, onIntervalChange, onManualRefresh, infoTooltip, responseTimeoutMs } = opts;
+  const { name, defaultMs, onIntervalChange, onManualRefresh, infoTooltip, responseTimeoutMs, disconnectTooltip } = opts;
   const intervalMs = getStoredIntervalMs(name, defaultMs);
   let lastRefreshTime = 0;
   let responseTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -132,7 +134,7 @@ export function createRefreshEvery(opts: RefreshEveryOptions): RefreshEveryApi {
       </span>`;
     disconnectIndicatorEl = createPopupTrigger({
       triggerContent: bulbHtml,
-      tooltipText: DISCONNECT_TOOLTIP,
+      tooltipText: disconnectTooltip ?? DISCONNECT_TOOLTIP,
       ariaLabel: "Server not responding",
       wrapperClass: "disconnect-indicator disconnect-indicator--hidden",
     });

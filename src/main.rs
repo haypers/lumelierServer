@@ -120,6 +120,10 @@ async fn main() {
         .route("/api/admin/connected-devices", get(api::get_connected_devices))
         .route("/api/admin/stats", get(api::get_stats))
         .route("/api/admin/connections/reset", post(api::post_reset_connections))
+        .route(
+            "/api/admin/start-simulated-client-server",
+            post(api::post_start_simulated_client_server),
+        )
         .route("/api/admin/broadcast/timeline", post(api::post_broadcast_timeline))
         .route("/api/admin/broadcast/play", post(api::post_broadcast_play))
         .route("/api/admin/broadcast/pause", post(api::post_broadcast_pause))
