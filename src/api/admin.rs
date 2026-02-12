@@ -2,7 +2,6 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Serialize;
-use std::process::Command;
 
 use crate::api::AdminAppState;
 use crate::time;
@@ -108,36 +107,4 @@ pub async fn post_reset_connections(
 
     state.registry.remove_disconnected(now_ms);
     Ok(StatusCode::OK)
-}
-
-#[derive(Serialize)]
-pub struct StartSimulatedClientServerResponse {
-    pub ok: bool,
-    pub message: String,
-}
-
-pub async fn post_start_simulated_client_server(
-    State(_state): State<AdminAppState>,
-) -> (StatusCode, Json<StartSimulatedClientServerResponse>) {
-    let child = Command::new("node")
-        .arg("index.js")
-        .current_dir("./simulatedClientServer")
-        .spawn();
-
-    match child {
-        Ok(_) => (
-            StatusCode::OK,
-            Json(StartSimulatedClientServerResponse {
-                ok: true,
-                message: "Yep, it's starting up!".into(),
-            }),
-        ),
-        Err(e) => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(StartSimulatedClientServerResponse {
-                ok: false,
-                message: format!("Hmm... it's not starting up. {}", e),
-            }),
-        ),
-    }
 }
