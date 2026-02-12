@@ -89,14 +89,32 @@ async fn main() {
         broadcast: broadcast_state.clone(),
     };
 
-    let mut simulated_client_server_child: Option<Child> = match Command::new("node")
-        .arg("index.js")
-        .current_dir("./simulatedClientServer")
-        .spawn()
-    {
-        Ok(c) => Some(c),
-        Err(e) => {
-            eprintln!("warning: could not start simulated client server: {}", e);
+    let simulated_bin = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.join(format!("lumelier-simulated-server{}", std::env::consts::EXE_SUFFIX))))
+        .filter(|p| p.exists())
+        .or_else(|| {
+            let release = PathBuf::from("./target/release").join(format!("lumelier-simulated-server{}", std::env::consts::EXE_SUFFIX));
+            let debug = PathBuf::from("./target/debug").join(format!("lumelier-simulated-server{}", std::env::consts::EXE_SUFFIX));
+            if release.exists() {
+                Some(release)
+            } else if debug.exists() {
+                Some(debug)
+            } else {
+                None
+            }
+        });
+
+    let mut simulated_client_server_child: Option<Child> = match simulated_bin {
+        Some(ref path) => match Command::new(path).spawn() {
+            Ok(c) => Some(c),
+            Err(e) => {
+                eprintln!("warning: could not start simulated client server: {}", e);
+                None
+            }
+        },
+        None => {
+            eprintln!("warning: lumelier-simulated-server binary not found (build with cargo build -p lumelier-simulated-server)");
             None
         }
     };

@@ -1,9 +1,0 @@
-{
-  "name": "simulatedClientServer",
-  "version": "0.0.1",
-  "description": "Server that runs simulated clients for stress testing",
-  "main": "index.js",
-  "scripts": {
-    "start": "node index.js"
-  }
-}

@@ -1,17 +1,13 @@
-[workspace]
-members = [".", "simulated-server"]
-
 [package]
-name = "lumelier-server"
+name = "lumelier-simulated-server"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
 axum = { version = "0.7", features = ["json"] }
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.5", features = ["fs"] }
+tower-http = { version = "0.5", features = ["cors"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-qrcode = "0.14"
-uuid = { version = "0.8", features = ["v4"] }
 dashmap = "5.5"
+rand = "0.8"
