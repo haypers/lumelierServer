@@ -1,5 +1,4 @@
 import "./styles.css";
-import noSignalSvg from "../../icons/noSignal.svg?raw";
 import openIcon from "../../icons/open.svg?raw";
 import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
@@ -707,7 +706,6 @@ let clockRafId: number | null = null;
 let secondaryToolbar: HTMLElement | null = null;
 let btnDelete: HTMLElement | null = null;
 let btnClone: HTMLElement | null = null;
-let btnToggleConnection: HTMLElement | null = null;
 
 let squareSizePx = SQUARE_SIZE_DEFAULT;
 let pageIndex = 0;
@@ -812,7 +810,7 @@ function updateGridLayoutAndRender(): void {
   pageIndex = Math.min(pageIndex, Math.max(0, totalPages - 1));
   const start = pageIndex * pageSize;
   const pageClients = clients.slice(start, start + pageSize);
-  updateClientGrid(gridContainer, pageClients, selectedId, noSignalSvg, (id) => {
+  updateClientGrid(gridContainer, pageClients, selectedId, (id) => {
     selectedId = id;
     selectedClientFull = null;
     selectedAnchor = null;
@@ -847,7 +845,6 @@ function mergeSummariesIntoClients(
     const c = clients[start + i];
     const s = summaries[i];
     if (c && s) {
-      c.connectionEnabled = s.connectionEnabled;
       c.currentDisplayColor = s.currentDisplayColor;
     }
   }
@@ -855,7 +852,6 @@ function mergeSummariesIntoClients(
     const selSummary = summaries[visibleIds.length];
     const selClient = clients.find((c) => c.id === selSummary.id);
     if (selClient) {
-      selClient.connectionEnabled = selSummary.connectionEnabled;
       selClient.currentDisplayColor = selSummary.currentDisplayColor;
     }
   }
@@ -971,10 +967,6 @@ function refresh(): void {
     secondaryToolbar.style.visibility = hide ? "hidden" : "";
     secondaryToolbar.style.pointerEvents = hide ? "none" : "";
   }
-  if (btnToggleConnection) {
-    const sel = getSelected();
-    btnToggleConnection.textContent = sel?.connectionEnabled ? "Disable Connection" : "Enable Connection";
-  }
 }
 
 async function runGridRefresh(): Promise<void> {
@@ -1037,7 +1029,6 @@ export function render(container: HTMLElement): void {
           <div class="simulate-devices-toolbar-secondary" id="simulate-devices-toolbar-secondary" hidden>
             <button type="button" class="btn btn-danger" id="simulate-devices-delete">${trashIcon}<span>Delete Client</span></button>
             <button type="button" class="btn btn-icon-label" id="simulate-devices-clone">Clone Client</button>
-            <button type="button" class="btn btn-icon-label" id="simulate-devices-toggle-connection">Disable Connection</button>
           </div>
           <div class="simulate-devices-grid-panel-inner">
             <div class="simulate-devices-grid-area" id="simulate-devices-grid-area"></div>
@@ -1062,7 +1053,6 @@ export function render(container: HTMLElement): void {
   secondaryToolbar = document.getElementById("simulate-devices-toolbar-secondary");
   btnDelete = document.getElementById("simulate-devices-delete");
   btnClone = document.getElementById("simulate-devices-clone");
-  btnToggleConnection = document.getElementById("simulate-devices-toggle-connection");
   paginationInfoEl = document.getElementById("simulate-devices-page-info");
   pagePrevBtn = document.getElementById("simulate-devices-page-prev") as HTMLButtonElement | null;
   pageNextBtn = document.getElementById("simulate-devices-page-next") as HTMLButtonElement | null;
@@ -1222,14 +1212,6 @@ export function render(container: HTMLElement): void {
         })
         .catch(() => runGridRefresh());
     });
-  });
-
-  btnToggleConnection?.addEventListener("click", () => {
-    const sel = getSelected();
-    if (sel == null) return;
-    patchClient(sel.id, { connectionEnabled: !sel.connectionEnabled })
-      .then(() => runGridRefresh())
-      .catch(() => runGridRefresh());
   });
 
   const squareSizeInput = document.getElementById("simulate-devices-square-size") as HTMLInputElement | null;

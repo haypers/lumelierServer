@@ -53,7 +53,6 @@ pub struct SamplePoint {
 pub struct SimulatedClientRecord {
     pub id: String,
     pub device_id: String,
-    pub connection_enabled: bool,
     pub server_time_estimate: Option<f64>,
     /// Actual server time (same-machine clock) when the last estimate was recorded; for UI comparison.
     pub server_time_actual_ms: Option<u64>,
@@ -79,7 +78,6 @@ pub struct MinimalClient {
 #[serde(rename_all = "camelCase")]
 pub struct ClientSummary {
     pub id: String,
-    pub connection_enabled: bool,
     pub current_display_color: Option<String>,
 }
 
@@ -88,7 +86,6 @@ pub struct ClientSummary {
 pub struct SimulatedClientInput {
     pub id: Option<String>,
     pub device_id: Option<String>,
-    pub connection_enabled: Option<bool>,
     pub server_time_estimate: Option<f64>,
     pub current_display_color: Option<String>,
     pub pings_every_sec_dist: Option<DistributionCurve>,
@@ -131,7 +128,6 @@ impl SimulatedStore {
             let record = SimulatedClientRecord {
                 id: id.clone(),
                 device_id,
-                connection_enabled: c.connection_enabled.unwrap_or(true),
                 server_time_estimate: c
                     .server_time_estimate
                     .filter(|&x| x.is_finite()),
@@ -169,15 +165,7 @@ impl SimulatedStore {
         self.clients.get(id).map(|r| r.clone())
     }
 
-    /// Returns true if the client exists and has connection_enabled. Used by runner to avoid cloning full records.
-    pub fn is_connection_enabled(&self, id: &str) -> bool {
-        self.clients
-            .get(id)
-            .map(|r| r.connection_enabled)
-            .unwrap_or(false)
-    }
-
-    /// List all client ids. Runner uses this with is_connection_enabled to find running clients.
+    /// List all client ids. Runner uses this to find running clients.
     pub fn all_ids(&self) -> Vec<String> {
         self.clients.iter().map(|r| r.id.clone()).collect()
     }
@@ -187,11 +175,9 @@ impl SimulatedStore {
             .map(|id| {
                 self.clients.get(id).map(|r| ClientSummary {
                     id: r.id.clone(),
-                    connection_enabled: r.connection_enabled,
                     current_display_color: r.current_display_color.clone(),
                 }).unwrap_or_else(|| ClientSummary {
                     id: id.clone(),
-                    connection_enabled: false,
                     current_display_color: None,
                 })
             })
@@ -243,11 +229,6 @@ impl SimulatedStore {
             Some(x) => x,
             None => return true,
         };
-        if let Some(v) = obj.get("connectionEnabled") {
-            if let Some(b) = v.as_bool() {
-                r.connection_enabled = b;
-            }
-        }
         if let Some(v) = obj.get("currentDisplayColor") {
             r.current_display_color = v.as_str().map(String::from);
         }

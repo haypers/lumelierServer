@@ -153,11 +153,6 @@ export function renderDetailsPane(
     "The client's estimate of server time from clock sync; when available, actual server time and the error in ms are shown."
   );
   addRow(
-    "Connection",
-    client.connectionEnabled ? "Enabled" : "Disabled",
-    "Whether this simulated client is allowed to poll the main server."
-  );
-  addRow(
     "Next poll in",
     client.nextPollInMs != null ? `${client.nextPollInMs} ms` : "—",
     "Time until the next poll request is sent (ms)."

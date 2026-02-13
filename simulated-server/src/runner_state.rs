@@ -15,7 +15,7 @@ pub struct RunnerClientState {
     pub last_rtt_ms: Option<u32>,
 }
 
-/// All running clients keyed by client id. Runner ensures entries exist for store clients with connection_enabled.
+/// All running clients keyed by client id. Runner ensures entries exist for all store clients.
 pub struct RunnerState {
     pub clients: DashMap<String, RunnerClientState>,
 }
@@ -48,12 +48,6 @@ impl RunnerState {
                 last_rtt_ms: None,
             },
         );
-    }
-
-    pub fn remove_if_disabled(&self, client_id: &str, connection_enabled: bool) {
-        if !connection_enabled {
-            self.clients.remove(client_id);
-        }
     }
 
     /// Remove runner state for any client whose id is not in `ids` (e.g. deleted from store).

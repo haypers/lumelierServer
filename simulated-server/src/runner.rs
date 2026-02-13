@@ -93,7 +93,7 @@ pub async fn run_runner(config: RunnerConfig) {
         tick_interval.tick().await;
         let now = now_ms();
 
-        // 1) Sync runner state with store: add new connection_enabled clients, remove disabled and deleted
+        // 1) Sync runner state with store: add new clients, remove deleted
         let ids = config.store.all_ids();
         let ids_set: HashSet<String> = ids.iter().cloned().collect();
         config.runner_state.retain_only_ids(&ids_set);
@@ -111,26 +111,22 @@ pub async fn run_runner(config: RunnerConfig) {
         {
             let mut rng = rand::thread_rng();
             for id in &ids {
-                if config.store.is_connection_enabled(id) {
-                    if !config.runner_state.clients.contains_key(id) {
-                        let record = match config.store.get_full(id) {
-                            Some(r) => r,
-                            None => continue,
-                        };
-                        let next_poll = now;
-                        let anchors = curve_anchors(&record, "timeBetweenLagSpikesDist");
-                        let lag_sec = record_sample_sec(
-                            &config.store,
-                            id,
-                            "timeBetweenLagSpikesDist",
-                            &anchors,
-                            &mut rng,
-                        );
-                        let next_lag = now + (lag_sec * 1000.0) as u64;
-                        config.runner_state.ensure_client(id.clone(), next_poll, next_lag);
-                    }
-                } else {
-                    config.runner_state.remove_if_disabled(id, false);
+                if !config.runner_state.clients.contains_key(id) {
+                    let record = match config.store.get_full(id) {
+                        Some(r) => r,
+                        None => continue,
+                    };
+                    let next_poll = now;
+                    let anchors = curve_anchors(&record, "timeBetweenLagSpikesDist");
+                    let lag_sec = record_sample_sec(
+                        &config.store,
+                        id,
+                        "timeBetweenLagSpikesDist",
+                        &anchors,
+                        &mut rng,
+                    );
+                    let next_lag = now + (lag_sec * 1000.0) as u64;
+                    config.runner_state.ensure_client(id.clone(), next_poll, next_lag);
                 }
             }
         }

@@ -23,7 +23,6 @@ export type SimulatedClientDistKey =
 export interface SimulatedClient {
   id: string;
   deviceId: string;
-  connectionEnabled: boolean;
   serverTimeEstimate: number | null;
   /** Actual server time (ms) when last estimate was recorded; for comparison. */
   serverTimeActualMs?: number | null;
@@ -50,16 +49,14 @@ export interface SimulatedClientWithSampleHistory extends SimulatedClient {
   sampleHistory: Record<SimulatedClientDistKey, { x: number; y: number }[]>;
 }
 
-/** GET /clients returns minimal list; connectionEnabled/currentDisplayColor merged from POST /clients/summaries for visible IDs only. */
+/** GET /clients returns minimal list; currentDisplayColor merged from POST /clients/summaries for visible IDs only. */
 export interface ClientSummaryForGrid {
   id: string;
   deviceId: string;
-  connectionEnabled?: boolean;
   currentDisplayColor?: string | null;
 }
 
 export interface ClientSummarySummary {
   id: string;
-  connectionEnabled: boolean;
   currentDisplayColor: string | null;
 }

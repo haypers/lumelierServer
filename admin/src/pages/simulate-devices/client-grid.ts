@@ -4,7 +4,6 @@ export function renderClientGrid(
   container: HTMLElement,
   clients: ClientSummaryForGrid[],
   selectedId: string | null,
-  noSignalSvg: string,
   onSelect: (id: string) => void,
   squareSizePx: number = 24
 ): void {
@@ -26,13 +25,8 @@ export function renderClientGrid(
     if (client.id === selectedId) {
       btn.classList.add("simulate-devices-grid-square--selected");
     }
-    if (client.connectionEnabled === false) {
-      btn.classList.add("simulate-devices-grid-square--disabled");
-      btn.innerHTML = noSignalSvg;
-    } else {
-      const color = client.currentDisplayColor ?? "var(--bg-elevated)";
-      btn.style.backgroundColor = color;
-    }
+    const color = client.currentDisplayColor ?? "var(--bg-elevated)";
+    btn.style.backgroundColor = color;
     inner.appendChild(btn);
   }
   inner.addEventListener("click", (e) => {
@@ -50,7 +44,6 @@ export function updateClientGrid(
   container: HTMLElement,
   clients: ClientSummaryForGrid[],
   selectedId: string | null,
-  noSignalSvg: string,
   onSelect: (id: string) => void,
   squareSizePx: number = 24
 ): void {
@@ -67,22 +60,10 @@ export function updateClientGrid(
       btn.style.minWidth = size;
       btn.style.minHeight = size;
       btn.classList.toggle("simulate-devices-grid-square--selected", client.id === selectedId);
-      if (client.connectionEnabled === false) {
-        btn.classList.add("simulate-devices-grid-square--disabled");
-        btn.innerHTML = noSignalSvg;
-        btn.style.backgroundColor = "";
-      } else if (client.connectionEnabled === true) {
-        btn.classList.remove("simulate-devices-grid-square--disabled");
-        btn.innerHTML = "";
-        btn.style.backgroundColor =
-          client.currentDisplayColor ?? btn.style.backgroundColor ?? "var(--bg-elevated)";
-      } else {
-        if (client.currentDisplayColor != null) {
-          btn.style.backgroundColor = client.currentDisplayColor;
-        }
-      }
+      btn.style.backgroundColor =
+        client.currentDisplayColor ?? btn.style.backgroundColor ?? "var(--bg-elevated)";
     }
     return;
   }
-  renderClientGrid(container, clients, selectedId, noSignalSvg, onSelect, squareSizePx);
+  renderClientGrid(container, clients, selectedId, onSelect, squareSizePx);
 }

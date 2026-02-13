@@ -576,15 +576,6 @@
   border-color: var(--accent);
   border-width: 2px;
 }
-.simulate-devices-grid-square--disabled {
-  background: var(--bg) !important;
-}
-.simulate-devices-grid-square--disabled svg {
-  width: 20px;
-  height: 20px;
-  display: block;
-  color: var(--text-muted);
-}
 .simulate-devices-details-section {
   min-height: 0;
   overflow: auto;

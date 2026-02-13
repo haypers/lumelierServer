@@ -26,7 +26,6 @@ export function createClientWithRandomCurves(
   const client: SimulatedClient = {
     id,
     deviceId: id,
-    connectionEnabled: true,
     serverTimeEstimate: null,
     currentDisplayColor: "#888",
     pingsEverySecDist: { anchors: [] },
@@ -58,7 +57,6 @@ export function createClient(): SimulatedClient {
   return {
     id,
     deviceId: id,
-    connectionEnabled: true,
     serverTimeEstimate: null,
     currentDisplayColor: "#888",
     pingsEverySecDist: { anchors: [] },
@@ -85,8 +83,4 @@ export function cloneClient(client: SimulatedClient): SimulatedClient {
     timeBetweenLagSpikesDist: { anchors: client.timeBetweenLagSpikesDist.anchors.map((a) => ({ ...a })) },
     lagSpikeDurationDist: { anchors: client.lagSpikeDurationDist.anchors.map((a) => ({ ...a })) },
   };
-}
-
-export function toggleConnection(client: SimulatedClient): void {
-  client.connectionEnabled = !client.connectionEnabled;
 }

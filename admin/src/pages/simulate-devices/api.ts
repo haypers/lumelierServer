@@ -15,7 +15,7 @@ export async function getClients(): Promise<ClientSummaryForGrid[]> {
   return res.json();
 }
 
-/** Fetch connectionEnabled + currentDisplayColor only for the given IDs (e.g. visible page). Same order as ids. */
+/** Fetch currentDisplayColor only for the given IDs (e.g. visible page). Same order as ids. */
 export async function getSummaries(ids: string[]): Promise<ClientSummarySummary[]> {
   if (ids.length === 0) return [];
   const res = await fetch(`${BASE}/clients/summaries`, {
@@ -47,7 +47,7 @@ export async function postClients(clients: SimulatedClient[]): Promise<{ created
 
 export async function patchClient(
   id: string,
-  patch: Partial<Pick<SimulatedClient, "connectionEnabled" | "currentDisplayColor">> &
+  patch: Partial<Pick<SimulatedClient, "currentDisplayColor">> &
     Partial<Record<SimulatedClientDistKey, { anchors: { x: number; y: number }[] }>>
 ): Promise<void> {
   const res = await fetch(`${BASE}/clients/${encodeURIComponent(id)}`, {
