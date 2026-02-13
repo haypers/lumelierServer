@@ -483,19 +483,19 @@
   flex-direction: column;
   min-height: 0;
   flex: 1;
-  position: relative;
 }
 .simulate-devices-grid-area {
-  flex: 1;
+  flex: 1 1 0;
   min-height: 120px;
-  overflow: auto;
-  padding-bottom: 44px;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.simulate-devices-grid-wrap {
+  display: inline-block;
+  min-height: min-content;
 }
 .simulate-devices-grid-pagination {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
   flex-shrink: 0;
   display: flex;
   align-items: center;
@@ -546,10 +546,6 @@
   color: var(--text-muted, var(--text));
   min-width: 32px;
 }
-.simulate-devices-grid-wrap {
-  display: inline-block;
-  min-height: min-content;
-}
 .simulate-devices-grid {
   display: flex;
   flex-wrap: wrap;
@@ -562,6 +558,7 @@
   min-height: 24px;
   padding: 0;
   border: 1px solid var(--border);
+  box-sizing: border-box;
   border-radius: 4px;
   cursor: pointer;
   background: var(--bg-elevated);

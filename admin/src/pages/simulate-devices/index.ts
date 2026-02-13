@@ -30,6 +30,7 @@ import {
   renderDetailsPane,
   DISTRIBUTION_CHART_PRESETS,
   DIST_KEYS_BY_PRESET_INDEX,
+  updateDetailsPaneReadOnly,
   type DistributionChartSelection,
 } from "./details-pane";
 import { renderDistributionTablesEditor } from "./distribution-tables-editor";
@@ -702,6 +703,7 @@ let gridRefreshApi: ReturnType<typeof createRefreshEvery> | null = null;
 let detailsRefreshApi: ReturnType<typeof createRefreshEvery> | null = null;
 let gridRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let detailsRefreshTimer: ReturnType<typeof setInterval> | null = null;
+let detailsRefreshIntervalMs = 0;
 let clockRafId: number | null = null;
 let secondaryToolbar: HTMLElement | null = null;
 let btnDelete: HTMLElement | null = null;
@@ -713,6 +715,9 @@ let resizeObserver: ResizeObserver | null = null;
 let lastContainerWidth = 0;
 let lastContainerHeight = 0;
 let scheduledGridUpdate = false;
+/** Only re-render details pane when selection or full client data actually changed (avoids DOM rebuild on grid refresh). */
+let lastRenderedDetailsSelectedId: string | null | undefined = undefined;
+let lastRenderedDetailsClientFull: SimulatedClientWithSampleHistory | null | undefined = undefined;
 let paginationInfoEl: HTMLElement | null = null;
 let pagePrevBtn: HTMLButtonElement | null = null;
 let pageNextBtn: HTMLButtonElement | null = null;
@@ -780,8 +785,12 @@ const FALLBACK_GRID_WIDTH = 400;
 const FALLBACK_GRID_HEIGHT = 300;
 
 function getGridAvailableSize(): { w: number; h: number } {
+  if (gridContainer) {
+    const w = Math.max(0, Math.round(gridContainer.clientWidth));
+    const h = Math.max(0, Math.round(gridContainer.clientHeight));
+    if (w > 0 && h > 0) return { w, h };
+  }
   const panel = document.getElementById("simulate-devices-grid-panel");
-  const paginationEl = document.getElementById("simulate-devices-grid-pagination");
   if (!panel) return { w: FALLBACK_GRID_WIDTH, h: FALLBACK_GRID_HEIGHT };
   const style = getComputedStyle(panel);
   const padT = parseFloat(style.paddingTop) || 0;
@@ -790,6 +799,7 @@ function getGridAvailableSize(): { w: number; h: number } {
   const padR = parseFloat(style.paddingRight) || 0;
   const toolbarEl = panel.querySelector<HTMLElement>(".simulate-devices-toolbar");
   const toolbarSecondaryEl = panel.querySelector<HTMLElement>(".simulate-devices-toolbar-secondary");
+  const paginationEl = document.getElementById("simulate-devices-grid-pagination");
   const toolbarHeight = toolbarEl?.offsetHeight ?? 0;
   const toolbarSecondaryHeight = toolbarSecondaryEl?.offsetHeight ?? 0;
   const paginationHeight = paginationEl ? paginationEl.offsetHeight : 0;
@@ -804,7 +814,9 @@ function getGridAvailableSize(): { w: number; h: number } {
 
 function updateGridLayoutAndRender(): void {
   if (!gridContainer) return;
-  const { w, h } = getGridAvailableSize();
+  let { w, h } = getGridAvailableSize();
+  const cellSize = squareSizePx + GRID_GAP_PX;
+  h = Math.max(cellSize, Math.floor(h / cellSize) * cellSize);
   const layout = computeGridLayout(w, h, squareSizePx, GRID_GAP_PX, 0, clients.length);
   const { pageSize, totalPages } = layout;
   pageIndex = Math.min(pageIndex, Math.max(0, totalPages - 1));
@@ -892,6 +904,12 @@ function refresh(): void {
   if (detailsRefreshWrapEl) {
     detailsRefreshWrapEl.classList.toggle("simulate-devices-details-refresh-wrap--hidden", showDetailsLoading || client == null);
   }
+  const detailsNeedRender =
+    showDetailsLoading ||
+    (client === null && (lastRenderedDetailsSelectedId === undefined || lastRenderedDetailsSelectedId !== null)) ||
+    (client !== null &&
+      (selectedId !== lastRenderedDetailsSelectedId || selectedClientFull !== lastRenderedDetailsClientFull));
+
   if (showDetailsLoading) {
     detailsContainer.innerHTML = "";
     detailsContainer.className = "simulate-devices-details-pane";
@@ -899,10 +917,12 @@ function refresh(): void {
     loading.className = "simulate-devices-details-empty";
     loading.textContent = "Loading client details…";
     detailsContainer.appendChild(loading);
-  } else {
-    if (client == null && detailsRefreshTimer) {
-      clearInterval(detailsRefreshTimer);
-      detailsRefreshTimer = null;
+    lastRenderedDetailsSelectedId = selectedId;
+    lastRenderedDetailsClientFull = null;
+  } else if (detailsNeedRender) {
+    if (client === null) {
+      lastRenderedDetailsSelectedId = null;
+      lastRenderedDetailsClientFull = null;
     }
     renderDetailsPane(
       detailsContainer,
@@ -940,26 +960,11 @@ function refresh(): void {
           }
         : undefined
     );
-    if (detailsRefreshApi && detailsRefreshApi.getIntervalMs() > 0 && selectedId != null && !detailsRefreshTimer) {
-      detailsRefreshTimer = setInterval(() => {
-        if (selectedId == null) return;
-        detailsRefreshApi?.requestStarted();
-        detailsRefreshApi?.recordRefresh();
-        let success = false;
-        getClient(selectedId)
-          .then((full) => {
-            if (selectedId != null) {
-              selectedClientFull = full;
-              success = true;
-              refresh();
-            }
-          })
-          .catch(() => refresh())
-          .finally(() => detailsRefreshApi?.requestCompleted(success));
-      }, detailsRefreshApi.getIntervalMs());
-    }
+    lastRenderedDetailsSelectedId = selectedId;
+    lastRenderedDetailsClientFull = selectedClientFull;
   }
   detailsContainer.scrollTop = savedScrollTop;
+  ensureDetailsRefreshTimer();
 
   if (secondaryToolbar) {
     const hide = selectedId == null;
@@ -991,6 +996,53 @@ async function runGridRefresh(): Promise<void> {
   }
 }
 
+function ensureDetailsRefreshTimer(): void {
+  const ms = detailsRefreshIntervalMs;
+  const shouldRun = ms > 0 && selectedId != null && detailsRefreshApi != null;
+  if (!shouldRun) {
+    if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
+    detailsRefreshTimer = null;
+    return;
+  }
+  if (detailsRefreshTimer) return;
+  detailsRefreshTimer = setInterval(() => {
+    if (selectedId == null || !detailsRefreshApi) return;
+    const id = selectedId;
+    detailsRefreshApi.requestStarted();
+    detailsRefreshApi.recordRefresh();
+    let success = false;
+    getClient(id)
+      .then((full) => {
+        if (selectedId !== id) return;
+        if (full == null) {
+          selectedClientFull = null;
+          refresh();
+          return;
+        }
+        selectedClientFull = full;
+        success = true;
+        if (detailsContainer) {
+          const hasReadOnlyNodes = detailsContainer.querySelector('[data-detail-key="deviceId"]') != null;
+          if (!hasReadOnlyNodes) {
+            // Details pane isn't rendered yet (or is showing loading). Do a full refresh once.
+            refresh();
+          } else {
+            const st = detailsContainer.scrollTop;
+            updateDetailsPaneReadOnly(detailsContainer, full);
+            detailsContainer.scrollTop = st;
+            // Keep "last rendered" pointers in sync so unrelated refreshes don't rebuild details DOM.
+            lastRenderedDetailsSelectedId = selectedId;
+            lastRenderedDetailsClientFull = selectedClientFull;
+          }
+        }
+      })
+      .catch(() => {
+        // Keep existing UI; disconnect indicator will show via refresh-every component.
+      })
+      .finally(() => detailsRefreshApi?.requestCompleted(success));
+  }, ms);
+}
+
 export function render(container: HTMLElement): void {
   if (clockRafId != null) {
     cancelAnimationFrame(clockRafId);
@@ -999,6 +1051,8 @@ export function render(container: HTMLElement): void {
   clients = [];
   selectedId = null;
   selectedClientFull = null;
+  lastRenderedDetailsSelectedId = undefined;
+  lastRenderedDetailsClientFull = undefined;
   pageIndex = 0;
   if (detailsRefreshTimer) {
     clearInterval(detailsRefreshTimer);
@@ -1083,26 +1137,10 @@ export function render(container: HTMLElement): void {
       disconnectTooltip: "The simulated client server is not responding to our requests.",
       infoTooltip: "Refreshing these values often can cause UI lag.",
       onIntervalChange(ms) {
+        detailsRefreshIntervalMs = ms;
         if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
         detailsRefreshTimer = null;
-        if (ms > 0 && selectedId != null) {
-          detailsRefreshTimer = setInterval(() => {
-            if (selectedId == null) return;
-            detailsRefreshApi?.requestStarted();
-            detailsRefreshApi?.recordRefresh();
-            let success = false;
-            getClient(selectedId)
-              .then((full) => {
-                if (selectedId != null) {
-                  selectedClientFull = full;
-                  success = true;
-                  refresh();
-                }
-              })
-              .catch(() => refresh())
-              .finally(() => detailsRefreshApi?.requestCompleted(success));
-          }, ms);
-        }
+        ensureDetailsRefreshTimer();
       },
     });
     detailsRefreshWrapEl.appendChild(detailsRefreshApi.root);

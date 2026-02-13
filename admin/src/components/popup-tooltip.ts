@@ -61,6 +61,8 @@ function showTooltipPortal(trigger: HTMLElement, text: string, opts?: TooltipPor
  * Attaches mouseenter/mouseleave to position the tooltip and show/hide it.
  * Uses a body-level portal so the tooltip is never clipped by table overflow or stacking.
  * If the trigger is removed from the DOM (e.g. pane re-render), the portal is removed via MutationObserver.
+ * We observe the trigger's section container (e.g. #simulate-devices-details-pane) when present so that
+ * adding the portal to body does not trigger cleanup; only when that section is re-rendered do we cleanup.
  */
 export function attachTooltipBehavior(trigger: HTMLElement, tooltipEl: HTMLElement): void {
   let portal: HTMLElement | null = null;
@@ -83,8 +85,9 @@ export function attachTooltipBehavior(trigger: HTMLElement, tooltipEl: HTMLEleme
     observer = new MutationObserver(() => {
       if (!trigger.isConnected) cleanup();
     });
-    const parent = trigger.parentElement ?? document.body;
-    observer.observe(parent, { childList: true, subtree: true });
+    const section = trigger.closest("#simulate-devices-details-pane") ?? trigger.closest(".simulate-devices-details-pane");
+    const observeTarget = section ?? trigger.parentElement ?? document.body;
+    observer.observe(observeTarget, { childList: true, subtree: true });
   });
   trigger.addEventListener("mouseleave", cleanup);
 }
@@ -116,8 +119,9 @@ export function attachTooltipWhen(trigger: HTMLElement, getTooltipText: () => st
     observer = new MutationObserver(() => {
       if (!trigger.isConnected) cleanup();
     });
-    const parent = trigger.parentElement ?? document.body;
-    observer.observe(parent, { childList: true, subtree: true });
+    const section = trigger.closest("#simulate-devices-details-pane") ?? trigger.closest(".simulate-devices-details-pane");
+    const observeTarget = section ?? trigger.parentElement ?? document.body;
+    observer.observe(observeTarget, { childList: true, subtree: true });
   });
   trigger.addEventListener("mouseleave", cleanup);
 }

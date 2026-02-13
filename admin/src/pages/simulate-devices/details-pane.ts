@@ -73,6 +73,35 @@ export interface DetailsPaneRefreshEveryOptions {
   infoTooltip?: string;
 }
 
+function formatServerTimeStr(client: SimulatedClient): string {
+  return client.serverTimeEstimate != null &&
+    client.serverTimeActualMs != null &&
+    client.serverTimeEstimateErrorMs != null
+    ? `${client.serverTimeEstimate} (actual was ${client.serverTimeActualMs}) ${client.serverTimeEstimateErrorMs >= 0 ? "+" : ""}${client.serverTimeEstimateErrorMs}ms`
+    : client.serverTimeEstimate != null
+      ? String(client.serverTimeEstimate)
+      : "—";
+}
+
+/**
+ * Patch the read-only values (device/time/runner stats) without rebuilding the details DOM.
+ * This is used by the details refresh timer so hover tooltips don't get destroyed every tick.
+ */
+export function updateDetailsPaneReadOnly(container: HTMLElement, client: SimulatedClient): void {
+  const values: Record<string, string> = {
+    deviceId: client.deviceId,
+    serverTimeEstimate: formatServerTimeStr(client),
+    nextPollIn: client.nextPollInMs != null ? `${client.nextPollInMs} ms` : "—",
+    nextLagSpikeIn: client.nextLagSpikeInMs != null ? `${client.nextLagSpikeInMs} ms` : "—",
+    lagEndsIn: client.lagEndsInMs != null ? `${client.lagEndsInMs} ms` : "—",
+    lastRtt: client.lastRttMs != null ? `${client.lastRttMs} ms` : "—",
+  };
+  for (const [key, value] of Object.entries(values)) {
+    const dd = container.querySelector<HTMLElement>(`[data-detail-key="${key}"]`);
+    if (dd) dd.textContent = value;
+  }
+}
+
 export function renderDetailsPane(
   container: HTMLElement,
   client: SimulatedClient | null,
@@ -112,7 +141,7 @@ export function renderDetailsPane(
   const dl = document.createElement("dl");
   dl.className = "detail-grid";
 
-  const addRow = (label: string, value: string, tooltip?: string): void => {
+  const addRow = (key: string, label: string, value: string, tooltip?: string): void => {
     const dt = document.createElement("dt");
     if (tooltip != null && tooltip !== "") {
       const wrap = document.createElement("span");
@@ -130,44 +159,44 @@ export function renderDetailsPane(
     const dd = document.createElement("dd");
     dd.className = "detail-readonly";
     dd.textContent = value;
+    dd.setAttribute("data-detail-key", key);
     dl.appendChild(dt);
     dl.appendChild(dd);
   };
 
   addRow(
+    "deviceId",
     "Device ID",
     client.deviceId,
     "The device identifier sent to the main server on each poll."
   );
-  const serverTimeStr =
-    client.serverTimeEstimate != null &&
-    client.serverTimeActualMs != null &&
-    client.serverTimeEstimateErrorMs != null
-      ? `${client.serverTimeEstimate} (actual was ${client.serverTimeActualMs}) ${client.serverTimeEstimateErrorMs >= 0 ? "+" : ""}${client.serverTimeEstimateErrorMs}ms`
-      : client.serverTimeEstimate != null
-        ? String(client.serverTimeEstimate)
-        : "—";
+  const serverTimeStr = formatServerTimeStr(client);
   addRow(
+    "serverTimeEstimate",
     "Server time estimate",
     serverTimeStr,
     "The client's estimate of server time from clock sync; when available, actual server time and the error in ms are shown."
   );
   addRow(
+    "nextPollIn",
     "Next poll in",
     client.nextPollInMs != null ? `${client.nextPollInMs} ms` : "—",
     "Time until the next poll request is sent (ms)."
   );
   addRow(
+    "nextLagSpikeIn",
     "Next lag spike in",
     client.nextLagSpikeInMs != null ? `${client.nextLagSpikeInMs} ms` : "—",
     "Time until the next simulated lag spike starts (ms)."
   );
   addRow(
+    "lagEndsIn",
     "Lag ends in",
     client.lagEndsInMs != null ? `${client.lagEndsInMs} ms` : "—",
     "Time until the current lag spike ends (ms); 0 when not in lag."
   );
   addRow(
+    "lastRtt",
     "Last calculated RTT",
     client.lastRttMs != null ? `${client.lastRttMs} ms` : "—",
     "Round-trip time (C2S + S2C) of the last completed poll (ms)."
