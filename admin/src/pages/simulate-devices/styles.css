@@ -624,6 +624,11 @@
   color: var(--text-muted);
   margin: 0;
 }
+.simulate-devices-details-pane .detail-grid dt .detail-grid-dt-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .simulate-devices-details-pane .detail-grid dd {
   margin: 0;
 }

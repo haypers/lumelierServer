@@ -55,6 +55,10 @@ pub struct SimulatedClientRecord {
     pub device_id: String,
     pub connection_enabled: bool,
     pub server_time_estimate: Option<f64>,
+    /// Actual server time (same-machine clock) when the last estimate was recorded; for UI comparison.
+    pub server_time_actual_ms: Option<u64>,
+    /// Estimate minus actual (ms); negative means client estimate was behind.
+    pub server_time_estimate_error_ms: Option<i64>,
     pub current_display_color: Option<String>,
     pub pings_every_sec_dist: DistributionCurve,
     pub client_to_server_delay_dist: DistributionCurve,
@@ -131,6 +135,8 @@ impl SimulatedStore {
                 server_time_estimate: c
                     .server_time_estimate
                     .filter(|&x| x.is_finite()),
+                server_time_actual_ms: None,
+                server_time_estimate_error_ms: None,
                 current_display_color: c
                     .current_display_color
                     .filter(|s| !s.is_empty()),
@@ -161,6 +167,19 @@ impl SimulatedStore {
 
     pub fn get_full(&self, id: &str) -> Option<SimulatedClientRecord> {
         self.clients.get(id).map(|r| r.clone())
+    }
+
+    /// Returns true if the client exists and has connection_enabled. Used by runner to avoid cloning full records.
+    pub fn is_connection_enabled(&self, id: &str) -> bool {
+        self.clients
+            .get(id)
+            .map(|r| r.connection_enabled)
+            .unwrap_or(false)
+    }
+
+    /// List all client ids. Runner uses this with is_connection_enabled to find running clients.
+    pub fn all_ids(&self) -> Vec<String> {
+        self.clients.iter().map(|r| r.id.clone()).collect()
     }
 
     pub fn get_summaries_for_ids(&self, ids: &[String]) -> Vec<ClientSummary> {
@@ -270,6 +289,34 @@ impl SimulatedStore {
 
     pub fn clear(&self) {
         self.clients.clear();
+    }
+
+    /// Update server time estimate, actual, error, and current_display_color for a client (used by runner).
+    pub fn update_display(
+        &self,
+        id: &str,
+        server_time_estimate_ms: Option<i64>,
+        current_display_color: Option<String>,
+        server_time_actual_ms: Option<u64>,
+        server_time_estimate_error_ms: Option<i64>,
+    ) -> bool {
+        let mut r = match self.clients.get_mut(id) {
+            Some(x) => x,
+            None => return false,
+        };
+        if let Some(t) = server_time_estimate_ms {
+            r.server_time_estimate = Some(t as f64);
+        }
+        if let Some(ref c) = current_display_color {
+            r.current_display_color = Some(c.clone());
+        }
+        if server_time_actual_ms.is_some() {
+            r.server_time_actual_ms = server_time_actual_ms;
+        }
+        if server_time_estimate_error_ms.is_some() {
+            r.server_time_estimate_error_ms = server_time_estimate_error_ms;
+        }
+        true
     }
 }
 

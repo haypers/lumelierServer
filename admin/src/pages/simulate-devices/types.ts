@@ -25,12 +25,24 @@ export interface SimulatedClient {
   deviceId: string;
   connectionEnabled: boolean;
   serverTimeEstimate: number | null;
+  /** Actual server time (ms) when last estimate was recorded; for comparison. */
+  serverTimeActualMs?: number | null;
+  /** Estimate minus actual (ms); negative = client was behind. */
+  serverTimeEstimateErrorMs?: number | null;
   currentDisplayColor: string | null;
   pingsEverySecDist: DistributionCurve;
   clientToServerDelayDist: DistributionCurve;
   serverToClientDelayDist: DistributionCurve;
   timeBetweenLagSpikesDist: DistributionCurve;
   lagSpikeDurationDist: DistributionCurve;
+  /** Time until next poll (ms); only when client is in runner. */
+  nextPollInMs?: number | null;
+  /** Time until next lag spike (ms). */
+  nextLagSpikeInMs?: number | null;
+  /** Time until current lag ends (ms); 0 when not in lag. */
+  lagEndsInMs?: number | null;
+  /** Last round-trip time (ms) of the last completed poll. */
+  lastRttMs?: number | null;
 }
 
 /** Response from GET /clients/:id — full client plus per-chart sample history. */

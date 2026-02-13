@@ -112,9 +112,21 @@ export function renderDetailsPane(
   const dl = document.createElement("dl");
   dl.className = "detail-grid";
 
-  const addRow = (label: string, value: string): void => {
+  const addRow = (label: string, value: string, tooltip?: string): void => {
     const dt = document.createElement("dt");
-    dt.textContent = label;
+    if (tooltip != null && tooltip !== "") {
+      const wrap = document.createElement("span");
+      wrap.className = "detail-grid-dt-content";
+      wrap.appendChild(
+        createInfoBubble({ tooltipText: tooltip, ariaLabel: "Info" })
+      );
+      const labelSpan = document.createElement("span");
+      labelSpan.textContent = label;
+      wrap.appendChild(labelSpan);
+      dt.appendChild(wrap);
+    } else {
+      dt.textContent = label;
+    }
     const dd = document.createElement("dd");
     dd.className = "detail-readonly";
     dd.textContent = value;
@@ -122,9 +134,49 @@ export function renderDetailsPane(
     dl.appendChild(dd);
   };
 
-  addRow("Device ID", client.deviceId);
-  addRow("Server time estimate", client.serverTimeEstimate != null ? String(client.serverTimeEstimate) : "—");
-  addRow("Connection", client.connectionEnabled ? "Enabled" : "Disabled");
+  addRow(
+    "Device ID",
+    client.deviceId,
+    "The device identifier sent to the main server on each poll."
+  );
+  const serverTimeStr =
+    client.serverTimeEstimate != null &&
+    client.serverTimeActualMs != null &&
+    client.serverTimeEstimateErrorMs != null
+      ? `${client.serverTimeEstimate} (actual was ${client.serverTimeActualMs}) ${client.serverTimeEstimateErrorMs >= 0 ? "+" : ""}${client.serverTimeEstimateErrorMs}ms`
+      : client.serverTimeEstimate != null
+        ? String(client.serverTimeEstimate)
+        : "—";
+  addRow(
+    "Server time estimate",
+    serverTimeStr,
+    "The client's estimate of server time from clock sync; when available, actual server time and the error in ms are shown."
+  );
+  addRow(
+    "Connection",
+    client.connectionEnabled ? "Enabled" : "Disabled",
+    "Whether this simulated client is allowed to poll the main server."
+  );
+  addRow(
+    "Next poll in",
+    client.nextPollInMs != null ? `${client.nextPollInMs} ms` : "—",
+    "Time until the next poll request is sent (ms)."
+  );
+  addRow(
+    "Next lag spike in",
+    client.nextLagSpikeInMs != null ? `${client.nextLagSpikeInMs} ms` : "—",
+    "Time until the next simulated lag spike starts (ms)."
+  );
+  addRow(
+    "Lag ends in",
+    client.lagEndsInMs != null ? `${client.lagEndsInMs} ms` : "—",
+    "Time until the current lag spike ends (ms); 0 when not in lag."
+  );
+  addRow(
+    "Last calculated RTT",
+    client.lastRttMs != null ? `${client.lastRttMs} ms` : "—",
+    "Round-trip time (C2S + S2C) of the last completed poll (ms)."
+  );
 
   container.appendChild(dl);
 

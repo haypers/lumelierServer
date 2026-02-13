@@ -26,7 +26,7 @@ import {
 } from "./api";
 import { createClientWithRandomCurves } from "./client-store";
 import { generateClientFromProfile } from "./profile-generation";
-import { renderClientGrid } from "./client-grid";
+import { updateClientGrid } from "./client-grid";
 import {
   renderDetailsPane,
   DISTRIBUTION_CHART_PRESETS,
@@ -812,7 +812,7 @@ function updateGridLayoutAndRender(): void {
   pageIndex = Math.min(pageIndex, Math.max(0, totalPages - 1));
   const start = pageIndex * pageSize;
   const pageClients = clients.slice(start, start + pageSize);
-  renderClientGrid(gridContainer, pageClients, selectedId, noSignalSvg, (id) => {
+  updateClientGrid(gridContainer, pageClients, selectedId, noSignalSvg, (id) => {
     selectedId = id;
     selectedClientFull = null;
     selectedAnchor = null;
@@ -947,15 +947,19 @@ function refresh(): void {
     if (detailsRefreshApi && detailsRefreshApi.getIntervalMs() > 0 && selectedId != null && !detailsRefreshTimer) {
       detailsRefreshTimer = setInterval(() => {
         if (selectedId == null) return;
+        detailsRefreshApi?.requestStarted();
         detailsRefreshApi?.recordRefresh();
+        let success = false;
         getClient(selectedId)
           .then((full) => {
             if (selectedId != null) {
               selectedClientFull = full;
+              success = true;
               refresh();
             }
           })
-          .catch(() => {});
+          .catch(() => refresh())
+          .finally(() => detailsRefreshApi?.requestCompleted(success));
       }, detailsRefreshApi.getIntervalMs());
     }
   }
@@ -1085,6 +1089,8 @@ export function render(container: HTMLElement): void {
     detailsRefreshApi = createRefreshEvery({
       name: "simulate-devices-details-refresh",
       defaultMs: 1000,
+      responseTimeoutMs: DEFAULT_RESPONSE_TIMEOUT_MS,
+      disconnectTooltip: "The simulated client server is not responding to our requests.",
       infoTooltip: "Refreshing these values often can cause UI lag.",
       onIntervalChange(ms) {
         if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
@@ -1092,15 +1098,19 @@ export function render(container: HTMLElement): void {
         if (ms > 0 && selectedId != null) {
           detailsRefreshTimer = setInterval(() => {
             if (selectedId == null) return;
+            detailsRefreshApi?.requestStarted();
             detailsRefreshApi?.recordRefresh();
+            let success = false;
             getClient(selectedId)
               .then((full) => {
                 if (selectedId != null) {
                   selectedClientFull = full;
+                  success = true;
                   refresh();
                 }
               })
-              .catch(() => {});
+              .catch(() => refresh())
+              .finally(() => detailsRefreshApi?.requestCompleted(success));
           }, ms);
         }
       },

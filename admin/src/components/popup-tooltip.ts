@@ -60,38 +60,66 @@ function showTooltipPortal(trigger: HTMLElement, text: string, opts?: TooltipPor
 /**
  * Attaches mouseenter/mouseleave to position the tooltip and show/hide it.
  * Uses a body-level portal so the tooltip is never clipped by table overflow or stacking.
+ * If the trigger is removed from the DOM (e.g. pane re-render), the portal is removed via MutationObserver.
  */
 export function attachTooltipBehavior(trigger: HTMLElement, tooltipEl: HTMLElement): void {
   let portal: HTMLElement | null = null;
-  trigger.addEventListener("mouseenter", () => {
-    const text = tooltipEl.textContent ?? "";
-    portal = showTooltipPortal(trigger, text);
-  });
-  trigger.addEventListener("mouseleave", () => {
+  let observer: MutationObserver | null = null;
+
+  function cleanup(): void {
     if (portal?.parentNode) {
       portal.remove();
       portal = null;
     }
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+  }
+
+  trigger.addEventListener("mouseenter", () => {
+    const text = tooltipEl.textContent ?? "";
+    portal = showTooltipPortal(trigger, text);
+    observer = new MutationObserver(() => {
+      if (!trigger.isConnected) cleanup();
+    });
+    const parent = trigger.parentElement ?? document.body;
+    observer.observe(parent, { childList: true, subtree: true });
   });
+  trigger.addEventListener("mouseleave", cleanup);
 }
 
 /**
  * Show tooltip only when getTooltipText() returns non-empty (e.g. when a button is disabled).
  * Use for disabled buttons: wrap the button in a span, call this with the span; tooltip appears above on hover when disabled.
+ * Cleans up portal when trigger is removed from DOM (MutationObserver).
  */
 export function attachTooltipWhen(trigger: HTMLElement, getTooltipText: () => string): void {
   let portal: HTMLElement | null = null;
-  trigger.addEventListener("mouseenter", () => {
-    const text = getTooltipText();
-    if (!text) return;
-    portal = showTooltipPortal(trigger, text, { above: true });
-  });
-  trigger.addEventListener("mouseleave", () => {
+  let observer: MutationObserver | null = null;
+
+  function cleanup(): void {
     if (portal?.parentNode) {
       portal.remove();
       portal = null;
     }
+    if (observer) {
+      observer.disconnect();
+      observer = null;
+    }
+  }
+
+  trigger.addEventListener("mouseenter", () => {
+    const text = getTooltipText();
+    if (!text) return;
+    portal = showTooltipPortal(trigger, text, { above: true });
+    observer = new MutationObserver(() => {
+      if (!trigger.isConnected) cleanup();
+    });
+    const parent = trigger.parentElement ?? document.body;
+    observer.observe(parent, { childList: true, subtree: true });
   });
+  trigger.addEventListener("mouseleave", cleanup);
 }
 
 /**
