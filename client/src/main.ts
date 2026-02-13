@@ -60,14 +60,13 @@ let lastEvents: PollEvent[] = [];
 let lastDeviceId = "";
 
 const POLL_INTERVAL_MS = 2500;
-const CLOCK_UPDATE_MS = 100;
 const OFFSET_SAMPLES_MAX = 5;
 
 /** Offset from local time to server time (ms). serverTime ≈ Date.now() + offset */
 let clockOffset = 0;
 /** Recent offset samples for median smoothing. */
 let offsetSamples: number[] = [];
-let clockIntervalStarted = false;
+let rafStarted = false;
 /** RTT from previous poll (ms), sent on next request for server to store. */
 let lastRttMs: number | null = null;
 
@@ -157,13 +156,46 @@ function render(events: PollEvent[], deviceId: string) {
     <p style="font-size:11px;color:#666;word-break:break-all;"><strong>Device ID:</strong> ${deviceId || "—"}</p>
     <p>Server time: <span id="server-time">${serverTime}</span></p>
     <p>Events: ${events.length}</p>
-    <div style="width:80px;height:80px;background:${firstColor};border:1px solid #333;"></div>
+    <div id="color-swatch" style="width:80px;height:80px;background:${firstColor};border:1px solid #333;"></div>
   `;
 }
 
-function updateClockDisplay() {
-  const el = document.getElementById("server-time");
-  if (el) el.textContent = String(getServerTime());
+/** Lightweight per-frame update: only recompute color and update DOM when needed. */
+function tick(): void {
+  const serverTimeEl = document.getElementById("server-time");
+  const swatchEl = document.getElementById("color-swatch");
+  const serverTime = getServerTime();
+  if (serverTimeEl) serverTimeEl.textContent = String(serverTime);
+
+  if (!swatchEl || broadcastCache == null) {
+    requestAnimationFrame(tick);
+    return;
+  }
+  const positionSec = getBroadcastPlaybackSec();
+  let color: string | null = null;
+  if (positionSec != null) {
+    color = getColorFromBroadcastTimeline(positionSec);
+    if (color != null) lastAppliedBroadcastColor = color;
+  } else if (
+    broadcastCache.playAtMs != null &&
+    broadcastCache.pauseAtMs != null &&
+    getServerTime() >= broadcastCache.pauseAtMs
+  ) {
+    const pausedSec =
+      broadcastCache.readheadSec + (broadcastCache.pauseAtMs - broadcastCache.playAtMs) / 1000;
+    color = getColorFromBroadcastTimeline(pausedSec);
+    if (color != null) lastAppliedBroadcastColor = color;
+  }
+  const nextColor =
+    color ??
+    lastAppliedBroadcastColor ??
+    lastDisplayedColor ??
+    (lastEvents[0]?.color ?? "#000000");
+  if (nextColor !== lastDisplayedColor) {
+    lastDisplayedColor = nextColor;
+    swatchEl.style.background = nextColor;
+  }
+  requestAnimationFrame(tick);
 }
 
 async function pollLoop() {
@@ -194,15 +226,11 @@ async function pollLoop() {
 
     lastEvents = data.events;
     lastDeviceId = displayId;
-    render(data.events, displayId);
+    render(lastEvents, lastDeviceId);
 
-    if (!clockIntervalStarted) {
-      clockIntervalStarted = true;
-      setInterval(updateClockDisplay, CLOCK_UPDATE_MS);
-      setInterval(() => {
-        const positionSec = getBroadcastPlaybackSec();
-        if (positionSec != null) render(lastEvents, lastDeviceId);
-      }, 100);
+    if (!rafStarted) {
+      rafStarted = true;
+      requestAnimationFrame(tick);
     }
   } catch (e) {
     const app = document.getElementById("app");
