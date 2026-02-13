@@ -10,6 +10,8 @@ pub struct RunnerClientState {
     pub next_lag_spike_at_ms: u64,
     /// 0 = not in block; else drop all in/out until this time (ms).
     pub lag_spike_block_until_ms: u64,
+    /// Next wall-clock time (ms) to run the ~60 Hz display color update; staggered per client.
+    pub next_display_check_at_ms: u64,
     pub sync_state: ClientSyncState,
     /// C2S + S2C of the last completed round; sent as X-Ping-Ms on the next poll.
     pub last_rtt_ms: Option<u32>,
@@ -29,11 +31,13 @@ impl RunnerState {
 
     /// Ensure a client is in the runner state. If newly inserted, use the given initial timestamps
     /// (caller samples pingsEverySecDist and timeBetweenLagSpikesDist at use time).
+    /// initial_next_display_check_at_ms should be now + random(0..DISPLAY_INTERVAL_MS) to stagger display ticks.
     pub fn ensure_client(
         &self,
         client_id: String,
         initial_next_poll_at_ms: u64,
         initial_next_lag_spike_at_ms: u64,
+        initial_next_display_check_at_ms: u64,
     ) {
         if self.clients.contains_key(&client_id) {
             return;
@@ -44,6 +48,7 @@ impl RunnerState {
                 next_poll_at_ms: initial_next_poll_at_ms,
                 next_lag_spike_at_ms: initial_next_lag_spike_at_ms,
                 lag_spike_block_until_ms: 0,
+                next_display_check_at_ms: initial_next_display_check_at_ms,
                 sync_state: ClientSyncState::default(),
                 last_rtt_ms: None,
             },

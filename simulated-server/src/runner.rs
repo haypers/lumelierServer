@@ -12,6 +12,8 @@ use std::time::{Duration, UNIX_EPOCH};
 use tokio::sync::Mutex;
 
 const TICK_INTERVAL_MS: u64 = 50;
+/// ~60 Hz display tick for re-evaluating current color from broadcast timeline.
+const DISPLAY_INTERVAL_MS: u64 = 16;
 const MAX_IN_FLIGHT: usize = 1000;
 
 fn now_ms() -> u64 {
@@ -88,9 +90,12 @@ pub async fn run_runner(config: RunnerConfig) {
 
     let mut tick_interval = tokio::time::interval(Duration::from_millis(TICK_INTERVAL_MS));
     tick_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    let mut display_interval = tokio::time::interval(Duration::from_millis(DISPLAY_INTERVAL_MS));
+    display_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
-        tick_interval.tick().await;
+        tokio::select! {
+            _ = tick_interval.tick() => {
         let now = now_ms();
 
         // 1) Sync runner state with store: add new clients, remove deleted
@@ -126,7 +131,8 @@ pub async fn run_runner(config: RunnerConfig) {
                         &mut rng,
                     );
                     let next_lag = now + (lag_sec * 1000.0) as u64;
-                    config.runner_state.ensure_client(id.clone(), next_poll, next_lag);
+                    let phase_ms = rng.gen_range(0..DISPLAY_INTERVAL_MS);
+                    config.runner_state.ensure_client(id.clone(), next_poll, next_lag, now + phase_ms);
                 }
             }
         }
@@ -339,6 +345,21 @@ pub async fn run_runner(config: RunnerConfig) {
                 Some(actual_ms),
                 Some(error_ms),
             );
+        }
+            }
+            _ = display_interval.tick() => {
+                let now = now_ms();
+                for mut entry in config.runner_state.clients.iter_mut() {
+                    let client_id = entry.key().clone();
+                    let state = entry.value_mut();
+                    if now < state.next_display_check_at_ms {
+                        continue;
+                    }
+                    let color = client_sync::get_display_color_at(&state.sync_state, now);
+                    let _ = config.store.update_display(&client_id, None, Some(color), None, None);
+                    state.next_display_check_at_ms = now + DISPLAY_INTERVAL_MS;
+                }
+            }
         }
     }
 }

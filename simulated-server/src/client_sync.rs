@@ -131,6 +131,43 @@ fn is_broadcast_timeline_valid(broadcast: &PollBroadcast) -> bool {
     broadcast.timeline.items.is_empty() || true
 }
 
+/// Compute current display color from sync state and time. Read-only; does not mutate state.
+/// Used by the display tick to advance color at ~60 Hz between poll deliveries.
+pub fn get_display_color_at(state: &ClientSyncState, now_ms: u64) -> String {
+    if state.broadcast_cache.is_none() {
+        return state
+            .last_displayed_color
+            .clone()
+            .unwrap_or_else(|| "#000000".to_string());
+    }
+    let server_time = get_server_time(now_ms, state.clock_offset_ms);
+    let position_sec = get_broadcast_playback_sec(state, now_ms);
+    let broadcast_color = position_sec.and_then(|pos| {
+        get_color_from_broadcast_timeline(
+            &state.broadcast_cache.as_ref().unwrap().timeline,
+            pos,
+        )
+    });
+    let broadcast_color = if let Some(c) = broadcast_color {
+        Some(c)
+    } else if state.broadcast_cache.as_ref().and_then(|b| b.play_at_ms).is_some()
+        && state.broadcast_cache.as_ref().and_then(|b| b.pause_at_ms).is_some()
+        && server_time >= state.broadcast_paused_at_ms.unwrap_or(0) as i64
+    {
+        let cache = state.broadcast_cache.as_ref().unwrap();
+        let paused_pos = cache.readhead_sec
+            + (state.broadcast_paused_at_ms.unwrap_or(0) - cache.play_at_ms.unwrap_or(0)) as f64
+                / 1000.0;
+        get_color_from_broadcast_timeline(&cache.timeline, paused_pos)
+    } else {
+        None
+    };
+    broadcast_color
+        .or_else(|| state.last_applied_broadcast_color.clone())
+        .or_else(|| state.last_displayed_color.clone())
+        .unwrap_or_else(|| "#000000".to_string())
+}
+
 /// Apply a poll response: update clock sync, broadcast cache, and compute current display color.
 /// rtt_ms is the simulated RTT for this round (C2S + S2C). now_ms is current time when we "deliver" the response.
 /// Returns (display_color, server_time_estimate).
