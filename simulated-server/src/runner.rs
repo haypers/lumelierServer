@@ -13,12 +13,13 @@ use crate::store::{self, SamplePoint, SimulatedStore};
 use rand::Rng;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::pin::Pin;
 use std::time::{Duration, UNIX_EPOCH};
+use tokio::sync::mpsc;
 use tokio::time::sleep;
 
 const SYNC_INTERVAL_MS: u64 = 1000;
-/// ~60 Hz display tick for re-evaluating current color from broadcast timeline.
-const DISPLAY_INTERVAL_MS: u64 = 16;
+const DISPLAY_FALLBACK_SEC: u64 = 15;
 
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
@@ -85,63 +86,54 @@ pub async fn run_runner(config: RunnerConfig) {
 
     let mut sync_interval = tokio::time::interval(Duration::from_millis(SYNC_INTERVAL_MS));
     sync_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
-    let mut display_interval = tokio::time::interval(Duration::from_millis(DISPLAY_INTERVAL_MS));
-    display_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
     loop {
-        tokio::select! {
-            _ = sync_interval.tick() => {
-                let now = now_ms();
-                let ids = config.store.all_ids();
-                let ids_set: HashSet<String> = ids.iter().cloned().collect();
-                config.runner_state.retain_only_ids(&ids_set);
+        sync_interval.tick().await;
+        let now = now_ms();
+        let ids = config.store.all_ids();
+        let ids_set: HashSet<String> = ids.iter().cloned().collect();
+        config.runner_state.retain_only_ids(&ids_set);
 
-                let mut rng = rand::thread_rng();
-                for id in &ids {
-                    if !config.runner_state.clients.contains_key(id) {
-                        let record = match config.store.get_full(id) {
-                            Some(r) => r,
-                            None => continue,
-                        };
-                        let next_poll = now;
-                        let anchors = curve_anchors(&record, "timeBetweenLagSpikesDist");
-                        let lag_sec = record_sample_sec(
-                            &config.store,
-                            id,
-                            "timeBetweenLagSpikesDist",
-                            &anchors,
-                            &mut rng,
-                        );
-                        let next_lag = now + (lag_sec * 1000.0) as u64;
-                        let phase_ms = rng.gen_range(0..DISPLAY_INTERVAL_MS);
-                        config.runner_state.ensure_client(id.clone(), next_poll, next_lag, now + phase_ms);
+        let mut rng = rand::thread_rng();
+        for id in &ids {
+            if !config.runner_state.clients.contains_key(id) {
+                let record = match config.store.get_full(id) {
+                    Some(r) => r,
+                    None => continue,
+                };
+                let next_poll = now;
+                let anchors = curve_anchors(&record, "timeBetweenLagSpikesDist");
+                let lag_sec = record_sample_sec(
+                    &config.store,
+                    id,
+                    "timeBetweenLagSpikesDist",
+                    &anchors,
+                    &mut rng,
+                );
+                let next_lag = now + (lag_sec * 1000.0) as u64;
+                config.runner_state.ensure_client(id.clone(), next_poll, next_lag);
 
-                        let client_id = id.clone();
-                        let config_lag = config.clone();
-                        tokio::spawn(async move {
-                            client_lag_loop(client_id, config_lag).await;
-                        });
-                        let client_id = id.clone();
-                        let config_poll = config.clone();
-                        let client_poll = client.clone();
-                        tokio::spawn(async move {
-                            client_poll_loop(client_id, config_poll, client_poll).await;
-                        });
-                    }
+                let client_id = id.clone();
+                let (tx, rx) = mpsc::unbounded_channel();
+                if let Some(mut state) = config.runner_state.clients.get_mut(&client_id) {
+                    state.display_sync_tx = Some(tx);
                 }
-            }
-            _ = display_interval.tick() => {
-                let now = now_ms();
-                for mut entry in config.runner_state.clients.iter_mut() {
-                    let client_id = entry.key().clone();
-                    let state = entry.value_mut();
-                    if now < state.next_display_check_at_ms {
-                        continue;
-                    }
-                    let color = client_sync::get_display_color_at(&state.sync_state, now);
-                    let _ = config.store.update_display(&client_id, None, Some(color), None, None);
-                    state.next_display_check_at_ms = now + DISPLAY_INTERVAL_MS;
-                }
+                let config_display = config.clone();
+                tokio::spawn(async move {
+                    client_display_loop(client_id, config_display, rx).await;
+                });
+
+                let client_id = id.clone();
+                let config_lag = config.clone();
+                tokio::spawn(async move {
+                    client_lag_loop(client_id, config_lag).await;
+                });
+                let client_id = id.clone();
+                let config_poll = config.clone();
+                let client_poll = client.clone();
+                tokio::spawn(async move {
+                    client_poll_loop(client_id, config_poll, client_poll).await;
+                });
             }
         }
     }
@@ -365,6 +357,78 @@ async fn client_poll_loop(client_id: String, config: Arc<RunnerConfig>, client: 
             Some(deliver_at),
             Some(error_ms),
         );
+        if let Some(tx) = state.display_sync_tx.as_ref() {
+            let _ = tx.send(());
+        }
+    }
+}
+
+async fn client_display_loop(
+    client_id: String,
+    config: Arc<RunnerConfig>,
+    mut rx: mpsc::UnboundedReceiver<()>,
+) {
+    let mut sleep = Box::pin(tokio::time::sleep(Duration::from_millis(0)));
+    loop {
+        tokio::select! {
+            res = rx.recv() => match res {
+                Some(()) => sync_and_schedule(&client_id, &config, &mut sleep).await,
+                None => return,
+            },
+            _ = sleep.as_mut() => {
+                sync_and_schedule(&client_id, &config, &mut sleep).await;
+            }
+        }
+    }
+}
+
+async fn sync_and_schedule(
+    client_id: &str,
+    config: &RunnerConfig,
+    sleep: &mut Pin<Box<tokio::time::Sleep>>,
+) {
+    let state_opt = config.runner_state.clients.get_mut(client_id);
+    let mut state = match state_opt {
+        Some(s) => s,
+        None => return,
+    };
+    let now = now_ms();
+
+    if state.sync_state.broadcast_cache.is_none() {
+        let color = state
+            .sync_state
+            .last_displayed_color
+            .clone()
+            .unwrap_or_else(|| "#000000".to_string());
+        let _ = config.store.update_display(client_id, None, Some(color), None, None);
+        drop(state);
+        *sleep = Box::pin(tokio::time::sleep(Duration::from_secs(DISPLAY_FALLBACK_SEC)));
+        return;
+    }
+
+    let position_sec = client_sync::get_broadcast_playback_sec(&state.sync_state, now);
+    let current_color = client_sync::get_display_color_at(&state.sync_state, now);
+    if state.sync_state.last_displayed_color.as_deref() != Some(current_color.as_str()) {
+        state.sync_state.last_displayed_color = Some(current_color.clone());
+        let _ = config.store.update_display(client_id, None, Some(current_color), None, None);
+    }
+
+    if position_sec.is_none() {
+        drop(state);
+        *sleep = Box::pin(tokio::time::sleep(Duration::from_secs(DISPLAY_FALLBACK_SEC)));
+        return;
+    }
+    let position_sec = position_sec.unwrap();
+    let timeline = &state.sync_state.broadcast_cache.as_ref().unwrap().timeline;
+    let next_sec = client_sync::next_color_change_sec(timeline, position_sec);
+    drop(state);
+
+    if let Some(next_sec) = next_sec {
+        let delay_sec = (next_sec - position_sec).max(0.0);
+        let delay_ms = (delay_sec * 1000.0).round().max(1.0) as u64;
+        *sleep = Box::pin(tokio::time::sleep(Duration::from_millis(delay_ms)));
+    } else {
+        *sleep = Box::pin(tokio::time::sleep(Duration::from_secs(DISPLAY_FALLBACK_SEC)));
     }
 }
 

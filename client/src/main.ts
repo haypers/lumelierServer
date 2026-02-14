@@ -61,12 +61,14 @@ let lastDeviceId = "";
 
 const POLL_INTERVAL_MS = 2500;
 const OFFSET_SAMPLES_MAX = 5;
+const DISPLAY_FALLBACK_MS = 15000;
 
 /** Offset from local time to server time (ms). serverTime ≈ Date.now() + offset */
 let clockOffset = 0;
 /** Recent offset samples for median smoothing. */
 let offsetSamples: number[] = [];
-let rafStarted = false;
+/** Timeout for next color change or 15s fallback; cleared and reset when sync runs. */
+let nextColorChangeTimeoutId: ReturnType<typeof setTimeout> | null = null;
 /** RTT from previous poll (ms), sent on next request for server to store. */
 let lastRttMs: number | null = null;
 
@@ -104,6 +106,96 @@ function getColorFromBroadcastTimeline(positionSec: number): string | null {
     if (ev.startSec <= positionSec) color = ev.color ?? null;
   }
   return color;
+}
+
+/** Next Set Color Broadcast startSec strictly after positionSec, or null if none. */
+function getNextColorChangeStartSec(positionSec: number): number | null {
+  if (!broadcastCache?.timeline?.items) return null;
+  const events = broadcastCache.timeline.items
+    .filter((it) => it.effectType === EVENT_TYPE_SET_COLOR_BROADCAST && it.color != null)
+    .sort((a, b) => a.startSec - b.startSec);
+  const next = events.find((ev) => ev.startSec > positionSec);
+  return next?.startSec ?? null;
+}
+
+function syncDisplayAndScheduleNext(): void {
+  const swatchEl = document.getElementById("color-swatch");
+  const serverTimeEl = document.getElementById("server-time");
+  if (serverTimeEl) serverTimeEl.textContent = String(getServerTime());
+
+  if (broadcastCache == null) {
+    const color =
+      lastDisplayedColor ?? lastAppliedBroadcastColor ?? (lastEvents[0]?.color ?? "#000000");
+    if (swatchEl && color !== lastDisplayedColor) {
+      lastDisplayedColor = color;
+      swatchEl.style.background = color;
+    } else if (color !== lastDisplayedColor) {
+      lastDisplayedColor = color;
+    }
+    if (nextColorChangeTimeoutId != null) clearTimeout(nextColorChangeTimeoutId);
+    nextColorChangeTimeoutId = setTimeout(() => {
+      nextColorChangeTimeoutId = null;
+      syncDisplayAndScheduleNext();
+    }, DISPLAY_FALLBACK_MS);
+    return;
+  }
+
+  let positionSec: number | null = getBroadcastPlaybackSec();
+  if (positionSec == null && broadcastCache.playAtMs != null && broadcastPausedAtMs != null && getServerTime() >= broadcastPausedAtMs) {
+    positionSec =
+      (broadcastCache.readheadSec ?? 0) + (broadcastPausedAtMs - broadcastCache.playAtMs) / 1000;
+  }
+
+  let currentColor: string | null = null;
+  if (positionSec != null) {
+    currentColor = getColorFromBroadcastTimeline(positionSec);
+    if (currentColor != null) lastAppliedBroadcastColor = currentColor;
+  } else if (
+    broadcastCache.playAtMs != null &&
+    broadcastCache.pauseAtMs != null &&
+    getServerTime() >= broadcastCache.pauseAtMs
+  ) {
+    const pausedSec =
+      (broadcastCache.readheadSec ?? 0) + (broadcastCache.pauseAtMs - broadcastCache.playAtMs) / 1000;
+    currentColor = getColorFromBroadcastTimeline(pausedSec);
+    if (currentColor != null) lastAppliedBroadcastColor = currentColor;
+  }
+  const color =
+    currentColor ??
+    lastAppliedBroadcastColor ??
+    lastDisplayedColor ??
+    (lastEvents[0]?.color ?? "#000000");
+  if (color !== lastDisplayedColor) {
+    lastDisplayedColor = color;
+    if (swatchEl) swatchEl.style.background = color;
+  }
+
+  const isPlaying = getBroadcastPlaybackSec() != null;
+  if (!isPlaying || positionSec == null) {
+    if (nextColorChangeTimeoutId != null) clearTimeout(nextColorChangeTimeoutId);
+    nextColorChangeTimeoutId = setTimeout(() => {
+      nextColorChangeTimeoutId = null;
+      syncDisplayAndScheduleNext();
+    }, DISPLAY_FALLBACK_MS);
+    return;
+  }
+
+  const nextStartSec = getNextColorChangeStartSec(positionSec);
+  if (nextStartSec == null) {
+    if (nextColorChangeTimeoutId != null) clearTimeout(nextColorChangeTimeoutId);
+    nextColorChangeTimeoutId = setTimeout(() => {
+      nextColorChangeTimeoutId = null;
+      syncDisplayAndScheduleNext();
+    }, DISPLAY_FALLBACK_MS);
+    return;
+  }
+
+  const delayMs = Math.max(1, (nextStartSec - positionSec) * 1000);
+  if (nextColorChangeTimeoutId != null) clearTimeout(nextColorChangeTimeoutId);
+  nextColorChangeTimeoutId = setTimeout(() => {
+    nextColorChangeTimeoutId = null;
+    syncDisplayAndScheduleNext();
+  }, delayMs);
 }
 
 async function fetchPoll(): Promise<PollResponse> {
@@ -160,44 +252,6 @@ function render(events: PollEvent[], deviceId: string) {
   `;
 }
 
-/** Lightweight per-frame update: only recompute color and update DOM when needed. */
-function tick(): void {
-  const serverTimeEl = document.getElementById("server-time");
-  const swatchEl = document.getElementById("color-swatch");
-  const serverTime = getServerTime();
-  if (serverTimeEl) serverTimeEl.textContent = String(serverTime);
-
-  if (!swatchEl || broadcastCache == null) {
-    requestAnimationFrame(tick);
-    return;
-  }
-  const positionSec = getBroadcastPlaybackSec();
-  let color: string | null = null;
-  if (positionSec != null) {
-    color = getColorFromBroadcastTimeline(positionSec);
-    if (color != null) lastAppliedBroadcastColor = color;
-  } else if (
-    broadcastCache.playAtMs != null &&
-    broadcastCache.pauseAtMs != null &&
-    getServerTime() >= broadcastCache.pauseAtMs
-  ) {
-    const pausedSec =
-      broadcastCache.readheadSec + (broadcastCache.pauseAtMs - broadcastCache.playAtMs) / 1000;
-    color = getColorFromBroadcastTimeline(pausedSec);
-    if (color != null) lastAppliedBroadcastColor = color;
-  }
-  const nextColor =
-    color ??
-    lastAppliedBroadcastColor ??
-    lastDisplayedColor ??
-    (lastEvents[0]?.color ?? "#000000");
-  if (nextColor !== lastDisplayedColor) {
-    lastDisplayedColor = nextColor;
-    swatchEl.style.background = nextColor;
-  }
-  requestAnimationFrame(tick);
-}
-
 async function pollLoop() {
   try {
     const data = await fetchPoll();
@@ -227,11 +281,7 @@ async function pollLoop() {
     lastEvents = data.events;
     lastDeviceId = displayId;
     render(lastEvents, lastDeviceId);
-
-    if (!rafStarted) {
-      rafStarted = true;
-      requestAnimationFrame(tick);
-    }
+    syncDisplayAndScheduleNext();
   } catch (e) {
     const app = document.getElementById("app");
     if (app) app.innerHTML = `<p>Error: ${String(e)}</p>`;

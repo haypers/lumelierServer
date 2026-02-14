@@ -80,7 +80,8 @@ fn get_server_time(now_ms: u64, clock_offset_ms: i64) -> i64 {
     now_ms as i64 + clock_offset_ms
 }
 
-fn get_broadcast_playback_sec(
+/// Current playback position in timeline sec, or None if not yet playing or paused. Pub for display sync in runner.
+pub(crate) fn get_broadcast_playback_sec(
     state: &ClientSyncState,
     now_ms: u64,
 ) -> Option<f64> {
@@ -125,6 +126,26 @@ fn get_color_from_broadcast_timeline(
         }
     }
     color
+}
+
+/// Return the timeline position (sec) of the next Set Color Broadcast event strictly after position_sec, or None if none.
+pub fn next_color_change_sec(timeline: &BroadcastTimeline, position_sec: f64) -> Option<f64> {
+    let mut events: Vec<_> = timeline
+        .items
+        .iter()
+        .filter(|it| {
+            it.effect_type
+                .as_deref()
+                .map(|e| e == EVENT_TYPE_SET_COLOR_BROADCAST)
+                .unwrap_or(false)
+                && it.color.is_some()
+        })
+        .collect();
+    events.sort_by(|a, b| a.start_sec.partial_cmp(&b.start_sec).unwrap_or(std::cmp::Ordering::Equal));
+    events
+        .into_iter()
+        .find(|ev| ev.start_sec > position_sec)
+        .map(|ev| ev.start_sec)
 }
 
 fn is_broadcast_timeline_valid(broadcast: &PollBroadcast) -> bool {
