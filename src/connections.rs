@@ -188,4 +188,73 @@ impl ConnectionRegistry {
     pub fn remove_disconnected(&self, now_ms: u64) {
         self.devices.retain(|_, d| d.is_connected(now_ms));
     }
+
+    /// Returns all device rows, optionally filtered to connected only.
+    pub fn list_rows_filtered(&self, now_ms: u64, connected_only: bool) -> Vec<DeviceRow> {
+        let rows: Vec<DeviceRow> = self
+            .devices
+            .iter()
+            .map(|r| {
+                let d = r.value();
+                let connected = d.is_connected(now_ms);
+                let connection_status = if connected {
+                    if d.handshake_returned {
+                        "connected, returned handshake".to_string()
+                    } else {
+                        "connected, no handshake".to_string()
+                    }
+                } else {
+                    "disconnected".to_string()
+                };
+                DeviceRow {
+                    device_id: d.device_id.clone(),
+                    connection_status,
+                    first_connected_at_ms: d.first_connected_at_ms,
+                    average_ping_ms: d.average_ping_ms(),
+                    latest_rtt_ms: d.ping_samples.last().copied(),
+                    disconnect_events: d.disconnect_events,
+                    estimated_uptime_ms: d.estimated_uptime_ms(now_ms),
+                    time_since_last_contact_ms: now_ms.saturating_sub(d.last_seen_at_ms),
+                }
+            })
+            .collect();
+        if connected_only {
+            rows.into_iter()
+                .filter(|r| r.connection_status.starts_with("connected"))
+                .collect()
+        } else {
+            rows
+        }
+    }
+
+    /// Returns device rows for the given IDs in the same order as `ids`. Missing IDs are skipped.
+    pub fn rows_by_ids(&self, now_ms: u64, ids: &[String]) -> Vec<DeviceRow> {
+        ids.iter()
+            .filter_map(|id| {
+                self.devices.get(id).map(|r| {
+                    let d = r.value();
+                    let connected = d.is_connected(now_ms);
+                    let connection_status = if connected {
+                        if d.handshake_returned {
+                            "connected, returned handshake".to_string()
+                        } else {
+                            "connected, no handshake".to_string()
+                        }
+                    } else {
+                        "disconnected".to_string()
+                    };
+                    DeviceRow {
+                        device_id: d.device_id.clone(),
+                        connection_status,
+                        first_connected_at_ms: d.first_connected_at_ms,
+                        average_ping_ms: d.average_ping_ms(),
+                        latest_rtt_ms: d.ping_samples.last().copied(),
+                        disconnect_events: d.disconnect_events,
+                        estimated_uptime_ms: d.estimated_uptime_ms(now_ms),
+                        time_since_last_contact_ms: now_ms.saturating_sub(d.last_seen_at_ms),
+                    }
+                })
+            })
+            .collect()
+    }
 }

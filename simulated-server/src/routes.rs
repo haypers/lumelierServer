@@ -1,10 +1,11 @@
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use axum::{Json, Router};
 use std::sync::Arc;
 use std::time::Duration;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::limit::RequestBodyLimitLayer;
 
 use crate::distribution;
 use crate::runner_state::RunnerState;
@@ -221,6 +222,9 @@ pub fn simulated_app(store: Arc<SimulatedStore>, runner_state: Arc<RunnerState>)
                 .delete(delete_client),
         )
         .route("/clients/:id/sample", post(post_sample))
+        // Disable Axum’s 2MB default so DELETE (no body) and large POSTs don’t get 413.
+        .layer(DefaultBodyLimit::disable())
+        .layer(RequestBodyLimitLayer::new(100 * 1024 * 1024)) // 100 MB max body (bulk POST /clients, POST /clients/summaries)
         .layer(cors)
         .with_state(SimulatedAppState { store, runner_state })
 }

@@ -59,4 +59,6 @@ export interface ClientSummaryForGrid {
 export interface ClientSummarySummary {
   id: string;
   currentDisplayColor: string | null;
+  /** Client clock estimate minus server actual (ms); negative = client behind. */
+  serverTimeEstimateErrorMs?: number | null;
 }

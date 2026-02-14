@@ -846,6 +846,44 @@ function getSelected(): ClientSummaryForGrid | null {
   return clients.find((c) => c.id === selectedId) ?? null;
 }
 
+const CLOCK_ERROR_WIDGET_TOOLTIP =
+  "The average value the clients clock estimations are off from the real server clock value, and the normalized, positive aboslute value of how far off they are. The first should be close to 0 to indicate accurate networking, and the second represent better sync at lower values.";
+
+function createClockErrorWidget(): HTMLElement {
+  const root = document.createElement("div");
+  root.className = "simulate-devices-clock-error-widget";
+  root.innerHTML = `
+    <div class="simulate-devices-clock-error-left">
+      <div class="simulate-devices-clock-error-row">
+        <span class="simulate-devices-clock-error-label">Ave Clock Error:</span>
+        <span id="simulate-devices-ave-clock-error-value" class="simulate-devices-clock-error-value">—</span>
+      </div>
+      <div class="simulate-devices-clock-error-row">
+        <span class="simulate-devices-clock-error-label">Ave Absolute Clock Error:</span>
+        <span id="simulate-devices-ave-abs-clock-error-value" class="simulate-devices-clock-error-value">—</span>
+      </div>
+    </div>
+    <div class="simulate-devices-clock-error-right">
+    </div>`;
+  const rightHalf = root.querySelector(".simulate-devices-clock-error-right");
+  if (rightHalf) {
+    rightHalf.appendChild(
+      createInfoBubble({
+        tooltipText: CLOCK_ERROR_WIDGET_TOOLTIP,
+        ariaLabel: "Info about clock error",
+      })
+    );
+  }
+  return root;
+}
+
+function updateClockErrorWidget(aveErrorMs: number | null, aveAbsErrorMs: number | null): void {
+  const elAve = document.getElementById("simulate-devices-ave-clock-error-value");
+  const elAbs = document.getElementById("simulate-devices-ave-abs-clock-error-value");
+  if (elAve) elAve.textContent = aveErrorMs != null ? `${aveErrorMs.toFixed(1)} ms` : "—";
+  if (elAbs) elAbs.textContent = aveAbsErrorMs != null ? `${aveAbsErrorMs.toFixed(1)} ms` : "—";
+}
+
 /** Merge summaries (same order as requested ids) into clients at the given start index; optionally merge one extra for selectedId. */
 function mergeSummariesIntoClients(
   summaries: ClientSummarySummary[],
@@ -881,14 +919,27 @@ async function fetchVisibleSummariesAndRefresh(): Promise<void> {
   const idsToFetch: string[] = [...visibleIds];
   if (includeSelected && selectedId != null) idsToFetch.push(selectedId);
   if (idsToFetch.length === 0) {
+    updateClockErrorWidget(null, null);
     refresh();
     return;
   }
   try {
     const summaries = await getSummaries(idsToFetch);
     mergeSummariesIntoClients(summaries, visibleIds, start, includeSelected);
+    const onScreenSummaries = summaries.slice(0, visibleIds.length);
+    const errors = onScreenSummaries
+      .map((s) => s.serverTimeEstimateErrorMs)
+      .filter((e): e is number => e != null && Number.isFinite(e));
+    if (errors.length > 0) {
+      const ave = errors.reduce((a, b) => a + b, 0) / errors.length;
+      const aveAbs = errors.reduce((a, b) => a + Math.abs(b), 0) / errors.length;
+      updateClockErrorWidget(ave, aveAbs);
+    } else {
+      updateClockErrorWidget(null, null);
+    }
   } catch {
     // leave existing merged data as-is
+    updateClockErrorWidget(null, null);
   }
   refresh();
 }
@@ -1072,6 +1123,7 @@ export function render(container: HTMLElement): void {
       <div class="simulate-devices-body">
         <div class="simulate-devices-client-array-panel" id="simulate-devices-grid-panel">
           <div class="simulate-devices-toolbar">
+            <span id="simulate-devices-clock-error-wrap" class="simulate-devices-clock-error-wrap"></span>
             <button type="button" class="devices-toolbar-btn devices-toolbar-btn-icon" id="simulate-devices-create">${openIcon}<span>Create Clients</span></button>
             <button type="button" class="devices-toolbar-btn devices-toolbar-btn-danger" id="simulate-devices-destroy">Destroy all Clients</button>
             <span class="simulate-devices-square-size-wrap">
@@ -1128,6 +1180,8 @@ export function render(container: HTMLElement): void {
       onManualRefresh: runGridRefresh,
     });
     toolbarEl.insertBefore(gridRefreshApi.root, toolbarEl.firstChild);
+    const clockErrorWrap = document.getElementById("simulate-devices-clock-error-wrap");
+    if (clockErrorWrap) clockErrorWrap.appendChild(createClockErrorWidget());
   }
   if (detailsRefreshWrapEl) {
     detailsRefreshApi = createRefreshEvery({

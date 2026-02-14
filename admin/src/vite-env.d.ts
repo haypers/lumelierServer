@@ -9,6 +9,8 @@ declare module "tabulator-tables" {
     setFilter(field: string, type: string, value?: unknown): void;
     clearFilter(): void;
     setSort(sorters: Array<{ column: string; dir: "asc" | "desc" }>): void;
+    on(event: string, callback: () => void): void;
+    getSorters(): Array<{ field?: string; dir?: string; column?: { getField?: () => string } }>;
   }
   export interface TabulatorColumn {
     getDefinition(): { title?: string; field?: string };

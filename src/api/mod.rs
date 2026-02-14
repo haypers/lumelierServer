@@ -4,7 +4,9 @@ mod poll;
 mod shows;
 mod simulated_profiles;
 
-pub use admin::{get_connected_devices, get_stats, post_reset_connections};
+pub use admin::{
+    get_connected_devices, get_page_ids, get_stats, post_by_ids, post_reset_connections,
+};
 pub use broadcast::{post_broadcast_pause, post_broadcast_play, post_broadcast_timeline};
 pub use poll::{poll, poll_admin};
 pub use shows::{get_show, list_shows, put_show};

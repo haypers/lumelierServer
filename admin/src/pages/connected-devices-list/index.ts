@@ -1,11 +1,27 @@
 import { TabulatorFull as Tabulator } from "tabulator-tables";
 import "tabulator-tables/dist/css/tabulator_midnight.min.css"; // dark theme
 import "./styles.css";
+import downloadIcon from "../../icons/download.svg?raw";
 import resetIcon from "../../icons/reset.svg?raw";
 import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
 
 const DEFAULT_REFRESH_MS = 2000;
+
+const PAGE_SIZE_STORAGE_KEY = "Connected_Devices_List-PageSize";
+const DEFAULT_PAGE_SIZE = 10;
+/** Tabulator column field -> API sortField */
+const SORT_FIELD_MAP: Record<string, string> = {
+  deviceId: "deviceId",
+  connectionStatus: "connectionStatus",
+  firstConnectedAtFormatted: "firstConnectedAt",
+  averagePingMs: "averagePingMs",
+  lastClientRttMs: "lastClientRttMs",
+  timeSinceLastContactMs: "timeSinceLastContactMs",
+  disconnectEvents: "disconnectEvents",
+  estimatedUptimeFormatted: "estimatedUptimeMs",
+  estimatedUptimeMs: "estimatedUptimeMs",
+};
 
 /** Tooltips for column headers (same order as columnDefs). */
 const COLUMN_HEADER_TOOLTIPS = [
@@ -35,7 +51,7 @@ interface DeviceRow {
   timeSinceLastContactMs: number;
 }
 
-interface ConnectedDevicesResponse {
+interface ConnectedDevicesFullResponse {
   serverTimeMs: number;
   stats: Stats;
   devices: DeviceRow[];
@@ -46,6 +62,19 @@ interface StatsResponse {
   stats: Stats;
 }
 
+interface PageIdsResponse {
+  serverTimeMs: number;
+  total_count: number;
+  page: number;
+  pageSize: number;
+  ids: string[];
+}
+
+interface ByIdsResponse {
+  serverTimeMs: number;
+  devices: DeviceRow[];
+}
+
 let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let statsRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let table: Tabulator | null = null;
@@ -53,6 +82,15 @@ let connectedFilterActive = false;
 /** Offset (ms) from client time to server time: serverTimeMs ≈ Date.now() + serverTimeOffsetMs */
 let serverTimeOffsetMs = 0;
 let serverTimeRafId: number | null = null;
+
+/** Pagination/sort state (used by refresh to build page-ids and by-ids requests). */
+let paginationPage = 1;
+let paginationPageSize = DEFAULT_PAGE_SIZE;
+let paginationTotalCount = 0;
+let sortField = "timeSinceLastContactMs";
+let sortDir: "asc" | "desc" = "asc";
+/** When true, updateTable will set this so dataSorted does not trigger a refresh. */
+let programmaticSort = false;
 
 function formatUptime(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
@@ -70,10 +108,103 @@ function formatTime(ms: number): string {
   return new Date(ms).toLocaleString();
 }
 
-async function fetchDevices(): Promise<ConnectedDevicesResponse> {
+function getStoredPageSize(): number {
+  const s = localStorage.getItem(PAGE_SIZE_STORAGE_KEY);
+  if (s == null) return DEFAULT_PAGE_SIZE;
+  const n = parseInt(s, 10);
+  return Number.isFinite(n) && (n === 0 || n >= 10) ? n : DEFAULT_PAGE_SIZE;
+}
+
+async function fetchPageIds(): Promise<PageIdsResponse> {
+  const params = new URLSearchParams({
+    page: String(paginationPage),
+    pageSize: String(paginationPageSize),
+    connectedOnly: connectedFilterActive ? "1" : "0",
+    sortField,
+    sortDir,
+  });
+  const res = await fetch(`/api/admin/connected-devices/page-ids?${params}`);
+  if (!res.ok) throw new Error(`Failed to fetch page-ids: ${res.status}`);
+  return res.json() as Promise<PageIdsResponse>;
+}
+
+async function fetchRowsByIds(ids: string[]): Promise<ByIdsResponse> {
+  if (ids.length === 0) {
+    return { serverTimeMs: Date.now(), devices: [] };
+  }
+  const res = await fetch("/api/admin/connected-devices/by-ids", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ids }),
+  });
+  if (!res.ok) throw new Error(`Failed to fetch by-ids: ${res.status}`);
+  return res.json() as Promise<ByIdsResponse>;
+}
+
+async function fetchFullDeviceList(): Promise<DeviceRow[]> {
   const res = await fetch("/api/admin/connected-devices");
-  if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-  return res.json() as Promise<ConnectedDevicesResponse>;
+  if (!res.ok) throw new Error(`Failed to fetch devices: ${res.status}`);
+  const data = (await res.json()) as ConnectedDevicesFullResponse;
+  return data.devices;
+}
+
+/** Escape a value for CSV: wrap in quotes if it contains comma, newline, or quote; double internal quotes. */
+function escapeCsvField(value: string): string {
+  const s = String(value);
+  if (/[",\r\n]/.test(s)) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+function buildDevicesCsv(devices: DeviceRow[]): string {
+  const headers = [
+    "Device ID",
+    "Connection Status",
+    "First Connected At",
+    "Avg Client RTT (ms)",
+    "Last Client RTT (ms)",
+    "Time since last contact (ms)",
+    "Disconnect Events",
+    "Estimated Uptime",
+  ];
+  const headerRow = headers.map(escapeCsvField).join(",");
+  const rows = devices.map((d) =>
+    [
+      d.deviceId,
+      d.connectionStatus,
+      formatTime(d.firstConnectedAt),
+      d.averagePingMs != null ? String(d.averagePingMs) : "",
+      d.lastClientRttMs != null ? String(d.lastClientRttMs) : "",
+      String(d.timeSinceLastContactMs),
+      String(d.disconnectEvents),
+      formatUptime(d.estimatedUptimeMs),
+    ]
+      .map(escapeCsvField)
+      .join(","),
+  );
+  return [headerRow, ...rows].join("\r\n");
+}
+
+function downloadCsv(csv: string, filename: string): void {
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function exportDeviceListCsv(): Promise<void> {
+  try {
+    const devices = await fetchFullDeviceList();
+    const csv = buildDevicesCsv(devices);
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
+    downloadCsv(csv, `connected-devices-${timestamp}.csv`);
+  } catch (e) {
+    console.error("Export device list failed", e);
+  }
 }
 
 async function fetchStats(): Promise<StatsResponse> {
@@ -120,23 +251,54 @@ function updateStatsEls(stats: Stats): void {
   if (pingEl) pingEl.textContent = stats.averagePingMs != null ? `${Math.round(stats.averagePingMs)} ms` : "—";
 }
 
-function applyConnectedFilter(): void {
-  if (!table) return;
-  connectedFilterActive = !connectedFilterActive;
-  if (connectedFilterActive) {
-    table.setFilter("connectionStatus", "like", "connected");
-  } else {
-    table.clearFilter();
+function getTotalPages(): number {
+  if (paginationPageSize === 0) return 1;
+  return Math.max(1, Math.ceil(paginationTotalCount / paginationPageSize));
+}
+
+function updatePagerUI(): void {
+  const infoEl = document.getElementById("devices-pager-info");
+  const prevBtn = document.getElementById("devices-pager-prev");
+  const nextBtn = document.getElementById("devices-pager-next");
+  const pagerWrap = document.getElementById("devices-pager-wrap");
+  if (!pagerWrap) return;
+  const totalPages = getTotalPages();
+  const showPager = paginationPageSize > 0 && paginationTotalCount > 0;
+  pagerWrap.hidden = !showPager;
+  if (infoEl) {
+    infoEl.textContent = `Page ${paginationPage} of ${totalPages}`;
+    const start = paginationPageSize === 0 ? 1 : (paginationPage - 1) * paginationPageSize + 1;
+    const end =
+      paginationPageSize === 0
+        ? paginationTotalCount
+        : Math.min(paginationPage * paginationPageSize, paginationTotalCount);
+    infoEl.title = `Showing ${start}–${end} of ${paginationTotalCount}`;
   }
+  if (prevBtn) (prevBtn as HTMLButtonElement).disabled = paginationPage <= 1;
+  if (nextBtn) (nextBtn as HTMLButtonElement).disabled = paginationPage >= totalPages;
+}
+
+function applyConnectedFilter(): void {
+  connectedFilterActive = !connectedFilterActive;
+  paginationPage = 1;
+  refresh();
 }
 
 function sortByPing(): void {
-  if (!table) return;
-  table.setSort([ { column: "averagePingMs", dir: "asc" } ]);
+  sortField = "averagePingMs";
+  sortDir = "asc";
+  paginationPage = 1;
+  refresh();
 }
 
-function updateTable(data: DeviceRow[]): void {
-  const rows = data.map((d) => ({
+/** Order devices to match the given ids (backend may return in arbitrary order). */
+function orderRowsByIds(devices: DeviceRow[], ids: string[]): DeviceRow[] {
+  const byId = new Map(devices.map((d) => [d.deviceId, d]));
+  return ids.map((id) => byId.get(id)).filter((d): d is DeviceRow => d != null);
+}
+
+function updateTable(data: DeviceRow[], orderIds?: string[]): void {
+  const rows = (orderIds ? orderRowsByIds(data, orderIds) : data).map((d) => ({
     deviceId: d.deviceId,
     connectionStatus: d.connectionStatus,
     firstConnectedAt: d.firstConnectedAt,
@@ -148,7 +310,13 @@ function updateTable(data: DeviceRow[]): void {
     estimatedUptimeFormatted: formatUptime(d.estimatedUptimeMs),
     timeSinceLastContactMs: d.timeSinceLastContactMs,
   }));
+  programmaticSort = true;
   table?.setData(rows);
+  const sortCol = Object.keys(SORT_FIELD_MAP).find((k) => SORT_FIELD_MAP[k] === sortField) ?? sortField;
+  table?.setSort([{ column: sortCol, dir: sortDir }]);
+  setTimeout(() => {
+    programmaticSort = false;
+  }, 0);
 }
 
 let refreshEveryApi: ReturnType<typeof createRefreshEvery> | null = null;
@@ -176,8 +344,17 @@ async function refresh(): Promise<void> {
   refreshEveryApi?.recordRefresh();
   let success = false;
   try {
-    const data = await fetchDevices();
-    updateTable(data.devices);
+    let pageData = await fetchPageIds();
+    paginationTotalCount = pageData.total_count;
+    let totalPages = getTotalPages();
+    if (paginationPage > totalPages && totalPages >= 1) {
+      paginationPage = totalPages;
+      pageData = await fetchPageIds();
+    }
+    const ids = pageData.ids;
+    const byIdsData = await fetchRowsByIds(ids);
+    updateTable(byIdsData.devices, ids);
+    updatePagerUI();
     success = true;
   } catch (e) {
     console.error("Failed to refresh devices", e);
@@ -237,6 +414,9 @@ export function render(container: HTMLElement): void {
     table = null;
   }
 
+  paginationPageSize = getStoredPageSize();
+  paginationPage = 1;
+
   const columnDefs = [
     { title: "Device ID", field: "deviceId", sorter: "string", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[0] } },
     { title: "Connection Status", field: "connectionStatus", sorter: "string", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[1] } },
@@ -251,7 +431,8 @@ export function render(container: HTMLElement): void {
   container.innerHTML = `
     <div class="devices-list-page">
       <div class="devices-toolbar">
-        <button type="button" class="devices-toolbar-btn devices-toolbar-btn-danger" id="devices-drop-disconnected">${resetIcon}<span>Drop Disconnected Devices</span></button>
+        <button type="button" class="devices-toolbar-btn" id="devices-drop-disconnected">${resetIcon}<span>Drop Disconnected Devices</span><span class="devices-toolbar-btn-info" id="devices-drop-disconnected-info"></span></button>
+        <button type="button" class="devices-toolbar-btn" id="devices-export-list">${downloadIcon}<span>Export Device List</span><span class="devices-toolbar-btn-info" id="devices-export-list-info"></span></button>
       </div>
       <div class="devices-stats-group">
       <div class="devices-stats-controls" id="devices-stats-controls"></div>
@@ -272,11 +453,24 @@ export function render(container: HTMLElement): void {
       </div>
       <div class="devices-table-section">
         <div class="devices-controls" id="devices-controls">
+          <span class="devices-pager-wrap" id="devices-pager-wrap">
+            <button type="button" id="devices-pager-prev" class="devices-pager-btn">Previous</button>
+            <span id="devices-pager-info" class="devices-pager-info">Page 1 of 1</span>
+            <button type="button" id="devices-pager-next" class="devices-pager-btn">Next</button>
+          </span>
           <span class="devices-controls-sep">|</span>
           <div class="column-chooser">
-            <button type="button" id="column-chooser-btn">Columns</button>
+            <button type="button" id="column-chooser-btn">Hide Columns</button>
             <div id="column-chooser-list" class="column-chooser-list" hidden></div>
           </div>
+          <span class="devices-controls-sep">|</span>
+          <label class="devices-pagination-label" for="devices-page-size">Rows Per Page:</label>
+          <select id="devices-page-size" class="devices-page-size-select" aria-label="Rows per page">
+            <option value="10" ${paginationPageSize === 10 ? "selected" : ""}>10</option>
+            <option value="20" ${paginationPageSize === 20 ? "selected" : ""}>20</option>
+            <option value="50" ${paginationPageSize === 50 ? "selected" : ""}>50</option>
+            <option value="0" ${paginationPageSize === 0 ? "selected" : ""}>All</option>
+          </select>
         </div>
         <div id="devices-table" class="devices-table"></div>
       </div>
@@ -290,7 +484,77 @@ export function render(container: HTMLElement): void {
     },
   });
 
+  table.on("dataSorted", () => {
+    if (programmaticSort) return;
+    const sorters = table?.getSorters() ?? [];
+    const first = sorters[0] as { field?: string; dir?: string; column?: { getField?: () => string } } | undefined;
+    if (first) {
+      const field =
+        first.field ??
+        (typeof first.column?.getField === "function" ? first.column.getField() : undefined) ??
+        "";
+      const apiField = (field && SORT_FIELD_MAP[field]) ?? field;
+      const dir = (first.dir === "asc" ? "asc" : "desc") as "asc" | "desc";
+      if (apiField && (apiField !== sortField || dir !== sortDir)) {
+        sortField = apiField;
+        sortDir = dir;
+        paginationPage = 1;
+        refresh();
+      }
+    }
+  });
+
   document.getElementById("devices-drop-disconnected")?.addEventListener("click", () => showResetConfirmModal(() => doReset()));
+
+  const dropDisconnectedInfoEl = document.getElementById("devices-drop-disconnected-info");
+  if (dropDisconnectedInfoEl) {
+    dropDisconnectedInfoEl.appendChild(
+      createInfoBubble({
+        tooltipText:
+          "The server holds onto a log of connection stats for each devices to better synconize the clocks. To release resources, this opperation drops those logs for disconnected devices.",
+        ariaLabel: "Info about Drop Disconnected Devices",
+      }),
+    );
+  }
+
+  document.getElementById("devices-export-list")?.addEventListener("click", (e) => {
+    if ((e.target as HTMLElement).closest(".devices-toolbar-btn-info")) return;
+    exportDeviceListCsv();
+  });
+
+  const exportListInfoEl = document.getElementById("devices-export-list-info");
+  if (exportListInfoEl) {
+    exportListInfoEl.appendChild(
+      createInfoBubble({
+        tooltipText:
+          "This opperation can add extra strain to the server. It's not reccommended durring a preformance. It will export all columns for all devices. This data is useful for debugging.",
+        ariaLabel: "Info about Export Device List",
+      }),
+    );
+  }
+
+  const pageSizeSelect = document.getElementById("devices-page-size");
+  if (pageSizeSelect) {
+    pageSizeSelect.addEventListener("change", () => {
+      const val = parseInt((pageSizeSelect as HTMLSelectElement).value, 10);
+      paginationPageSize = Number.isFinite(val) ? val : DEFAULT_PAGE_SIZE;
+      localStorage.setItem(PAGE_SIZE_STORAGE_KEY, String(paginationPageSize));
+      paginationPage = 1;
+      refresh();
+    });
+  }
+  document.getElementById("devices-pager-prev")?.addEventListener("click", () => {
+    if (paginationPage > 1) {
+      paginationPage -= 1;
+      refresh();
+    }
+  });
+  document.getElementById("devices-pager-next")?.addEventListener("click", () => {
+    if (paginationPage < getTotalPages()) {
+      paginationPage += 1;
+      refresh();
+    }
+  });
 
   const chooserBtn = document.getElementById("column-chooser-btn");
   const chooserList = document.getElementById("column-chooser-list");

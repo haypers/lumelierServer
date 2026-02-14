@@ -149,6 +149,14 @@ async fn main() {
         .route("/api/poll", get(api::poll_admin))
         .route("/api/health", get(api::health))
         .route("/api/admin/connected-devices", get(api::get_connected_devices))
+        .route(
+            "/api/admin/connected-devices/page-ids",
+            get(api::get_page_ids),
+        )
+        .route(
+            "/api/admin/connected-devices/by-ids",
+            post(api::post_by_ids),
+        )
         .route("/api/admin/stats", get(api::get_stats))
         .route("/api/admin/connections/reset", post(api::post_reset_connections))
         .route("/api/admin/broadcast/timeline", post(api::post_broadcast_timeline))

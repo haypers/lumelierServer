@@ -7,7 +7,15 @@
 .devices-toolbar {
   display: flex;
   align-items: center;
+  gap: 12px;
   padding-top: 6px;
+}
+.devices-toolbar-btn-info {
+  display: inline-flex;
+  align-items: center;
+}
+.devices-toolbar-btn-info .info-bubble {
+  margin-left: 4px;
 }
 .actions-dropdown {
   position: relative;
@@ -329,14 +337,53 @@
   overflow: hidden;
   border: none;
 }
-.devices-controls select {
+.devices-pagination-label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.devices-page-size-select {
   margin-left: 6px;
-  padding: 8px 10px;
+  padding: 4px 10px;
+  height: 28px;
+  min-height: 28px;
+  box-sizing: border-box;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   color: var(--text);
   font-size: 13px;
+  line-height: 1.2;
+  vertical-align: middle;
+}
+.devices-pager-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 8px;
+}
+.devices-pager-wrap[hidden] {
+  display: none !important;
+}
+.devices-pager-btn {
+  padding: 6px 12px;
+  font-size: 13px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  cursor: pointer;
+}
+.devices-pager-btn:hover:not(:disabled) {
+  background: var(--border);
+}
+.devices-pager-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.devices-pager-info {
+  font-size: 13px;
+  color: var(--text-muted);
 }
 .devices-controls-sep {
   color: var(--border);
