@@ -81,6 +81,9 @@ pub struct ClientSummary {
     pub current_display_color: Option<String>,
     /// Client's clock estimate minus server actual (ms); negative = client behind.
     pub server_time_estimate_error_ms: Option<i64>,
+    /// Time until current lag spike ends (ms); 0 when not in lag. Filled by routes from runner state.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub lag_ends_in_ms: Option<u64>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -179,10 +182,12 @@ impl SimulatedStore {
                     id: r.id.clone(),
                     current_display_color: r.current_display_color.clone(),
                     server_time_estimate_error_ms: r.server_time_estimate_error_ms,
+                    lag_ends_in_ms: None,
                 }).unwrap_or_else(|| ClientSummary {
                     id: id.clone(),
                     current_display_color: None,
                     server_time_estimate_error_ms: None,
+                    lag_ends_in_ms: None,
                 })
             })
             .collect()

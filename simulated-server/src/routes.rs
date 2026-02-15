@@ -132,7 +132,24 @@ async fn post_summaries(
     Json(body): Json<SummariesBody>,
 ) -> Json<SummariesResponse> {
     let ids = body.ids.unwrap_or_default();
-    let summaries = state.store.get_summaries_for_ids(&ids);
+    let mut summaries = state.store.get_summaries_for_ids(&ids);
+    let now = now_ms();
+    for s in &mut summaries {
+        s.lag_ends_in_ms = Some(
+            state
+                .runner_state
+                .clients
+                .get(&s.id)
+                .map(|r| {
+                    if now < r.lag_spike_block_until_ms {
+                        r.lag_spike_block_until_ms - now
+                    } else {
+                        0
+                    }
+                })
+                .unwrap_or(0),
+        );
+    }
     Json(SummariesResponse { summaries })
 }
 

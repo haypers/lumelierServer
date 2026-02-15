@@ -602,12 +602,22 @@
   color: var(--text-muted, var(--text));
   min-width: 32px;
 }
+#simulate-devices-lag-overlay-toggle .simulate-devices-lag-overlay-toggle-icon {
+  display: inline-flex;
+}
+#simulate-devices-lag-overlay-toggle .simulate-devices-lag-overlay-toggle-icon svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: currentColor;
+}
 .simulate-devices-grid {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
 }
 .simulate-devices-grid-square {
+  position: relative;
   width: 24px;
   height: 24px;
   min-width: 24px;
@@ -621,6 +631,24 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
+}
+.simulate-devices-grid-square-lag-overlay {
+  position: absolute;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border-radius: inherit;
+  pointer-events: none;
+  color: var(--text);
+}
+.simulate-devices-grid-square-lag-overlay--visible {
+  display: flex;
+}
+.simulate-devices-grid-square-lag-overlay svg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
 }
 .simulate-devices-grid-square:hover {
   filter: brightness(1.1);

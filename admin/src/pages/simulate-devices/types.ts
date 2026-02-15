@@ -49,11 +49,13 @@ export interface SimulatedClientWithSampleHistory extends SimulatedClient {
   sampleHistory: Record<SimulatedClientDistKey, { x: number; y: number }[]>;
 }
 
-/** GET /clients returns minimal list; currentDisplayColor merged from POST /clients/summaries for visible IDs only. */
+/** GET /clients returns minimal list; currentDisplayColor (and lagEndsInMs) merged from POST /clients/summaries for visible IDs only. */
 export interface ClientSummaryForGrid {
   id: string;
   deviceId: string;
   currentDisplayColor?: string | null;
+  /** Time until current lag ends (ms); 0 when not in lag. */
+  lagEndsInMs?: number | null;
 }
 
 export interface ClientSummarySummary {
@@ -61,4 +63,6 @@ export interface ClientSummarySummary {
   currentDisplayColor: string | null;
   /** Client clock estimate minus server actual (ms); negative = client behind. */
   serverTimeEstimateErrorMs?: number | null;
+  /** Time until current lag ends (ms); 0 when not in lag. */
+  lagEndsInMs?: number | null;
 }

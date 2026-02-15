@@ -1,11 +1,16 @@
 import type { ClientSummaryForGrid } from "./types";
+import noSignalSvg from "../../icons/noSignal.svg?raw";
+
+const inLag = (c: ClientSummaryForGrid): boolean =>
+  c.lagEndsInMs != null && c.lagEndsInMs > 0;
 
 export function renderClientGrid(
   container: HTMLElement,
   clients: ClientSummaryForGrid[],
   selectedId: string | null,
   onSelect: (id: string) => void,
-  squareSizePx: number = 24
+  squareSizePx: number = 24,
+  showLagOverlay: boolean = true
 ): void {
   container.innerHTML = "";
   const wrap = document.createElement("div");
@@ -27,6 +32,14 @@ export function renderClientGrid(
     }
     const color = client.currentDisplayColor ?? "var(--bg-elevated)";
     btn.style.backgroundColor = color;
+    const overlay = document.createElement("span");
+    overlay.className = "simulate-devices-grid-square-lag-overlay";
+    overlay.setAttribute("aria-hidden", "true");
+    overlay.innerHTML = noSignalSvg;
+    if (showLagOverlay && inLag(client)) {
+      overlay.classList.add("simulate-devices-grid-square-lag-overlay--visible");
+    }
+    btn.appendChild(overlay);
     inner.appendChild(btn);
   }
   inner.addEventListener("click", (e) => {
@@ -45,7 +58,8 @@ export function updateClientGrid(
   clients: ClientSummaryForGrid[],
   selectedId: string | null,
   onSelect: (id: string) => void,
-  squareSizePx: number = 24
+  squareSizePx: number = 24,
+  showLagOverlay: boolean = true
 ): void {
   const inner = container.querySelector(".simulate-devices-grid");
   const squares = inner?.querySelectorAll(".simulate-devices-grid-square");
@@ -62,8 +76,15 @@ export function updateClientGrid(
       btn.classList.toggle("simulate-devices-grid-square--selected", client.id === selectedId);
       btn.style.backgroundColor =
         client.currentDisplayColor ?? btn.style.backgroundColor ?? "var(--bg-elevated)";
+      const overlay = btn.querySelector(".simulate-devices-grid-square-lag-overlay");
+      if (overlay) {
+        overlay.classList.toggle(
+          "simulate-devices-grid-square-lag-overlay--visible",
+          showLagOverlay && inLag(client)
+        );
+      }
     }
     return;
   }
-  renderClientGrid(container, clients, selectedId, onSelect, squareSizePx);
+  renderClientGrid(container, clients, selectedId, onSelect, squareSizePx, showLagOverlay);
 }

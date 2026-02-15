@@ -2,6 +2,7 @@ import "./styles.css";
 import openIcon from "../../icons/open.svg?raw";
 import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
+import noSignalIcon from "../../icons/noSignal.svg?raw";
 import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
 import { attachTooltipWhen } from "../../components/popup-tooltip";
@@ -710,6 +711,7 @@ let btnDelete: HTMLElement | null = null;
 let btnClone: HTMLElement | null = null;
 
 let squareSizePx = SQUARE_SIZE_DEFAULT;
+let showLagOverlay = true;
 let pageIndex = 0;
 let resizeObserver: ResizeObserver | null = null;
 let lastContainerWidth = 0;
@@ -837,7 +839,7 @@ function updateGridLayoutAndRender(): void {
       .catch(() => {
         if (selectedId === id) refresh();
       });
-  }, squareSizePx);
+  }, squareSizePx, showLagOverlay);
   updatePaginationUI(totalPages, pageIndex);
 }
 
@@ -896,6 +898,7 @@ function mergeSummariesIntoClients(
     const s = summaries[i];
     if (c && s) {
       c.currentDisplayColor = s.currentDisplayColor;
+      c.lagEndsInMs = s.lagEndsInMs ?? null;
     }
   }
   if (selectedIdExtra && visibleIds.length < summaries.length) {
@@ -903,6 +906,7 @@ function mergeSummariesIntoClients(
     const selClient = clients.find((c) => c.id === selSummary.id);
     if (selClient) {
       selClient.currentDisplayColor = selSummary.currentDisplayColor;
+      selClient.lagEndsInMs = selSummary.lagEndsInMs ?? null;
     }
   }
 }
@@ -1131,6 +1135,7 @@ export function render(container: HTMLElement): void {
               <input type="range" id="simulate-devices-square-size" min="${SQUARE_SIZE_MIN}" max="${SQUARE_SIZE_MAX}" value="${squareSizePx}" />
               <span id="simulate-devices-square-size-value">${squareSizePx} px</span>
             </span>
+            <button type="button" class="devices-toolbar-btn" id="simulate-devices-lag-overlay-toggle"><span id="simulate-devices-lag-overlay-toggle-label">Hide </span><span class="simulate-devices-lag-overlay-toggle-icon">${noSignalIcon}</span></button>
           </div>
           <div class="simulate-devices-toolbar-secondary" id="simulate-devices-toolbar-secondary" hidden>
             <button type="button" class="btn btn-danger" id="simulate-devices-delete">${trashIcon}<span>Delete Client</span></button>
@@ -1315,6 +1320,13 @@ export function render(container: HTMLElement): void {
       if (squareSizeValueEl) squareSizeValueEl.textContent = `${squareSizePx} px`;
       updateGridLayoutAndRender();
     }
+  });
+  const lagOverlayToggleBtn = document.getElementById("simulate-devices-lag-overlay-toggle");
+  const lagOverlayToggleLabel = document.getElementById("simulate-devices-lag-overlay-toggle-label");
+  lagOverlayToggleBtn?.addEventListener("click", () => {
+    showLagOverlay = !showLagOverlay;
+    if (lagOverlayToggleLabel) lagOverlayToggleLabel.textContent = showLagOverlay ? "Hide " : "Show ";
+    updateGridLayoutAndRender();
   });
 
   pagePrevBtn?.addEventListener("click", () => {
