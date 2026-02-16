@@ -850,7 +850,7 @@ function getSelected(): ClientSummaryForGrid | null {
 }
 
 const CLOCK_ERROR_WIDGET_TOOLTIP =
-  "The average value the clients clock estimations are off from the real server clock value, and the normalized, positive aboslute value of how far off they are. The first should be close to 0 to indicate accurate networking, and the second represent better sync at lower values.";
+  "Average Clock Error: The average difference between the client's estimated server clock and the actual server clock. This should approach 0 to indicate an accurate simulation. Average Absolute Clock Error: The average positive absolute values of the difference between the client's estimated server clock and the actual server clock. The lower this value, the more in sync the devices are." ;
 
 function createClockErrorWidget(): HTMLElement {
   const root = document.createElement("div");
@@ -967,12 +967,7 @@ function refresh(): void {
       (selectedId !== lastRenderedDetailsSelectedId || selectedClientFull !== lastRenderedDetailsClientFull));
 
   if (showDetailsLoading) {
-    detailsContainer.innerHTML = "";
-    detailsContainer.className = "simulate-devices-details-pane";
-    const loading = document.createElement("p");
-    loading.className = "simulate-devices-details-empty";
-    loading.textContent = "Loading client details…";
-    detailsContainer.appendChild(loading);
+    // Leave existing details content in place so scroll is preserved; when getClient resolves we will re-render and restore savedScrollTop.
     lastRenderedDetailsSelectedId = selectedId;
     lastRenderedDetailsClientFull = null;
   } else if (detailsNeedRender) {
@@ -980,6 +975,8 @@ function refresh(): void {
       lastRenderedDetailsSelectedId = null;
       lastRenderedDetailsClientFull = null;
     }
+    // Hide pane during re-render to avoid visible flicker; restore scroll after layout.
+    detailsContainer.style.visibility = "hidden";
     renderDetailsPane(
       detailsContainer,
       client,
@@ -1018,8 +1015,17 @@ function refresh(): void {
     );
     lastRenderedDetailsSelectedId = selectedId;
     lastRenderedDetailsClientFull = selectedClientFull;
+    const pane = detailsContainer;
+    requestAnimationFrame(() => {
+      if (!pane) return;
+      const maxScroll = pane.scrollHeight - pane.clientHeight;
+      pane.scrollTop = Math.min(savedScrollTop, Math.max(0, maxScroll));
+      pane.style.visibility = "";
+    });
+  } else {
+    const maxScroll = detailsContainer.scrollHeight - detailsContainer.clientHeight;
+    detailsContainer.scrollTop = Math.min(savedScrollTop, Math.max(0, maxScroll));
   }
-  detailsContainer.scrollTop = savedScrollTop;
   ensureDetailsRefreshTimer();
 
   if (secondaryToolbar) {

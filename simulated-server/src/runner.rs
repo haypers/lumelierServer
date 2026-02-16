@@ -101,16 +101,29 @@ pub async fn run_runner(config: RunnerConfig) {
                     Some(r) => r,
                     None => continue,
                 };
-                let next_poll = now;
-                let anchors = curve_anchors(&record, "timeBetweenLagSpikesDist");
-                let lag_sec = record_sample_sec(
+                // First time only: spread initial timers over [0, full_interval] to avoid sync at creation.
+                let poll_anchors = curve_anchors(&record, "pingsEverySecDist");
+                let poll_interval_sec = record_sample_sec(
+                    &config.store,
+                    id,
+                    "pingsEverySecDist",
+                    &poll_anchors,
+                    &mut rng,
+                );
+                let first_poll_delay_sec = poll_interval_sec * rng.gen::<f64>();
+                let next_poll = now + (first_poll_delay_sec * 1000.0) as u64;
+
+                let lag_anchors = curve_anchors(&record, "timeBetweenLagSpikesDist");
+                let lag_interval_sec = record_sample_sec(
                     &config.store,
                     id,
                     "timeBetweenLagSpikesDist",
-                    &anchors,
+                    &lag_anchors,
                     &mut rng,
                 );
-                let next_lag = now + (lag_sec * 1000.0) as u64;
+                let first_lag_delay_sec = lag_interval_sec * rng.gen::<f64>();
+                let next_lag = now + (first_lag_delay_sec * 1000.0) as u64;
+
                 config.runner_state.ensure_client(id.clone(), next_poll, next_lag);
 
                 let client_id = id.clone();
