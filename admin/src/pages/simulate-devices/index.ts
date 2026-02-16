@@ -31,6 +31,7 @@ import {
   renderDetailsPane,
   DISTRIBUTION_CHART_PRESETS,
   DIST_KEYS_BY_PRESET_INDEX,
+  updateDetailsPaneChartsSamplePoints,
   updateDetailsPaneReadOnly,
   type DistributionChartSelection,
 } from "./details-pane";
@@ -1084,6 +1085,7 @@ function ensureDetailsRefreshTimer(): void {
           } else {
             const st = detailsContainer.scrollTop;
             updateDetailsPaneReadOnly(detailsContainer, full);
+            updateDetailsPaneChartsSamplePoints(detailsContainer, full);
             detailsContainer.scrollTop = st;
             // Keep "last rendered" pointers in sync so unrelated refreshes don't rebuild details DOM.
             lastRenderedDetailsSelectedId = selectedId;
@@ -1203,6 +1205,8 @@ export function render(container: HTMLElement): void {
       },
     });
     detailsRefreshWrapEl.appendChild(detailsRefreshApi.root);
+    // Sync module interval with component's initial value (from localStorage or default) so the details timer runs on load
+    detailsRefreshIntervalMs = detailsRefreshApi.getIntervalMs();
   }
   if (gridPanelEl) observeGridPanel(gridPanelEl);
   const gridMs = gridRefreshApi?.getIntervalMs() ?? 1000;

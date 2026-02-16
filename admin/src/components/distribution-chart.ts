@@ -567,4 +567,42 @@ function renderDistributionChart(container: HTMLElement, options: DistributionCh
   container.appendChild(svg);
 }
 
+/**
+ * Update only the sample-points layer of an existing distribution chart (e.g. after refresh).
+ * Does not touch anchors, curve, or other DOM; preserves scroll and avoids full re-render.
+ */
+export function updateSamplePointsInPlace(
+  container: HTMLElement,
+  samplePoints: { x: number; y: number }[],
+  xAxis: DistributionChartXAxis,
+  width: number,
+  height: number
+): void {
+  const plotLeft = MARGIN_LEFT;
+  const plotRight = width - MARGIN_RIGHT;
+  const plotTop = MARGIN_TOP;
+  const plotBottom = height - MARGIN_BOTTOM;
+  const plotWidth = plotRight - plotLeft;
+  const plotHeight = plotBottom - plotTop;
+  const xMin = xAxis.min;
+  const xMax = xAxis.max;
+  const xToSvg = (x: number) =>
+    plotLeft + (plotWidth * (x - xMin)) / (xMax - xMin || 1);
+  const yToSvg = (y: number) => plotBottom - (plotHeight * y) / 100;
+
+  const group = container.querySelector(".distribution-chart-sample-points");
+  if (!group) return;
+
+  const svgNs = "http://www.w3.org/2000/svg";
+  group.innerHTML = "";
+  for (const pt of samplePoints) {
+    const circle = document.createElementNS(svgNs, "circle");
+    circle.setAttribute("cx", String(xToSvg(pt.x)));
+    circle.setAttribute("cy", String(yToSvg(pt.y)));
+    circle.setAttribute("r", String(SAMPLE_POINT_RADIUS));
+    circle.setAttribute("class", "distribution-chart-sample-point");
+    group.appendChild(circle);
+  }
+}
+
 export { renderDistributionChart };

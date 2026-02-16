@@ -1,12 +1,17 @@
 import type { DistributionChartXAxis } from "../../components/distribution-chart";
-import { renderDistributionChart } from "../../components/distribution-chart";
+import { renderDistributionChart, updateSamplePointsInPlace } from "../../components/distribution-chart";
 import { createRefreshEvery, type RefreshEveryApi } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
 import copyIcon from "../../icons/copy.svg?raw";
 import clipboardIcon from "../../icons/clipboard.svg?raw";
 import diceIcon from "../../icons/dice.svg?raw";
 import { sampleFromDistribution } from "./sample-distribution";
-import type { SimulatedClient, SimulatedClientDistKey, DistributionCurve } from "./types";
+import type {
+  SimulatedClient,
+  SimulatedClientDistKey,
+  SimulatedClientWithSampleHistory,
+  DistributionCurve,
+} from "./types";
 
 export interface DistributionChartPreset {
   title: string;
@@ -100,6 +105,26 @@ export function updateDetailsPaneReadOnly(container: HTMLElement, client: Simula
     const dd = container.querySelector<HTMLElement>(`[data-detail-key="${key}"]`);
     if (dd) dd.textContent = value;
   }
+}
+
+/**
+ * Update sample points (up to 100 per chart) on each distribution chart in the details pane in place.
+ * Does not rebuild the pane, so scroll position is preserved.
+ */
+export function updateDetailsPaneChartsSamplePoints(
+  container: HTMLElement,
+  client: SimulatedClientWithSampleHistory
+): void {
+  const chartContainers = container.querySelectorAll<HTMLElement>(
+    ".simulate-devices-chart-container"
+  );
+  chartContainers.forEach((el, index) => {
+    if (index >= DIST_KEYS_BY_PRESET_INDEX.length) return;
+    const distKey = DIST_KEYS_BY_PRESET_INDEX[index];
+    const preset = DISTRIBUTION_CHART_PRESETS[index];
+    const points = client.sampleHistory?.[distKey] ?? [];
+    updateSamplePointsInPlace(el, points, preset.xAxis, CHART_SIZE, CHART_SIZE);
+  });
 }
 
 export function renderDetailsPane(
