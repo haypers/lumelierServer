@@ -1,75 +1,24 @@
-const EVENT_TYPE_SET_COLOR_BROADCAST = "Set Color Broadcast";
-
-interface PollEvent {
-  t: number;
-  color: string;
-}
-
-interface BroadcastTimelineItem {
-  id?: string;
-  layerId?: string;
-  kind?: string;
-  startSec: number;
-  effectType?: string;
-  target?: string;
-  color?: string;
-}
-
-interface BroadcastTimeline {
-  version?: number;
-  title?: string;
-  layers?: { id: string; label: string }[];
-  items: BroadcastTimelineItem[];
-  readheadSec?: number;
-}
-
-interface PollBroadcast {
-  timeline: BroadcastTimeline;
-  readheadSec: number;
-  playAtMs?: number;
-  pauseAtMs?: number;
-}
+import * as popup from "./popup";
+import * as timeline from "./timeline";
+import * as ui from "./ui";
 
 const DEVICE_ID_STORAGE_KEY = "lumelier_device_id";
-
-interface PollResponse {
-  serverTime: number;
-  /** Server time right before send; use with RTT/2 for better sync. */
-  serverTimeAtSend?: number;
-  deviceId: string;
-  events: PollEvent[];
-  broadcast?: PollBroadcast;
-}
-
-function isBroadcastTimeline(v: unknown): v is BroadcastTimeline {
-  return (
-    v != null &&
-    typeof v === "object" &&
-    Array.isArray((v as BroadcastTimeline).items)
-  );
-}
-
-let broadcastCache: PollBroadcast | null = null;
-let broadcastPlaybackStartedAtMs: number | null = null;
-let broadcastPausedAtMs: number | null = null;
-/** Only updated when playing and an event triggers, or when paused at a position. */
-let lastAppliedBroadcastColor: string | null = null;
-/** Whatever color we last rendered; preserved so we never change color until playing + event. */
-let lastDisplayedColor: string | null = null;
-let lastEvents: PollEvent[] = [];
-let lastDeviceId = "";
 
 const POLL_INTERVAL_MS = 2500;
 const OFFSET_SAMPLES_MAX = 5;
 const DISPLAY_FALLBACK_MS = 15000;
 
-/** Offset from local time to server time (ms). serverTime ≈ Date.now() + offset */
+let broadcastCache: timeline.PollBroadcast | null = null;
+let broadcastPlaybackStartedAtMs: number | null = null;
+let broadcastPausedAtMs: number | null = null;
+let lastAppliedBroadcastColor: string | null = null;
+let lastDisplayedColor: string | null = null;
+let lastEvents: timeline.PollEvent[] = [];
+let lastDeviceId = "";
+
 let clockOffset = 0;
-/** Recent offset samples for median smoothing. */
 let offsetSamples: number[] = [];
-/** Timeout for next color change or 15s fallback; cleared and reset when sync runs. */
 let nextColorChangeTimeoutId: ReturnType<typeof setTimeout> | null = null;
-/** RTT from previous poll (ms), sent on next request for server to store. */
 let lastRttMs: number | null = null;
 
 function median(arr: number[]): number {
@@ -85,52 +34,27 @@ function getServerTime(): number {
   return Date.now() + clockOffset;
 }
 
-function getBroadcastPlaybackSec(): number | null {
-  if (!broadcastCache?.playAtMs) return null;
-  if (broadcastPausedAtMs != null && getServerTime() >= broadcastPausedAtMs) return null;
-  const startMs = broadcastPlaybackStartedAtMs ?? broadcastCache.playAtMs;
-  if (getServerTime() < startMs) return null;
-  if (broadcastPlaybackStartedAtMs == null) broadcastPlaybackStartedAtMs = startMs;
-  const elapsedSec = (getServerTime() - startMs) / 1000;
-  return (broadcastCache.readheadSec ?? 0) + elapsedSec;
-}
-
-function getColorFromBroadcastTimeline(positionSec: number): string | null {
-  if (!broadcastCache?.timeline?.items) return null;
-  // TODO: build out target filtering (All, GPS Enabled, GPS Disabled) for Set Color Broadcast.
-  const events = broadcastCache.timeline.items
-    .filter((it) => it.effectType === EVENT_TYPE_SET_COLOR_BROADCAST && it.color != null)
-    .sort((a, b) => a.startSec - b.startSec);
-  let color: string | null = null;
-  for (const ev of events) {
-    if (ev.startSec <= positionSec) color = ev.color ?? null;
-  }
-  return color;
-}
-
-/** Next Set Color Broadcast startSec strictly after positionSec, or null if none. */
-function getNextColorChangeStartSec(positionSec: number): number | null {
-  if (!broadcastCache?.timeline?.items) return null;
-  const events = broadcastCache.timeline.items
-    .filter((it) => it.effectType === EVENT_TYPE_SET_COLOR_BROADCAST && it.color != null)
-    .sort((a, b) => a.startSec - b.startSec);
-  const next = events.find((ev) => ev.startSec > positionSec);
-  return next?.startSec ?? null;
+function getTimelineContext(): timeline.TimelineContext {
+  return {
+    broadcastCache,
+    broadcastPlaybackStartedAtMs,
+    broadcastPausedAtMs,
+    getServerTime,
+  };
 }
 
 function syncDisplayAndScheduleNext(): void {
-  const swatchEl = document.getElementById("color-swatch");
   const serverTimeEl = document.getElementById("server-time");
   if (serverTimeEl) serverTimeEl.textContent = String(getServerTime());
 
+  const ctx = getTimelineContext();
+
   if (broadcastCache == null) {
-    const color =
+    const colorHex =
       lastDisplayedColor ?? lastAppliedBroadcastColor ?? (lastEvents[0]?.color ?? "#000000");
-    if (swatchEl && color !== lastDisplayedColor) {
-      lastDisplayedColor = color;
-      swatchEl.style.background = color;
-    } else if (color !== lastDisplayedColor) {
-      lastDisplayedColor = color;
+    if (colorHex !== lastDisplayedColor) {
+      lastDisplayedColor = colorHex;
+      ui.applyDisplayedColor(colorHex);
     }
     if (nextColorChangeTimeoutId != null) clearTimeout(nextColorChangeTimeoutId);
     nextColorChangeTimeoutId = setTimeout(() => {
@@ -140,15 +64,21 @@ function syncDisplayAndScheduleNext(): void {
     return;
   }
 
-  let positionSec: number | null = getBroadcastPlaybackSec();
-  if (positionSec == null && broadcastCache.playAtMs != null && broadcastPausedAtMs != null && getServerTime() >= broadcastPausedAtMs) {
+  let positionSec: number | null = timeline.getBroadcastPlaybackSec(ctx);
+  if (
+    positionSec == null &&
+    broadcastCache.playAtMs != null &&
+    broadcastPausedAtMs != null &&
+    getServerTime() >= broadcastPausedAtMs
+  ) {
     positionSec =
-      (broadcastCache.readheadSec ?? 0) + (broadcastPausedAtMs - broadcastCache.playAtMs) / 1000;
+      (broadcastCache.readheadSec ?? 0) +
+      (broadcastPausedAtMs - broadcastCache.playAtMs) / 1000;
   }
 
   let currentColor: string | null = null;
   if (positionSec != null) {
-    currentColor = getColorFromBroadcastTimeline(positionSec);
+    currentColor = timeline.getColorFromBroadcastTimeline(ctx, positionSec);
     if (currentColor != null) lastAppliedBroadcastColor = currentColor;
   } else if (
     broadcastCache.playAtMs != null &&
@@ -156,21 +86,22 @@ function syncDisplayAndScheduleNext(): void {
     getServerTime() >= broadcastCache.pauseAtMs
   ) {
     const pausedSec =
-      (broadcastCache.readheadSec ?? 0) + (broadcastCache.pauseAtMs - broadcastCache.playAtMs) / 1000;
-    currentColor = getColorFromBroadcastTimeline(pausedSec);
+      (broadcastCache.readheadSec ?? 0) +
+      (broadcastCache.pauseAtMs - broadcastCache.playAtMs) / 1000;
+    currentColor = timeline.getColorFromBroadcastTimeline(ctx, pausedSec);
     if (currentColor != null) lastAppliedBroadcastColor = currentColor;
   }
-  const color =
+  const colorHex =
     currentColor ??
     lastAppliedBroadcastColor ??
     lastDisplayedColor ??
     (lastEvents[0]?.color ?? "#000000");
-  if (color !== lastDisplayedColor) {
-    lastDisplayedColor = color;
-    if (swatchEl) swatchEl.style.background = color;
+  if (colorHex !== lastDisplayedColor) {
+    lastDisplayedColor = colorHex;
+    ui.applyDisplayedColor(colorHex);
   }
 
-  const isPlaying = getBroadcastPlaybackSec() != null;
+  const isPlaying = timeline.getBroadcastPlaybackSec(ctx) != null;
   if (!isPlaying || positionSec == null) {
     if (nextColorChangeTimeoutId != null) clearTimeout(nextColorChangeTimeoutId);
     nextColorChangeTimeoutId = setTimeout(() => {
@@ -180,7 +111,7 @@ function syncDisplayAndScheduleNext(): void {
     return;
   }
 
-  const nextStartSec = getNextColorChangeStartSec(positionSec);
+  const nextStartSec = timeline.getNextColorChangeStartSec(ctx, positionSec);
   if (nextStartSec == null) {
     if (nextColorChangeTimeoutId != null) clearTimeout(nextColorChangeTimeoutId);
     nextColorChangeTimeoutId = setTimeout(() => {
@@ -198,7 +129,7 @@ function syncDisplayAndScheduleNext(): void {
   }, delayMs);
 }
 
-async function fetchPoll(): Promise<PollResponse> {
+async function fetchPoll(): Promise<timeline.PollResponse> {
   const deviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
   const headers: HeadersInit = {};
   if (deviceId) (headers as Record<string, string>)["X-Device-ID"] = deviceId;
@@ -207,52 +138,51 @@ async function fetchPoll(): Promise<PollResponse> {
   const res = await fetch("/api/poll", { headers });
   lastRttMs = Date.now() - t0;
   if (!res.ok) throw new Error(`poll failed: ${res.status}`);
-  const data = (await res.json()) as PollResponse;
+  const data = (await res.json()) as timeline.PollResponse;
   if (data.deviceId) localStorage.setItem(DEVICE_ID_STORAGE_KEY, data.deviceId);
   return data;
 }
 
-function render(events: PollEvent[], deviceId: string) {
-  const app = document.getElementById("app");
-  if (!app) return;
-
-  let firstColor: string;
+function computeFirstColor(): string {
+  const ctx = getTimelineContext();
   if (broadcastCache == null) {
-    firstColor = events.length > 0 ? events[0].color : "#000000";
-  } else {
-    const positionSec = getBroadcastPlaybackSec();
-    let broadcastColor: string | null = null;
-    if (positionSec != null) {
-      broadcastColor = getColorFromBroadcastTimeline(positionSec);
-      if (broadcastColor != null) lastAppliedBroadcastColor = broadcastColor;
-    } else if (
-      broadcastCache.playAtMs != null &&
-      broadcastPausedAtMs != null &&
-      getServerTime() >= broadcastPausedAtMs
-    ) {
-      const pausedPositionSec =
-        broadcastCache.readheadSec + (broadcastPausedAtMs - broadcastCache.playAtMs) / 1000;
-      broadcastColor = getColorFromBroadcastTimeline(pausedPositionSec);
-      if (broadcastColor != null) lastAppliedBroadcastColor = broadcastColor;
-    }
-    firstColor =
-      broadcastColor ??
-      lastAppliedBroadcastColor ??
-      lastDisplayedColor ??
-      (events.length > 0 ? events[0].color : "#000000");
+    return lastEvents[0]?.color ?? "#000000";
   }
-  lastDisplayedColor = firstColor;
-
-  const serverTime = getServerTime();
-  app.innerHTML = `
-    <p style="font-size:11px;color:#666;word-break:break-all;"><strong>Device ID:</strong> ${deviceId || "—"}</p>
-    <p>Server time: <span id="server-time">${serverTime}</span></p>
-    <p>Events: ${events.length}</p>
-    <div id="color-swatch" style="width:80px;height:80px;background:${firstColor};border:1px solid #333;"></div>
-  `;
+  const positionSec = timeline.getBroadcastPlaybackSec(ctx);
+  let broadcastColor: string | null = null;
+  if (positionSec != null) {
+    broadcastColor = timeline.getColorFromBroadcastTimeline(ctx, positionSec);
+    if (broadcastColor != null) lastAppliedBroadcastColor = broadcastColor;
+  } else if (
+    broadcastCache.playAtMs != null &&
+    broadcastCache.pauseAtMs != null &&
+    getServerTime() >= broadcastCache.pauseAtMs
+  ) {
+    const pausedPositionSec =
+      (broadcastCache.readheadSec ?? 0) +
+      (broadcastPausedAtMs! - broadcastCache.playAtMs) / 1000;
+    broadcastColor = timeline.getColorFromBroadcastTimeline(ctx, pausedPositionSec);
+    if (broadcastColor != null) lastAppliedBroadcastColor = broadcastColor;
+  }
+  return (
+    broadcastColor ??
+    lastAppliedBroadcastColor ??
+    lastDisplayedColor ??
+    (lastEvents[0]?.color ?? "#000000")
+  );
 }
 
-async function pollLoop() {
+function doRender(): void {
+  const firstColor = computeFirstColor();
+  lastDisplayedColor = firstColor;
+  ui.render({
+    deviceId: lastDeviceId,
+    serverTime: getServerTime(),
+    firstColor,
+  });
+}
+
+async function pollLoop(): Promise<void> {
   try {
     const data = await fetchPoll();
     const serverTs =
@@ -263,9 +193,9 @@ async function pollLoop() {
     if (offsetSamples.length > OFFSET_SAMPLES_MAX) offsetSamples.shift();
     clockOffset = median(offsetSamples);
 
-    const displayId = data.deviceId || localStorage.getItem(DEVICE_ID_STORAGE_KEY) || "—";
+    lastDeviceId = data.deviceId || localStorage.getItem(DEVICE_ID_STORAGE_KEY) || "—";
 
-    if (data.broadcast && isBroadcastTimeline(data.broadcast.timeline)) {
+    if (data.broadcast && timeline.isBroadcastTimeline(data.broadcast.timeline)) {
       broadcastCache = data.broadcast;
       const now = getServerTime();
       if (data.broadcast.pauseAtMs != null && now >= data.broadcast.pauseAtMs)
@@ -279,14 +209,29 @@ async function pollLoop() {
     }
 
     lastEvents = data.events;
-    lastDeviceId = displayId;
-    render(lastEvents, lastDeviceId);
+    doRender();
     syncDisplayAndScheduleNext();
-  } catch (e) {
-    const app = document.getElementById("app");
-    if (app) app.innerHTML = `<p>Error: ${String(e)}</p>`;
+
+    if (popup.hasPopupWithType("no-connection")) {
+      popup.dismissPopupsByType("no-connection");
+    }
+  } catch {
+    if (!popup.hasPopupWithType("no-connection")) {
+      popup.showPopupIfNotExists("no-connection", {
+        message: "Unable to contact the Show Server.",
+        leftLabel: "Refresh Browser",
+        rightLabel: "Show is over",
+      });
+    }
   }
   setTimeout(pollLoop, POLL_INTERVAL_MS);
 }
 
+lastDisplayedColor = "#000000";
+lastDeviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY) || "—";
+ui.render({
+  deviceId: lastDeviceId,
+  serverTime: getServerTime(),
+  firstColor: "#000000",
+});
 pollLoop();
