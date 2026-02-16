@@ -176,9 +176,11 @@ pub fn get_display_color_at(state: &ClientSyncState, now_ms: u64) -> String {
         && server_time >= state.broadcast_paused_at_ms.unwrap_or(0) as i64
     {
         let cache = state.broadcast_cache.as_ref().unwrap();
-        let paused_pos = cache.readhead_sec
-            + (state.broadcast_paused_at_ms.unwrap_or(0) - cache.play_at_ms.unwrap_or(0)) as f64
-                / 1000.0;
+        let paused_elapsed_ms = state
+            .broadcast_paused_at_ms
+            .unwrap_or(0)
+            .saturating_sub(cache.play_at_ms.unwrap_or(0));
+        let paused_pos = cache.readhead_sec + paused_elapsed_ms as f64 / 1000.0;
         get_color_from_broadcast_timeline(&cache.timeline, paused_pos)
     } else {
         None
@@ -257,9 +259,11 @@ pub fn apply_poll_response(
             && server_time >= state.broadcast_paused_at_ms.unwrap_or(0) as i64
         {
             let cache = state.broadcast_cache.as_ref().unwrap();
-            let paused_pos = cache.readhead_sec
-                + (state.broadcast_paused_at_ms.unwrap_or(0) - cache.play_at_ms.unwrap_or(0)) as f64
-                    / 1000.0;
+            let paused_elapsed_ms = state
+                .broadcast_paused_at_ms
+                .unwrap_or(0)
+                .saturating_sub(cache.play_at_ms.unwrap_or(0));
+            let paused_pos = cache.readhead_sec + paused_elapsed_ms as f64 / 1000.0;
             get_color_from_broadcast_timeline(&cache.timeline, paused_pos)
         } else {
             None
