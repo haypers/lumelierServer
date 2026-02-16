@@ -1,3 +1,8 @@
+//! # Broadcast API — Timeline, Play, Pause
+//!
+//! POST timeline: validate and store JSON in broadcast state. POST play: set play_at_ms (now + delay), readhead_sec, clear pause.
+//! POST pause: set pause_at_ms (now + delay). Clients receive these via poll response and sync playback.
+
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;

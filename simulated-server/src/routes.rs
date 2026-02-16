@@ -1,3 +1,9 @@
+//! # HTTP Routes — API for the Admin UI and Runner
+//!
+//! Defines all endpoints: health, GET/POST/DELETE /clients, POST /clients/summaries,
+//! GET/PATCH/DELETE /clients/:id, POST /clients/:id/sample. Shared state is store + runner_state
+//! (passed via Axum's State extractor).
+
 use axum::extract::{DefaultBodyLimit, Path, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
@@ -15,6 +21,7 @@ use crate::store::{
 };
 use std::time::UNIX_EPOCH;
 
+/// State shared by all route handlers: the store and the runner state (so we can read timers/lag).
 #[derive(Clone)]
 pub struct SimulatedAppState {
     pub store: Arc<SimulatedStore>,
@@ -65,6 +72,7 @@ struct ClientFullResponse {
     last_rtt_ms: Option<u32>,
 }
 
+/// Current time as milliseconds since Unix epoch (for timer math).
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -72,14 +80,17 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// GET / and GET /health — simple health check.
 async fn health() -> Json<HealthResponse> {
     Json(HealthResponse { ok: true })
 }
 
+/// GET /clients — list all clients as { id, deviceId } for pagination.
 async fn get_clients_minimal(State(state): State<AppState>) -> Json<Vec<MinimalClient>> {
     Json(state.store.get_minimal_list())
 }
 
+/// GET /clients/:id — full record plus runner timers (next poll, next lag, lag ends in, last RTT).
 async fn get_client_full(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -118,6 +129,7 @@ async fn get_client_full(
     }))
 }
 
+/// POST /clients — create clients from body; returns { created: number }.
 async fn post_clients(
     State(state): State<AppState>,
     Json(body): Json<PostClientsBody>,
@@ -127,6 +139,7 @@ async fn post_clients(
     Json(CreatedResponse { created })
 }
 
+/// POST /clients/summaries — body { ids: string[] }; returns summaries (color, clock error, lag) in same order; lag filled from runner.
 async fn post_summaries(
     State(state): State<AppState>,
     Json(body): Json<SummariesBody>,
@@ -153,6 +166,7 @@ async fn post_summaries(
     Json(SummariesResponse { summaries })
 }
 
+/// POST /clients/:id/sample — body { distKey }; sample from that curve, append to history, return { x, y }.
 async fn post_sample(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -181,6 +195,7 @@ async fn post_sample(
     Ok(Json(point))
 }
 
+/// PATCH /clients/:id — partial update (currentDisplayColor and/or distribution anchors). 204 on success, 404 if not found.
 async fn patch_client(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -193,6 +208,7 @@ async fn patch_client(
     }
 }
 
+/// DELETE /clients/:id — remove one client. 204 or 404.
 async fn delete_client(
     State(state): State<AppState>,
     Path(id): Path<String>,
@@ -204,11 +220,13 @@ async fn delete_client(
     }
 }
 
+/// DELETE /clients — remove all clients. Always 204.
 async fn delete_all_clients(State(state): State<AppState>) -> StatusCode {
     state.store.clear();
     StatusCode::NO_CONTENT
 }
 
+/// Build the Axum Router with all routes, CORS, body size limit, and shared state.
 pub fn simulated_app(store: Arc<SimulatedStore>, runner_state: Arc<RunnerState>) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)

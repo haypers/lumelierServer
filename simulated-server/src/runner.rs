@@ -1,10 +1,16 @@
-// Event-driven delay layer (C2S/S2C, lag spike) and HTTP polling via per-client timers.
-// No in-flight cap: the simulator may open as many concurrent connections as the OS and main
-// server allow (for stress testing). In production, consider raising the OS limit for the server
-// (e.g. Linux: ulimit -n, limits.conf; Windows: ephemeral port range, TCP settings) so many
-// concurrent connections are supported.
-//
-// Samples distributions on every use; no cached values.
+//! # Runner — Simulated Clients in the Loop
+//!
+//! The runner is a background task that:
+//! 1. **Sync loop** (every SYNC_INTERVAL_MS): ensures every client in the store has an entry in runner_state,
+//!    and spawns three per-client tasks if new: poll loop, lag loop, display loop.
+//! 2. **Poll loop** (per client): sleep until next_poll_at_ms (or end of lag block), apply C2S delay, GET /api/poll,
+//!    apply S2C delay, then apply_poll_response and schedule next poll from distribution.
+//! 3. **Lag loop** (per client): sleep until next lag spike or end of current spike; then either start a spike
+//!    (sample duration, set lag_spike_block_until_ms) or schedule next spike from distribution.
+//! 4. **Display loop** (per client): wake on channel (when poll delivered) or timer; compute current color from
+//!    broadcast timeline and update store; schedule next wake at next color change or fallback interval.
+//!
+//! We sample distributions on every use (no cached values). No in-flight cap — stress test friendly.
 
 use crate::client_sync::{self, PollResponse};
 use crate::distribution;
@@ -21,6 +27,7 @@ use tokio::time::sleep;
 const SYNC_INTERVAL_MS: u64 = 1000;
 const DISPLAY_FALLBACK_SEC: u64 = 15;
 
+/// Current time as milliseconds since Unix epoch.
 fn now_ms() -> u64 {
     std::time::SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -28,13 +35,14 @@ fn now_ms() -> u64 {
         .as_millis() as u64
 }
 
+/// Config passed into the runner: main server URL, store, and runner state (all shared via Arc).
 pub struct RunnerConfig {
     pub main_server_url: String,
     pub store: Arc<SimulatedStore>,
     pub runner_state: Arc<RunnerState>,
 }
 
-/// Sample from a distribution, record (x, y) in the store for the given client/chart, and return (x, y).
+/// Sample from a distribution, append (x, y) to the client's chart history, and return (x, y).
 fn record_sample(
     store: &SimulatedStore,
     id: &str,
@@ -48,7 +56,7 @@ fn record_sample(
     (x, y)
 }
 
-/// Record a sample and return the x value in milliseconds (for delay distributions).
+/// Like record_sample but returns x in milliseconds (for delay dists; pings/lag dists store x in sec so we convert).
 fn record_sample_ms(
     store: &SimulatedStore,
     id: &str,
@@ -65,7 +73,7 @@ fn record_sample_ms(
     ms
 }
 
-/// Record a sample and return the x value in seconds (for time distributions).
+/// Like record_sample but returns x in seconds (for pings interval, lag timing). Clamped to >= 0.
 fn record_sample_sec(
     store: &SimulatedStore,
     id: &str,
@@ -77,6 +85,7 @@ fn record_sample_sec(
     x.max(0.0)
 }
 
+/// Main runner entry: runs forever. Every SYNC_INTERVAL_MS we sync store ↔ runner_state and spawn new client tasks.
 pub async fn run_runner(config: RunnerConfig) {
     let config = Arc::new(config);
     let client = reqwest::Client::builder()
@@ -96,6 +105,7 @@ pub async fn run_runner(config: RunnerConfig) {
 
         let mut rng = rand::thread_rng();
         for id in &ids {
+            // New client: create runner state with first poll/lag times spread over [0, interval], then spawn three loops.
             if !config.runner_state.clients.contains_key(id) {
                 let record = match config.store.get_full(id) {
                     Some(r) => r,
@@ -152,6 +162,7 @@ pub async fn run_runner(config: RunnerConfig) {
     }
 }
 
+/// Per-client task: wait until next lag spike time or end of current spike, then either start a spike (sample duration) or schedule next spike.
 async fn client_lag_loop(client_id: String, config: Arc<RunnerConfig>) {
     loop {
         let wake = {
@@ -232,6 +243,7 @@ async fn client_lag_loop(client_id: String, config: Arc<RunnerConfig>) {
     }
 }
 
+/// Per-client task: sleep until next poll time (or end of lag block), apply C2S delay, GET /api/poll, S2C delay, apply_poll_response, schedule next poll.
 async fn client_poll_loop(client_id: String, config: Arc<RunnerConfig>, client: reqwest::Client) {
     let url = format!("{}/api/poll", config.main_server_url.trim_end_matches('/'));
     loop {
@@ -376,6 +388,7 @@ async fn client_poll_loop(client_id: String, config: Arc<RunnerConfig>, client: 
     }
 }
 
+/// Per-client task: wake on message (from poll delivery) or on timer; recompute display color from broadcast and update store; reschedule at next color change or fallback.
 async fn client_display_loop(
     client_id: String,
     config: Arc<RunnerConfig>,
@@ -395,6 +408,7 @@ async fn client_display_loop(
     }
 }
 
+/// Recompute current color from sync_state and timeline; update store; schedule sleep until next color change or DISPLAY_FALLBACK_SEC.
 async fn sync_and_schedule(
     client_id: &str,
     config: &RunnerConfig,
@@ -445,6 +459,7 @@ async fn sync_and_schedule(
     }
 }
 
+/// Get curve anchors as (x, y) tuples for the distribution module.
 fn curve_anchors(record: &store::SimulatedClientRecord, dist_key: &str) -> Vec<(f64, f64)> {
     let curve = SimulatedStore::curve_for_key(record, dist_key);
     curve.anchors.iter().map(|a| (a.x, a.y)).collect()

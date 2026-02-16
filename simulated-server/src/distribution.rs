@@ -1,10 +1,14 @@
-// Port of simulatedClientServer/sample-distribution.js: sample a random X from a
-// distribution curve so that higher Y values are more likely.
+//! # Distribution Sampling — "Higher Y = More Likely"
+//!
+//! Port of the admin's sample-distribution logic: given a piecewise-linear curve of (x, y) anchors
+//! where y is "probability weight" (0–100), we sample a random (x, y) such that regions with
+//! higher y are more likely to be chosen. Used for pings interval, delays, lag spike timing, etc.
 
 use rand::Rng;
 
 const EPS: f64 = 1e-9;
 
+/// One line segment of the curve (from (x1,y1) to (x2,y2)), extended to chart bounds.
 #[derive(Clone, Copy, Debug)]
 struct Segment {
     x1: f64,
@@ -13,12 +17,14 @@ struct Segment {
     y2: f64,
 }
 
+/// Where a horizontal line at threshold_y crosses the curve.
 #[derive(Clone, Copy, Debug)]
 struct Intercept {
     x: f64,
     curve_y_left: f64,
 }
 
+/// A horizontal span where the curve is above (or below) the threshold; used to compute weighted random X.
 #[derive(Clone, Copy, Debug)]
 struct SpanRow {
     x_start: f64,
@@ -26,6 +32,7 @@ struct SpanRow {
     below: bool,
 }
 
+/// Turn anchors into segments covering [x_min, x_max]. Single anchor => flat line; multiple => piecewise linear.
 fn build_segments(anchors: &[(f64, f64)], x_min: f64, x_max: f64) -> Vec<Segment> {
     if anchors.is_empty() {
         return vec![];
@@ -66,6 +73,7 @@ fn build_segments(anchors: &[(f64, f64)], x_min: f64, x_max: f64) -> Vec<Segment
     segs
 }
 
+/// Find all x positions where the curve crosses the horizontal line at threshold_y.
 fn get_intercepts(
     segments: &[Segment],
     threshold_y: f64,
@@ -115,6 +123,7 @@ fn get_intercepts(
     deduped
 }
 
+/// Build rows [x_start, x_end] with a flag indicating whether curve is below threshold there; "below" regions get weight.
 fn build_span_table(
     intercepts: &[Intercept],
     x_min: f64,
@@ -155,8 +164,9 @@ fn build_span_table(
     rows
 }
 
-/// Sample a random (x, y) from the distribution curve. Higher Y values in the curve
-/// are more likely. Anchors are (x, y) pairs. Returns (0.0, 0.0) for empty or invalid curves.
+/// Sample one (x, y) from the distribution: pick a random threshold in [0, max_y], then pick x uniformly
+/// from the set of x where the curve is above that threshold. So higher parts of the curve are more likely.
+/// Returns (0.0, 0.0) for empty curves or if max_y <= 0.
 pub fn sample_from_distribution(
     anchors: &[(f64, f64)],
     x_min: f64,

@@ -1,8 +1,15 @@
+//! # Connection Registry — Device Presence and Ping
+//!
+//! Tracks each device that has hit GET /api/poll: last seen time, recent RTT samples (X-Ping-Ms),
+//! handshake status, and disconnect events. "Connected" means last_seen within CONNECTED_THRESHOLD_MS.
+//! A background task calls tick_disconnects every 10s to bump disconnect_events for devices that have gone silent.
+
 use dashmap::DashMap;
 
 const CONNECTED_THRESHOLD_MS: u64 = 20_000;
 const PING_SAMPLES_MAX: usize = 10;
 
+/// Per-device state: identity, timestamps, recent ping samples, handshake and disconnect flags.
 #[derive(Clone, Debug)]
 pub struct DeviceState {
     pub device_id: String,
@@ -53,12 +60,14 @@ impl DeviceState {
     }
 }
 
+/// Map of device_id → DeviceState. DashMap allows concurrent reads/writes on different keys.
 #[derive(Default)]
 pub struct ConnectionRegistry {
     devices: DashMap<String, DeviceState>,
 }
 
 impl ConnectionRegistry {
+    /// Create an empty registry.
     pub fn new() -> Self {
         Self {
             devices: DashMap::new(),

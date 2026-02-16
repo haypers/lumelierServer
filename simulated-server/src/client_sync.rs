@@ -1,7 +1,8 @@
-// When we change the real client code, we must update this code to have the same functionality.
-//
-// This module mirrors the clock sync and broadcast/color logic from client/src/main.ts
-// so that simulated clients maintain the same server time estimate and display color.
+//! # Client Sync — Mirror of Real Client Logic
+//!
+//! When we change the real client (client/src/main.ts), we must update this module to match.
+//! It mirrors: clock sync (median of offsets), broadcast timeline playback, and current display color.
+//! No DOM or timers here; the runner calls these functions when it "delivers" a poll response.
 
 use serde::Deserialize;
 use std::collections::VecDeque;
@@ -9,7 +10,7 @@ use std::collections::VecDeque;
 const EVENT_TYPE_SET_COLOR_BROADCAST: &str = "Set Color Broadcast";
 const OFFSET_SAMPLES_MAX: usize = 5;
 
-/// Poll response shape from main server (GET /api/poll). Must match main server's JSON.
+/// JSON shape of the main server's GET /api/poll response. Deserialize with serde.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -50,7 +51,7 @@ pub struct BroadcastTimelineItem {
     pub color: Option<String>,
 }
 
-/// Per-client sync state (clock, broadcast cache, last colors). No DOM or timers.
+/// Per-client sync state: clock offset samples, broadcast cache, play/pause, last colors. No DOM or timers.
 #[derive(Clone, Debug, Default)]
 pub struct ClientSyncState {
     pub clock_offset_ms: i64,
@@ -62,6 +63,7 @@ pub struct ClientSyncState {
     pub last_displayed_color: Option<String>,
 }
 
+/// Median of the offset samples; used for clock_offset_ms so one bad sample doesn't skew the estimate.
 fn median(samples: &VecDeque<f64>) -> f64 {
     if samples.is_empty() {
         return 0.0;
@@ -76,6 +78,7 @@ fn median(samples: &VecDeque<f64>) -> f64 {
     }
 }
 
+/// Client's estimate of server time: now + clock_offset_ms.
 fn get_server_time(now_ms: u64, clock_offset_ms: i64) -> i64 {
     now_ms as i64 + clock_offset_ms
 }
@@ -103,6 +106,7 @@ pub(crate) fn get_broadcast_playback_sec(
     Some((cache.readhead_sec as f64) + elapsed_sec)
 }
 
+/// Given a timeline and a position in seconds, return the color from the last Set Color Broadcast event at or before that position.
 fn get_color_from_broadcast_timeline(
     timeline: &BroadcastTimeline,
     position_sec: f64,
@@ -148,6 +152,7 @@ pub fn next_color_change_sec(timeline: &BroadcastTimeline, position_sec: f64) ->
         .map(|ev| ev.start_sec)
 }
 
+/// Placeholder: we accept any broadcast for now.
 fn is_broadcast_timeline_valid(broadcast: &PollBroadcast) -> bool {
     broadcast.timeline.items.is_empty() || true
 }

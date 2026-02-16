@@ -1,7 +1,14 @@
+//! # Store — In-Memory Simulated Client Data
+//!
+//! Holds all simulated client **config**: id, device_id, distribution curves (anchors),
+//! sample history for charts, and display/clock fields updated by the runner.
+//! Uses DashMap for concurrent access from HTTP handlers and the runner.
+
 use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+/// Names of the five distribution curves (match admin UI and client).
 pub const DIST_KEYS: &[&str] = &[
     "pingsEverySecDist",
     "clientToServerDelayDist",
@@ -10,6 +17,7 @@ pub const DIST_KEYS: &[&str] = &[
     "lagSpikeDurationDist",
 ];
 
+/// (x_min, x_max) for each distribution chart; used when sampling.
 pub const CHART_BOUNDS: [(f64, f64); 5] = [
     (0.25, 5.25),
     (0.0, 500.0),
@@ -18,17 +26,20 @@ pub const CHART_BOUNDS: [(f64, f64); 5] = [
     (0.25, 5.0),
 ];
 
+/// One point on a distribution curve (x = value, y = probability 0–100).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DistributionAnchor {
     pub x: f64,
     pub y: f64,
 }
 
+/// A curve as a list of anchors; used for all five distributions per client.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct DistributionCurve {
     pub anchors: Vec<DistributionAnchor>,
 }
 
+/// Turn optional curve into a valid curve (filter out non-finite points, empty if None).
 fn normalize_curve(curve: Option<&DistributionCurve>) -> DistributionCurve {
     let anchors = match curve {
         Some(c) => c
@@ -42,12 +53,14 @@ fn normalize_curve(curve: Option<&DistributionCurve>) -> DistributionCurve {
     DistributionCurve { anchors }
 }
 
+/// One sampled (x, y) point stored for the chart history (up to MAX_SAMPLE_POINTS per dist).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct SamplePoint {
     pub x: f64,
     pub y: f64,
 }
 
+/// Full record for one simulated client: identity, curves, sample history, and runner-updated display/clock.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SimulatedClientRecord {
@@ -67,6 +80,7 @@ pub struct SimulatedClientRecord {
     pub sample_history: HashMap<String, Vec<SamplePoint>>,
 }
 
+/// Minimal client for GET /clients (list for pagination).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MinimalClient {
@@ -74,6 +88,7 @@ pub struct MinimalClient {
     pub device_id: String,
 }
 
+/// Summary for POST /clients/summaries: id, color, clock error, and lag (lag filled by routes).
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClientSummary {
@@ -86,6 +101,7 @@ pub struct ClientSummary {
     pub lag_ends_in_ms: Option<u64>,
 }
 
+/// Incoming body for POST /clients: optional fields; only id is required.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SimulatedClientInput {
@@ -100,6 +116,7 @@ pub struct SimulatedClientInput {
     pub lag_spike_duration_dist: Option<DistributionCurve>,
 }
 
+/// The in-memory store: map from client id to full record.
 pub struct SimulatedStore {
     clients: DashMap<String, SimulatedClientRecord>,
 }
@@ -107,18 +124,20 @@ pub struct SimulatedStore {
 const MAX_SAMPLE_POINTS: usize = 100;
 
 impl SimulatedStore {
+    /// Create an empty store.
     pub fn new() -> Self {
         Self {
             clients: DashMap::new(),
         }
     }
 
+    /// Add clients from the admin UI. Returns how many were actually created (skips missing/empty id).
     pub fn add_clients(&self, incoming: Vec<SimulatedClientInput>) -> usize {
         let mut created = 0;
         for c in incoming {
             let id = match &c.id {
                 Some(s) if !s.is_empty() => s.clone(),
-                _ => continue,
+                _ => continue, // skip invalid
             };
             let device_id = c
                 .device_id
@@ -156,6 +175,7 @@ impl SimulatedStore {
         created
     }
 
+    /// List all clients as minimal { id, device_id } for GET /clients.
     pub fn get_minimal_list(&self) -> Vec<MinimalClient> {
         self.clients
             .iter()
@@ -166,6 +186,7 @@ impl SimulatedStore {
             .collect()
     }
 
+    /// Get full record by id; None if not found. Used by GET /clients/:id and runner.
     pub fn get_full(&self, id: &str) -> Option<SimulatedClientRecord> {
         self.clients.get(id).map(|r| r.clone())
     }
@@ -175,6 +196,7 @@ impl SimulatedStore {
         self.clients.iter().map(|r| r.id.clone()).collect()
     }
 
+    /// Build summaries for the given ids (same order). lag_ends_in_ms left None; routes fill it from runner.
     pub fn get_summaries_for_ids(&self, ids: &[String]) -> Vec<ClientSummary> {
         ids.iter()
             .map(|id| {
@@ -193,6 +215,7 @@ impl SimulatedStore {
             .collect()
     }
 
+    /// Return a reference to the distribution curve for a given key (e.g. "pingsEverySecDist").
     pub fn curve_for_key<'a>(
         record: &'a SimulatedClientRecord,
         dist_key: &str,
@@ -207,6 +230,7 @@ impl SimulatedStore {
         }
     }
 
+    /// Append one sample point to a client's chart history; trim to MAX_SAMPLE_POINTS. Returns None if key invalid or client missing.
     pub fn append_sample(
         &self,
         id: &str,
@@ -229,6 +253,7 @@ impl SimulatedStore {
         Some(point)
     }
 
+    /// Apply a PATCH body: update currentDisplayColor and/or any distribution curve anchors. Returns false if client not found.
     pub fn patch(&self, id: &str, body: &serde_json::Value) -> bool {
         let mut r = match self.clients.get_mut(id) {
             Some(x) => x,
@@ -273,10 +298,12 @@ impl SimulatedStore {
         true
     }
 
+    /// Remove one client. Returns true if it existed.
     pub fn remove(&self, id: &str) -> bool {
         self.clients.remove(id).is_some()
     }
 
+    /// Remove all clients (used by DELETE /clients).
     pub fn clear(&self) {
         self.clients.clear();
     }
@@ -316,7 +343,7 @@ impl Default for SimulatedStore {
     }
 }
 
-/// Get (x_min, x_max) for a dist key. Used by sample handler.
+/// Return (x_min, x_max) for a distribution key; used when sampling so X stays in chart range.
 pub fn chart_bounds_for_key(dist_key: &str) -> (f64, f64) {
     DIST_KEYS
         .iter()

@@ -1,3 +1,9 @@
+//! # Poll — GET /api/poll
+//!
+//! Clients (and simulated clients) call this to get server time, device id echo, and optional broadcast
+//! (timeline + play/pause). We read X-Device-ID and X-Ping-Ms from headers, upsert the registry, then
+//! return JSON with serverTime, serverTimeAtSend, deviceId, events (empty), and broadcast if set.
+
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
@@ -57,6 +63,7 @@ fn device_id_from_headers(headers: &HeaderMap) -> (String, bool) {
     (Uuid::new_v4().to_string(), false)
 }
 
+/// Parse X-Ping-Ms header as u32 (client's last RTT in ms).
 fn ping_ms_from_headers(headers: &HeaderMap) -> Option<u32> {
     let v = headers.get("x-ping-ms")?;
     let s = v.to_str().ok()?.trim();

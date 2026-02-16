@@ -1,3 +1,11 @@
+//! # Lumelier Main Server — Entry Point
+//!
+//! Runs two HTTP servers: **main** (port 3002) for client poll and static client app, and **admin**
+//! (port 3010) for the admin panel and admin API. Also starts the simulated client server as a
+//! child process if the binary is found. Shared state: connection registry (device last-seen, ping)
+//! and broadcast state (timeline, play/pause). Prints a QR code so phones on the same network can
+//! open the client URL.
+
 use axum::routing::{any, get, post};
 use axum::response::IntoResponse;
 use axum::Router;
@@ -17,13 +25,13 @@ mod timeline_validator;
 const PORT: u16 = 3002;
 const ADMIN_PORT: u16 = 3010;
 
-/// Prefer local network IP for QR (so phones can scan). Fallback to 127.0.0.1.
+/// Base URL for clients; uses local IP so phones can scan QR and connect. Fallback 127.0.0.1.
 fn local_url() -> String {
     let host = local_ip().unwrap_or_else(|| "127.0.0.1".to_string());
     format!("http://{}:{}", host, PORT)
 }
 
-/// Local IP used for outbound traffic (no extra deps; works with older Cargo).
+/// Detect local network IP by connecting a UDP socket to 8.8.8.8 and reading local_addr. Returns None on failure.
 fn local_ip() -> Option<String> {
     let socket = std::net::UdpSocket::bind("0.0.0.0:0").ok()?;
     socket.connect("8.8.8.8:80").ok()?;
@@ -67,6 +75,7 @@ fn print_qr(url: &str) {
 
 #[tokio::main]
 async fn main() {
+    // Shared state: which devices have polled recently and their ping samples.
     let registry: Arc<connections::ConnectionRegistry> =
         Arc::new(connections::ConnectionRegistry::new());
     let broadcast_state: Arc<RwLock<broadcast::BroadcastState>> =

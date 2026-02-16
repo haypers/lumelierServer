@@ -1,25 +1,37 @@
-// Per-client state for the runner. No distribution values are stored; we sample on every use.
+//! # Runner State — Per-Client Scheduling and Sync
+//!
+//! This module holds the **runtime state** for each simulated client that the runner uses:
+//! when to poll next, when the next lag spike is, whether we're currently in a lag block,
+//! and the client-sync state (clock, broadcast) that mirrors the real client logic.
+//!
+//! It does **not** store distribution curves or config; those live in the store. We sample
+//! from the store's distributions each time we need a new delay or interval.
 
 use crate::client_sync::ClientSyncState;
 use dashmap::DashMap;
 use std::collections::HashSet;
 use tokio::sync::mpsc::UnboundedSender;
 
-/// State for one simulated client in the runner. Only scheduling and sync state; no cached distribution samples.
+/// State for **one** simulated client inside the runner.
+/// Only scheduling and sync; no cached distribution samples.
 pub struct RunnerClientState {
+    /// When (Unix ms) we should send the next GET /api/poll. Runner sleeps until this time.
     pub next_poll_at_ms: u64,
+    /// When (Unix ms) the next lag spike should start. 0 means "not scheduled" (e.g. we're in a spike).
     pub next_lag_spike_at_ms: u64,
-    /// 0 = not in block; else drop all in/out until this time (ms).
+    /// If non-zero: we're in a "lag spike" until this time (Unix ms). All in/out traffic is dropped until then.
     pub lag_spike_block_until_ms: u64,
-    /// When set, poll delivery sends () to wake the client's display task so it recalculates and reschedules.
+    /// Channel to wake the client's display task when a poll response is delivered, so it recalculates color and reschedules.
     pub display_sync_tx: Option<UnboundedSender<()>>,
+    /// Clock offset, broadcast cache, last colors — mirrors client/src/main.ts sync logic.
     pub sync_state: ClientSyncState,
-    /// C2S + S2C of the last completed round; sent as X-Ping-Ms on the next poll.
+    /// Last round-trip time (C2S + S2C ms). Sent as X-Ping-Ms on the next poll.
     pub last_rtt_ms: Option<u32>,
 }
 
-/// All running clients keyed by client id. Runner ensures entries exist for all store clients.
+/// All runner clients, keyed by client id. The main loop ensures an entry exists for every id in the store.
 pub struct RunnerState {
+    /// DashMap: concurrent hash map. Many tasks can read/write different keys at once without locking the whole map.
     pub clients: DashMap<String, RunnerClientState>,
 }
 
@@ -30,9 +42,9 @@ impl RunnerState {
         }
     }
 
-    /// Ensure a client is in the runner state. If newly inserted, use the given initial timestamps
-    /// (caller samples pingsEverySecDist and timeBetweenLagSpikesDist at use time).
-    /// Caller sets display_sync_tx after insert when spawning the display task.
+    /// Ensure a client exists in the map. If it's new, insert with the given initial timestamps.
+    /// The caller is responsible for sampling the distributions to get those timestamps.
+    /// After insert, the caller also sets `display_sync_tx` when it spawns the display task.
     pub fn ensure_client(
         &self,
         client_id: String,
@@ -55,7 +67,8 @@ impl RunnerState {
         );
     }
 
-    /// Remove runner state for any client whose id is not in `ids` (e.g. deleted from store).
+    /// Remove any client whose id is not in `ids`. Used when clients are deleted from the store.
+    /// `retain` keeps only entries for which the closure returns true.
     pub fn retain_only_ids(&self, ids: &HashSet<String>) {
         self.clients.retain(|k, _| ids.contains(k));
     }

@@ -1,3 +1,8 @@
+//! # Shows API — List, Get, Put Show Timelines
+//!
+//! Show timelines are stored as JSON files under show_timelines_path. List returns sorted .json names;
+//! GET returns file contents; PUT writes body to file. Names are sanitized to prevent path traversal.
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -5,7 +10,7 @@ use axum::Json;
 
 use crate::api::AdminAppState;
 
-/// Sanitize name: only allow [a-zA-Z0-9._-], reject "..", "/", "\\".
+/// Only allow [a-zA-Z0-9._-]; reject empty, "..", "/", "\\". Returns None if invalid.
 /// Returns None if invalid.
 fn sanitize_filename(name: &str) -> Option<String> {
     if name.is_empty() || name.contains("..") || name.contains('/') || name.contains('\\') {

@@ -1,3 +1,8 @@
+//! # Admin API — Connected Devices, Stats, Broadcast, Reset
+//!
+//! Handlers for admin panel: connected devices list, pagination by page IDs, fetch by IDs, stats,
+//! reset connections, and broadcast play/pause/timeline. All use AdminAppState (registry + paths + broadcast).
+
 use axum::extract::Query;
 use axum::extract::State;
 use axum::http::StatusCode;

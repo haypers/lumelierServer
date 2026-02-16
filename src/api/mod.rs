@@ -1,3 +1,8 @@
+//! # API Module — HTTP Handlers and Shared State
+//!
+//! Re-exports all route handlers and defines MainAppState (for main server) and AdminAppState (for admin).
+//! Health is shared; poll has two entry points (main and admin) but same impl.
+
 mod admin;
 mod broadcast;
 mod poll;

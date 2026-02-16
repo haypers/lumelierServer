@@ -1,5 +1,9 @@
-/// Validates that body is UTF-8, valid JSON, and has the shape expected for a broadcast timeline
-/// (object with "items" array). Returns Ok(()) or Err(message).
+//! # Timeline Validator — Broadcast Timeline JSON
+//!
+//! Validates POST body for broadcast timeline: UTF-8, valid JSON, root object with "items" array;
+//! each item must be an object; startSec if present must be a number.
+
+/// Returns Ok(()) if valid, Err(message) otherwise.
 pub fn validate_broadcast_timeline(body: &[u8]) -> Result<(), String> {
     let s = std::str::from_utf8(body).map_err(|e| format!("Invalid UTF-8: {}", e))?;
     let v: serde_json::Value =

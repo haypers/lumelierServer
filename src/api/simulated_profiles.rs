@@ -1,3 +1,9 @@
+//! # Simulated Client Profiles API — Save and Load Profiles
+//!
+//! Profiles (JSON for simulated client config) are stored under simulated_client_profiles_path.
+//! POST save: name + profile JSON, optional overwrite. GET list: .json names. GET by name: file contents.
+//! Filenames sanitized like shows (no path traversal).
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
