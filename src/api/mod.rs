@@ -8,6 +8,7 @@ mod broadcast;
 mod poll;
 mod shows;
 mod simulated_profiles;
+mod venues;
 
 pub use admin::{
     get_connected_devices, get_page_ids, get_stats, post_by_ids, post_reset_connections,
@@ -15,6 +16,7 @@ pub use admin::{
 pub use broadcast::{post_broadcast_pause, post_broadcast_play, post_broadcast_timeline};
 pub use poll::{poll, poll_admin};
 pub use shows::{get_show, list_shows, put_show};
+pub use venues::{get_venue, list_venues, put_venue};
 pub use simulated_profiles::{
     get_simulated_client_profile, list_simulated_client_profiles, post_save_simulated_client_profile,
 };
@@ -32,12 +34,13 @@ pub struct MainAppState {
     pub broadcast: Arc<RwLock<crate::broadcast::BroadcastState>>,
 }
 
-/// Shared state for the admin app (registry + show timelines storage path + broadcast + simulated client profiles path).
+/// Shared state for the admin app (registry + show timelines storage path + broadcast + simulated client profiles path + venue shapes path).
 #[derive(Clone)]
 pub struct AdminAppState {
     pub registry: Arc<ConnectionRegistry>,
     pub show_timelines_path: PathBuf,
     pub simulated_client_profiles_path: PathBuf,
+    pub venue_shapes_path: PathBuf,
     pub broadcast: Arc<RwLock<crate::broadcast::BroadcastState>>,
 }
 

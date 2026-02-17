@@ -91,10 +91,16 @@ async fn main() {
         eprintln!("could not create simulated client profiles dir: {}", e);
     }
 
+    let venue_shapes_path = PathBuf::from("./userData/venueShapes");
+    if let Err(e) = std::fs::create_dir_all(&venue_shapes_path) {
+        eprintln!("could not create venue shapes dir: {}", e);
+    }
+
     let admin_state = api::AdminAppState {
         registry: registry.clone(),
         show_timelines_path,
         simulated_client_profiles_path,
+        venue_shapes_path,
         broadcast: broadcast_state.clone(),
     };
 
@@ -173,6 +179,8 @@ async fn main() {
         .route("/api/admin/broadcast/pause", post(api::post_broadcast_pause))
         .route("/api/admin/shows", get(api::list_shows))
         .route("/api/admin/shows/:name", get(api::get_show).put(api::put_show))
+        .route("/api/admin/venues", get(api::list_venues))
+        .route("/api/admin/venues/:name", get(api::get_venue).put(api::put_venue))
         .route(
             "/api/admin/simulated-client-profiles",
             get(api::list_simulated_client_profiles).post(api::post_save_simulated_client_profile),
