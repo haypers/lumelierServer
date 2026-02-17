@@ -37,12 +37,6 @@ function getPath(): RoutePath {
   return (ROUTES.some((r) => r.path === p) ? p : "/") as RoutePath;
 }
 
-function navigate(path: RoutePath): void {
-  if (getPath() === path) return;
-  window.history.pushState({}, "", path);
-  render();
-}
-
 function renderGate(app: HTMLElement): void {
   app.innerHTML = `
     <div class="gate">
@@ -66,7 +60,7 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath): void {
       <div id="${dropdownId}" class="menu-dropdown" hidden role="menu">
         ${ROUTES.map(
           (r) =>
-            `<a href="${r.path}" role="menuitem" data-path="${r.path}" class="${r.path === currentPath ? "current" : ""}"><span class="icon-wrap">${r.icon}</span>${r.title}</a>`
+            `<a href="${r.path}" target="_blank" rel="noopener noreferrer" role="menuitem" data-path="${r.path}" class="${r.path === currentPath ? "current" : ""}"><span class="icon-wrap">${r.icon}</span>${r.title}</a>`
         ).join("")}
       </div>
     </header>
@@ -97,7 +91,9 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath): void {
   dropdown?.querySelectorAll("a[data-path]").forEach((a) => {
     a.addEventListener("click", (e) => {
       e.preventDefault();
-      navigate(a.getAttribute("data-path") as RoutePath);
+      const path = a.getAttribute("data-path") as RoutePath;
+      const url = new URL(path, window.location.origin).href;
+      window.open(url, "_blank", "noopener,noreferrer");
       dropdown!.hidden = true;
       menuBtn?.setAttribute("aria-expanded", "false");
     });
