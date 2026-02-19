@@ -17,6 +17,7 @@ export type SimulatedClientDistKey =
   | "pingsEverySecDist"
   | "clientToServerDelayDist"
   | "serverToClientDelayDist"
+  | "clientProcessingDelayMsDist"
   | "timeBetweenLagSpikesDist"
   | "lagSpikeDurationDist";
 
@@ -32,6 +33,7 @@ export interface SimulatedClient {
   pingsEverySecDist: DistributionCurve;
   clientToServerDelayDist: DistributionCurve;
   serverToClientDelayDist: DistributionCurve;
+  clientProcessingDelayMsDist: DistributionCurve;
   timeBetweenLagSpikesDist: DistributionCurve;
   lagSpikeDurationDist: DistributionCurve;
   /** Time until next poll (ms); only when client is in runner. */
@@ -42,6 +44,12 @@ export interface SimulatedClient {
   lagEndsInMs?: number | null;
   /** Last round-trip time (ms) of the last completed poll. */
   lastRttMs?: number | null;
+  /** Last network-only round-trip time (C2S + S2C). */
+  lastNetworkRttMs?: number | null;
+  /** Last sampled client-side processing delay (ms). */
+  lastProcessingMs?: number | null;
+  /** Last end-to-end time (network RTT + processing delay) (ms). */
+  lastEffectiveRttMs?: number | null;
 }
 
 /** Response from GET /clients/:id — full client plus per-chart sample history. */

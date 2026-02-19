@@ -34,8 +34,12 @@ export interface PollBroadcast {
 
 export interface PollResponse {
   serverTime: number;
+  /** Server time at request receipt (t1). */
+  serverTimeAtRecv?: number;
   /** Server time right before send; use with RTT/2 for better sync. */
   serverTimeAtSend?: number;
+  /** Echo of the client's request send time header (t0). */
+  clientSendMsEcho?: number;
   deviceId: string;
   events: PollEvent[];
   broadcast?: PollBroadcast;
@@ -60,6 +64,8 @@ export interface TimelineContext {
 export function getBroadcastPlaybackSec(ctx: TimelineContext): number | null {
   const { broadcastCache, broadcastPlaybackStartedAtMs, broadcastPausedAtMs, getServerTime } = ctx;
   if (!broadcastCache?.playAtMs) return null;
+  // Pause can be latched either from local state (broadcastPausedAtMs) or directly from broadcast.pauseAtMs.
+  if (broadcastCache.pauseAtMs != null && getServerTime() >= broadcastCache.pauseAtMs) return null;
   if (broadcastPausedAtMs != null && getServerTime() >= broadcastPausedAtMs) return null;
   const startMs = broadcastPlaybackStartedAtMs ?? broadcastCache.playAtMs;
   if (getServerTime() < startMs) return null;

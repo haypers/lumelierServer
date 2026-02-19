@@ -8,6 +8,7 @@ const DIST_KEYS_ORDER: SimulatedClientDistKey[] = [
   "pingsEverySecDist",
   "clientToServerDelayDist",
   "serverToClientDelayDist",
+  "clientProcessingDelayMsDist",
   "timeBetweenLagSpikesDist",
   "lagSpikeDurationDist",
 ];
@@ -31,6 +32,7 @@ export function createClientWithRandomCurves(
     pingsEverySecDist: { anchors: [] },
     clientToServerDelayDist: { anchors: [] },
     serverToClientDelayDist: { anchors: [] },
+    clientProcessingDelayMsDist: { anchors: [] },
     timeBetweenLagSpikesDist: { anchors: [] },
     lagSpikeDurationDist: { anchors: [] },
   };
@@ -62,6 +64,7 @@ export function createClient(): SimulatedClient {
     pingsEverySecDist: { anchors: [] },
     clientToServerDelayDist: { anchors: [] },
     serverToClientDelayDist: { anchors: [] },
+    clientProcessingDelayMsDist: { anchors: [] },
     timeBetweenLagSpikesDist: { anchors: [] },
     lagSpikeDurationDist: { anchors: [] },
   };
@@ -80,6 +83,7 @@ export function cloneClient(client: SimulatedClient): SimulatedClient {
     pingsEverySecDist: { anchors: client.pingsEverySecDist.anchors.map((a) => ({ ...a })) },
     clientToServerDelayDist: { anchors: client.clientToServerDelayDist.anchors.map((a) => ({ ...a })) },
     serverToClientDelayDist: { anchors: client.serverToClientDelayDist.anchors.map((a) => ({ ...a })) },
+    clientProcessingDelayMsDist: { anchors: client.clientProcessingDelayMsDist.anchors.map((a) => ({ ...a })) },
     timeBetweenLagSpikesDist: { anchors: client.timeBetweenLagSpikesDist.anchors.map((a) => ({ ...a })) },
     lagSpikeDurationDist: { anchors: client.lagSpikeDurationDist.anchors.map((a) => ({ ...a })) },
   };

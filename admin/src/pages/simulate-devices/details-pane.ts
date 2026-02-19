@@ -34,6 +34,10 @@ export const DISTRIBUTION_CHART_PRESETS: DistributionChartPreset[] = [
     xAxis: { unit: "MS", min: 0, max: 500, numTicks: 10 },
   },
   {
+    title: "Client Processing / Timer Delay",
+    xAxis: { unit: "MS", min: 0, max: 300, numTicks: 10 },
+  },
+  {
     title: "Time Between Browser Lag Spikes",
     xAxis: { unit: "Seconds", min: 5, max: 120, numTicks: 10 },
   },
@@ -47,6 +51,7 @@ export const DIST_KEYS_BY_PRESET_INDEX: SimulatedClientDistKey[] = [
   "pingsEverySecDist",
   "clientToServerDelayDist",
   "serverToClientDelayDist",
+  "clientProcessingDelayMsDist",
   "timeBetweenLagSpikesDist",
   "lagSpikeDurationDist",
 ];
@@ -100,6 +105,9 @@ export function updateDetailsPaneReadOnly(container: HTMLElement, client: Simula
     nextLagSpikeIn: client.nextLagSpikeInMs != null ? `${client.nextLagSpikeInMs} ms` : "—",
     lagEndsIn: client.lagEndsInMs != null ? `${client.lagEndsInMs} ms` : "—",
     lastRtt: client.lastRttMs != null ? `${client.lastRttMs} ms` : "—",
+    lastNetworkRtt: client.lastNetworkRttMs != null ? `${client.lastNetworkRttMs} ms` : "—",
+    lastProcessingMs: client.lastProcessingMs != null ? `${client.lastProcessingMs} ms` : "—",
+    lastEffectiveRtt: client.lastEffectiveRttMs != null ? `${client.lastEffectiveRttMs} ms` : "—",
   };
   for (const [key, value] of Object.entries(values)) {
     const dd = container.querySelector<HTMLElement>(`[data-detail-key="${key}"]`);
@@ -225,6 +233,24 @@ export function renderDetailsPane(
     "Last calculated RTT",
     client.lastRttMs != null ? `${client.lastRttMs} ms` : "—",
     "Round-trip time (C2S + S2C) of the last completed poll (ms)."
+  );
+  addRow(
+    "lastNetworkRtt",
+    "Last network RTT",
+    client.lastNetworkRttMs != null ? `${client.lastNetworkRttMs} ms` : "—",
+    "Network-only round-trip time (C2S + S2C), excluding simulated client processing delay."
+  );
+  addRow(
+    "lastProcessingMs",
+    "Last processing delay",
+    client.lastProcessingMs != null ? `${client.lastProcessingMs} ms` : "—",
+    "Simulated client-side processing/timer delay (ms) applied after the network response but before syncing/applying the poll."
+  );
+  addRow(
+    "lastEffectiveRtt",
+    "Last effective RTT",
+    client.lastEffectiveRttMs != null ? `${client.lastEffectiveRttMs} ms` : "—",
+    "End-to-end time (network RTT + processing delay) for the last poll (ms)."
   );
 
   container.appendChild(dl);

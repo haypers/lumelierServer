@@ -25,8 +25,12 @@ pub struct RunnerClientState {
     pub display_sync_tx: Option<UnboundedSender<()>>,
     /// Clock offset, broadcast cache, last colors — mirrors client/src/main.ts sync logic.
     pub sync_state: ClientSyncState,
-    /// Last round-trip time (C2S + S2C ms). Sent as X-Ping-Ms on the next poll.
-    pub last_rtt_ms: Option<u32>,
+    /// Last network round-trip time (C2S + S2C ms). Sent as X-Ping-Ms on the next poll.
+    pub last_network_rtt_ms: Option<u32>,
+    /// Last sampled client-side processing delay (ms) before applying a poll response.
+    pub last_processing_ms: Option<u32>,
+    /// Last end-to-end time (network RTT + processing delay), for UI/debugging.
+    pub last_effective_rtt_ms: Option<u32>,
 }
 
 /// All runner clients, keyed by client id. The main loop ensures an entry exists for every id in the store.
@@ -62,7 +66,9 @@ impl RunnerState {
                 lag_spike_block_until_ms: 0,
                 display_sync_tx: None,
                 sync_state: ClientSyncState::default(),
-                last_rtt_ms: None,
+                last_network_rtt_ms: None,
+                last_processing_ms: None,
+                last_effective_rtt_ms: None,
             },
         );
     }

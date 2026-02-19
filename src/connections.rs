@@ -16,6 +16,7 @@ pub struct DeviceState {
     pub first_connected_at_ms: u64,
     pub last_seen_at_ms: u64,
     pub ping_samples: Vec<u32>,
+    pub server_processing_samples: Vec<u32>,
     pub disconnect_events: u32,
     /// True once the client has sent X-Device-ID back (handshake returned).
     pub handshake_returned: bool,
@@ -37,6 +38,8 @@ pub struct DeviceRow {
     pub average_ping_ms: Option<f64>,
     /// Most recent RTT (ms) reported by the client (last element of ping_samples).
     pub latest_rtt_ms: Option<u32>,
+    pub average_server_processing_ms: Option<f64>,
+    pub latest_server_processing_ms: Option<u32>,
     pub disconnect_events: u32,
     pub estimated_uptime_ms: u64,
     /// Milliseconds since this device last contacted the server.
@@ -71,6 +74,19 @@ impl DeviceState {
         Some(sum as f64 / self.ping_samples.len() as f64)
     }
 
+    fn average_server_processing_ms(&self) -> Option<f64> {
+        if self.server_processing_samples.is_empty() {
+            return None;
+        }
+        let sum: u64 = self
+            .server_processing_samples
+            .iter()
+            .copied()
+            .map(u64::from)
+            .sum();
+        Some(sum as f64 / self.server_processing_samples.len() as f64)
+    }
+
     fn estimated_uptime_ms(&self, now_ms: u64) -> u64 {
         let end = if self.is_connected(now_ms) {
             now_ms
@@ -101,6 +117,7 @@ impl ConnectionRegistry {
         device_id: String,
         now_ms: u64,
         ping_ms: Option<u32>,
+        server_processing_ms: Option<u32>,
         handshake_returned: bool,
         geo: &GeoUpdate,
     ) {
@@ -109,6 +126,7 @@ impl ConnectionRegistry {
             first_connected_at_ms: now_ms,
             last_seen_at_ms: now_ms,
             ping_samples: Vec::with_capacity(PING_SAMPLES_MAX),
+            server_processing_samples: Vec::with_capacity(PING_SAMPLES_MAX),
             disconnect_events: 0,
             handshake_returned: false,
             disconnect_counted: false,
@@ -127,6 +145,12 @@ impl ConnectionRegistry {
             entry.ping_samples.push(p);
             if entry.ping_samples.len() > PING_SAMPLES_MAX {
                 entry.ping_samples.remove(0);
+            }
+        }
+        if let Some(p) = server_processing_ms {
+            entry.server_processing_samples.push(p);
+            if entry.server_processing_samples.len() > PING_SAMPLES_MAX {
+                entry.server_processing_samples.remove(0);
             }
         }
         if geo.lat.is_some() {
@@ -206,6 +230,8 @@ impl ConnectionRegistry {
                     first_connected_at_ms: d.first_connected_at_ms,
                     average_ping_ms: d.average_ping_ms(),
                     latest_rtt_ms: d.ping_samples.last().copied(),
+                    average_server_processing_ms: d.average_server_processing_ms(),
+                    latest_server_processing_ms: d.server_processing_samples.last().copied(),
                     disconnect_events: d.disconnect_events,
                     estimated_uptime_ms: d.estimated_uptime_ms(now_ms),
                     time_since_last_contact_ms: now_ms.saturating_sub(d.last_seen_at_ms),
@@ -268,6 +294,8 @@ impl ConnectionRegistry {
                     first_connected_at_ms: d.first_connected_at_ms,
                     average_ping_ms: d.average_ping_ms(),
                     latest_rtt_ms: d.ping_samples.last().copied(),
+                    average_server_processing_ms: d.average_server_processing_ms(),
+                    latest_server_processing_ms: d.server_processing_samples.last().copied(),
                     disconnect_events: d.disconnect_events,
                     estimated_uptime_ms: d.estimated_uptime_ms(now_ms),
                     time_since_last_contact_ms: now_ms.saturating_sub(d.last_seen_at_ms),
@@ -310,6 +338,8 @@ impl ConnectionRegistry {
                         first_connected_at_ms: d.first_connected_at_ms,
                         average_ping_ms: d.average_ping_ms(),
                         latest_rtt_ms: d.ping_samples.last().copied(),
+                        average_server_processing_ms: d.average_server_processing_ms(),
+                        latest_server_processing_ms: d.server_processing_samples.last().copied(),
                         disconnect_events: d.disconnect_events,
                         estimated_uptime_ms: d.estimated_uptime_ms(now_ms),
                         time_since_last_contact_ms: now_ms.saturating_sub(d.last_seen_at_ms),
