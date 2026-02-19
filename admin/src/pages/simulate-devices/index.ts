@@ -724,6 +724,8 @@ let lastRenderedDetailsClientFull: SimulatedClientWithSampleHistory | null | und
 let paginationInfoEl: HTMLElement | null = null;
 let pagePrevBtn: HTMLButtonElement | null = null;
 let pageNextBtn: HTMLButtonElement | null = null;
+/** Prevents overlapping grid stats requests so the RefreshEvery disconnect timeout is not cleared by a new request. */
+let gridRefreshStatsInFlight = false;
 
 function computeGridLayout(
   containerWidth: number,
@@ -815,15 +817,31 @@ function getGridAvailableSize(): { w: number; h: number } {
   return { w, h };
 }
 
-function updateGridLayoutAndRender(): void {
-  if (!gridContainer) return;
-  let { w, h } = getGridAvailableSize();
+/**
+ * Single source of truth for "what is the current visible page". Uses the same snapped
+ * height as the grid render so fetch and display never disagree (e.g. after resize).
+ * Updates pageIndex (clamps to valid range). Call whenever layout might have changed.
+ */
+function getVisiblePageLayout(): {
+  layout: ReturnType<typeof computeGridLayout>;
+  start: number;
+  pageSize: number;
+  totalPages: number;
+} {
+  const { w, h } = getGridAvailableSize();
   const cellSize = squareSizePx + GRID_GAP_PX;
-  h = Math.max(cellSize, Math.floor(h / cellSize) * cellSize);
-  const layout = computeGridLayout(w, h, squareSizePx, GRID_GAP_PX, 0, clients.length);
+  const snappedH = Math.max(cellSize, Math.floor(h / cellSize) * cellSize);
+  const layout = computeGridLayout(w, snappedH, squareSizePx, GRID_GAP_PX, 0, clients.length);
   const { pageSize, totalPages } = layout;
   pageIndex = Math.min(pageIndex, Math.max(0, totalPages - 1));
   const start = pageIndex * pageSize;
+  return { layout, start, pageSize, totalPages };
+}
+
+function updateGridLayoutAndRender(): void {
+  if (!gridContainer) return;
+  const visible = getVisiblePageLayout();
+  const { start, pageSize, totalPages } = visible;
   const pageClients = clients.slice(start, start + pageSize);
   updateClientGrid(gridContainer, pageClients, selectedId, (id) => {
     selectedId = id;
@@ -913,11 +931,9 @@ function mergeSummariesIntoClients(
 }
 
 /** Fetch summaries for currently visible page (and selected client if not on page), merge into clients, then refresh. */
-async function fetchVisibleSummariesAndRefresh(): Promise<void> {
-  const { w, h } = getGridAvailableSize();
-  const layout = computeGridLayout(w, h, squareSizePx, GRID_GAP_PX, 0, clients.length);
-  const { pageSize } = layout;
-  const start = pageIndex * pageSize;
+async function fetchVisibleSummariesAndRefresh(): Promise<boolean> {
+  const visible = getVisiblePageLayout();
+  const { start, pageSize } = visible;
   const visibleIds = clients.slice(start, start + pageSize).map((c) => c.id);
   const includeSelected =
     selectedId != null && !visibleIds.includes(selectedId);
@@ -926,7 +942,7 @@ async function fetchVisibleSummariesAndRefresh(): Promise<void> {
   if (idsToFetch.length === 0) {
     updateClockErrorWidget(null, null);
     refresh();
-    return;
+    return true;
   }
   try {
     const summaries = await getSummaries(idsToFetch);
@@ -945,8 +961,11 @@ async function fetchVisibleSummariesAndRefresh(): Promise<void> {
   } catch {
     // leave existing merged data as-is
     updateClockErrorWidget(null, null);
+    refresh();
+    return false;
   }
   refresh();
+  return true;
 }
 
 function refresh(): void {
@@ -1036,7 +1055,10 @@ function refresh(): void {
   }
 }
 
-async function runGridRefresh(): Promise<void> {
+/** Full refresh: fetch client list then summaries. Use on load, manual refresh, and after Create/Destroy/Delete/Clone. */
+async function runGridRefreshFull(): Promise<void> {
+  if (gridRefreshStatsInFlight) return;
+  gridRefreshStatsInFlight = true;
   gridRefreshApi?.requestStarted();
   gridRefreshApi?.recordRefresh();
   let success = false;
@@ -1049,11 +1071,28 @@ async function runGridRefresh(): Promise<void> {
       selectedClientFull = null;
     }
     if (clients.length > 0 && selectedId == null) selectedId = clients[0].id;
-    success = true;
-    await fetchVisibleSummariesAndRefresh();
+    success = await fetchVisibleSummariesAndRefresh();
   } catch {
     // Leave clients as-is; disconnect indicator will show
   } finally {
+    gridRefreshStatsInFlight = false;
+    gridRefreshApi?.requestCompleted(success);
+  }
+}
+
+/** Stats only: fetch summaries for visible IDs. Use for grid timer ticks. */
+async function runGridRefreshStatsOnly(): Promise<void> {
+  if (gridRefreshStatsInFlight) return;
+  gridRefreshStatsInFlight = true;
+  gridRefreshApi?.requestStarted();
+  gridRefreshApi?.recordRefresh();
+  let success = false;
+  try {
+    success = await fetchVisibleSummariesAndRefresh();
+  } catch {
+    // Leave existing data as-is
+  } finally {
+    gridRefreshStatsInFlight = false;
     gridRefreshApi?.requestCompleted(success);
   }
 }
@@ -1188,9 +1227,9 @@ export function render(container: HTMLElement): void {
       onIntervalChange(ms) {
         if (gridRefreshTimer) clearInterval(gridRefreshTimer);
         gridRefreshTimer = null;
-        if (ms > 0) gridRefreshTimer = setInterval(() => runGridRefresh(), ms);
+        if (ms > 0) gridRefreshTimer = setInterval(() => runGridRefreshStatsOnly(), ms);
       },
-      onManualRefresh: runGridRefresh,
+      onManualRefresh: runGridRefreshFull,
     });
     toolbarEl.insertBefore(gridRefreshApi.root, toolbarEl.firstChild);
     const clockErrorWrap = document.getElementById("simulate-devices-clock-error-wrap");
@@ -1218,7 +1257,7 @@ export function render(container: HTMLElement): void {
   const gridMs = gridRefreshApi?.getIntervalMs() ?? 1000;
   if (gridRefreshTimer) clearInterval(gridRefreshTimer);
   gridRefreshTimer = null;
-  if (gridMs > 0) gridRefreshTimer = setInterval(runGridRefresh, gridMs);
+  if (gridMs > 0) gridRefreshTimer = setInterval(runGridRefreshStatsOnly, gridMs);
 
   function tickClocks(): void {
     gridRefreshApi?.updateClockHand();
@@ -1227,7 +1266,10 @@ export function render(container: HTMLElement): void {
   }
   clockRafId = requestAnimationFrame(tickClocks);
 
-  requestAnimationFrame(() => refresh());
+  requestAnimationFrame(() => {
+    refresh();
+    runGridRefreshFull();
+  });
 
   document.addEventListener("keydown", (e: KeyboardEvent) => {
     if (e.key !== "Delete" && e.key !== "Backspace") return;
@@ -1260,7 +1302,7 @@ export function render(container: HTMLElement): void {
   document.getElementById("simulate-devices-create")?.addEventListener("click", () => {
     showCreateClientsModal((newClients) => {
       postClients(newClients)
-        .then(() => runGridRefresh())
+        .then(() => runGridRefreshFull())
         .then(() => {
           if (selectedId != null && selectedClientFull == null) {
             getClient(selectedId).then((full) => {
@@ -1271,7 +1313,7 @@ export function render(container: HTMLElement): void {
             });
           }
         })
-        .catch(() => runGridRefresh());
+        .catch(() => runGridRefreshFull());
     });
   });
 
@@ -1280,9 +1322,9 @@ export function render(container: HTMLElement): void {
       .then(() => {
         selectedId = null;
         selectedClientFull = null;
-        runGridRefresh();
+        runGridRefreshFull();
       })
-      .catch(() => runGridRefresh());
+      .catch(() => runGridRefreshFull());
   });
 
   btnDelete?.addEventListener("click", () => {
@@ -1292,9 +1334,9 @@ export function render(container: HTMLElement): void {
       .then(() => {
         selectedId = null;
         selectedClientFull = null;
-        runGridRefresh();
+        runGridRefreshFull();
       })
-      .catch(() => runGridRefresh());
+      .catch(() => runGridRefreshFull());
   });
 
   btnClone?.addEventListener("click", () => {
@@ -1302,7 +1344,7 @@ export function render(container: HTMLElement): void {
     if (sel == null) return;
     showCloneClientModal(sel, (newClients) => {
       postClients(newClients)
-        .then(() => runGridRefresh())
+        .then(() => runGridRefreshFull())
         .then(() => {
           const lastId = newClients[newClients.length - 1]?.id;
           if (lastId && clients.some((c) => c.id === lastId)) {
@@ -1317,7 +1359,7 @@ export function render(container: HTMLElement): void {
           }
           refresh();
         })
-        .catch(() => runGridRefresh());
+        .catch(() => runGridRefreshFull());
     });
   });
 
@@ -1341,10 +1383,10 @@ export function render(container: HTMLElement): void {
 
   pagePrevBtn?.addEventListener("click", () => {
     pageIndex--;
-    fetchVisibleSummariesAndRefresh();
+    refresh();
   });
   pageNextBtn?.addEventListener("click", () => {
     pageIndex++;
-    fetchVisibleSummariesAndRefresh();
+    refresh();
   });
 }

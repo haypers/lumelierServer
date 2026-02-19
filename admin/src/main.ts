@@ -38,6 +38,7 @@ function getPath(): RoutePath {
 }
 
 function renderGate(app: HTMLElement): void {
+  document.title = "Admin panel";
   app.innerHTML = `
     <div class="gate">
       <p>Admin panel</p>
@@ -52,6 +53,7 @@ function renderGate(app: HTMLElement): void {
 
 function renderHeader(container: HTMLElement, currentPath: RoutePath): void {
   const current = ROUTES.find((r) => r.path === currentPath)!;
+  document.title = current.title;
   const dropdownId = "menu-dropdown";
   container.innerHTML = `
     <header class="admin-header">
