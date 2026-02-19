@@ -41,6 +41,16 @@ pub struct DeviceRowResponse {
     pub estimated_uptime_ms: u64,
     #[serde(rename = "timeSinceLastContactMs")]
     pub time_since_last_contact_ms: u64,
+    #[serde(rename = "geoLat", skip_serializing_if = "Option::is_none")]
+    pub geo_lat: Option<f64>,
+    #[serde(rename = "geoLon", skip_serializing_if = "Option::is_none")]
+    pub geo_lon: Option<f64>,
+    #[serde(rename = "geoAccuracy", skip_serializing_if = "Option::is_none")]
+    pub geo_accuracy: Option<f64>,
+    #[serde(rename = "geoAlt", skip_serializing_if = "Option::is_none")]
+    pub geo_alt: Option<f64>,
+    #[serde(rename = "geoAltAccuracy", skip_serializing_if = "Option::is_none")]
+    pub geo_alt_accuracy: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -136,6 +146,11 @@ pub async fn get_connected_devices(
             disconnect_events: r.disconnect_events,
             estimated_uptime_ms: r.estimated_uptime_ms,
             time_since_last_contact_ms: r.time_since_last_contact_ms,
+            geo_lat: r.geo_lat,
+            geo_lon: r.geo_lon,
+            geo_accuracy: r.geo_accuracy,
+            geo_alt: r.geo_alt,
+            geo_alt_accuracy: r.geo_alt_accuracy,
         })
         .collect();
 
@@ -168,6 +183,11 @@ fn sort_rows(rows: &mut [DeviceRow], sort_field: &str, sort_asc: bool) {
             "disconnectEvents" => a.disconnect_events.cmp(&b.disconnect_events),
             "estimatedUptimeMs" => a.estimated_uptime_ms.cmp(&b.estimated_uptime_ms),
             "connectionStatus" => a.connection_status.cmp(&b.connection_status),
+            "geoLat" => compare_option_f64(a.geo_lat, b.geo_lat),
+            "geoLon" => compare_option_f64(a.geo_lon, b.geo_lon),
+            "geoAccuracy" => compare_option_f64(a.geo_accuracy, b.geo_accuracy),
+            "geoAlt" => compare_option_f64(a.geo_alt, b.geo_alt),
+            "geoAltAccuracy" => compare_option_f64(a.geo_alt_accuracy, b.geo_alt_accuracy),
             _ => a.device_id.cmp(&b.device_id),
         };
         if sort_asc {
@@ -255,6 +275,11 @@ pub async fn post_by_ids(
             disconnect_events: r.disconnect_events,
             estimated_uptime_ms: r.estimated_uptime_ms,
             time_since_last_contact_ms: r.time_since_last_contact_ms,
+            geo_lat: r.geo_lat,
+            geo_lon: r.geo_lon,
+            geo_accuracy: r.geo_accuracy,
+            geo_alt: r.geo_alt,
+            geo_alt_accuracy: r.geo_alt_accuracy,
         })
         .collect();
 

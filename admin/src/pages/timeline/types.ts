@@ -46,6 +46,8 @@ export interface TimelineStateJSON {
   version: number;
   /** Show title; default "Untitled Show" when missing. */
   title?: string;
+  /** If true, this show requests GPS/location data from clients. Defaults to false when missing. */
+  requestsGPS?: boolean;
   layers: { id: string; label: string }[];
   items: {
     id: string;

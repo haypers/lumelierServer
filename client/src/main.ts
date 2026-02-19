@@ -1,3 +1,4 @@
+import * as gps from "./gps";
 import * as popup from "./popup";
 import * as timeline from "./timeline";
 import * as ui from "./ui";
@@ -134,6 +135,7 @@ async function fetchPoll(): Promise<timeline.PollResponse> {
   const headers: HeadersInit = {};
   if (deviceId) (headers as Record<string, string>)["X-Device-ID"] = deviceId;
   if (lastRttMs != null) (headers as Record<string, string>)["X-Ping-Ms"] = String(lastRttMs);
+  gps.addGeoHeaders(headers as Record<string, string>);
   const t0 = Date.now();
   const res = await fetch("/api/poll", { headers });
   lastRttMs = Date.now() - t0;
@@ -211,6 +213,9 @@ async function pollLoop(): Promise<void> {
     lastEvents = data.events;
     doRender();
     syncDisplayAndScheduleNext();
+
+    const requestsGPS = broadcastCache?.timeline && typeof broadcastCache.timeline === "object" && (broadcastCache.timeline as { requestsGPS?: boolean }).requestsGPS === true;
+    gps.setGpsRequired(!!requestsGPS);
 
     if (popup.hasPopupWithType("no-connection")) {
       popup.dismissPopupsByType("no-connection");

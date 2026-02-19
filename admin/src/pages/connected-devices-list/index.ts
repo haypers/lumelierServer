@@ -21,6 +21,11 @@ const SORT_FIELD_MAP: Record<string, string> = {
   disconnectEvents: "disconnectEvents",
   estimatedUptimeFormatted: "estimatedUptimeMs",
   estimatedUptimeMs: "estimatedUptimeMs",
+  geoLat: "geoLat",
+  geoLon: "geoLon",
+  geoAccuracy: "geoAccuracy",
+  geoAlt: "geoAlt",
+  geoAltAccuracy: "geoAltAccuracy",
 };
 
 /** Tooltips for column headers (same order as columnDefs). */
@@ -33,6 +38,11 @@ const COLUMN_HEADER_TOOLTIPS = [
   "Milliseconds since the server last received a poll request from this device.",
   "Number of times this device has gone silent (no poll within 20 s) and then contacted again. Increments once per disconnect.",
   "Time from first contact to now (if connected) or to last contact (if disconnected).",
+  "Latitude (degrees) from client when the show requests GPS. Sent in X-Geo-Lat.",
+  "Longitude (degrees) from client when the show requests GPS. Sent in X-Geo-Lon.",
+  "Horizontal accuracy (meters) of the position. Sent in X-Geo-Accuracy.",
+  "Altitude (meters) if available. Sent in X-Geo-Alt.",
+  "Altitude accuracy (meters) if available. Sent in X-Geo-Alt-Accuracy.",
 ];
 
 interface Stats {
@@ -49,6 +59,11 @@ interface DeviceRow {
   disconnectEvents: number;
   estimatedUptimeMs: number;
   timeSinceLastContactMs: number;
+  geoLat?: number | null;
+  geoLon?: number | null;
+  geoAccuracy?: number | null;
+  geoAlt?: number | null;
+  geoAltAccuracy?: number | null;
 }
 
 interface ConnectedDevicesFullResponse {
@@ -167,6 +182,11 @@ function buildDevicesCsv(devices: DeviceRow[]): string {
     "Time since last contact (ms)",
     "Disconnect Events",
     "Estimated Uptime",
+    "Latitude",
+    "Longitude",
+    "Geo Accuracy (m)",
+    "Altitude (m)",
+    "Altitude Accuracy (m)",
   ];
   const headerRow = headers.map(escapeCsvField).join(",");
   const rows = devices.map((d) =>
@@ -179,6 +199,11 @@ function buildDevicesCsv(devices: DeviceRow[]): string {
       String(d.timeSinceLastContactMs),
       String(d.disconnectEvents),
       formatUptime(d.estimatedUptimeMs),
+      d.geoLat != null ? String(d.geoLat) : "",
+      d.geoLon != null ? String(d.geoLon) : "",
+      d.geoAccuracy != null ? String(d.geoAccuracy) : "",
+      d.geoAlt != null ? String(d.geoAlt) : "",
+      d.geoAltAccuracy != null ? String(d.geoAltAccuracy) : "",
     ]
       .map(escapeCsvField)
       .join(","),
@@ -309,6 +334,11 @@ function updateTable(data: DeviceRow[], orderIds?: string[]): void {
     estimatedUptimeMs: d.estimatedUptimeMs,
     estimatedUptimeFormatted: formatUptime(d.estimatedUptimeMs),
     timeSinceLastContactMs: d.timeSinceLastContactMs,
+    geoLat: d.geoLat ?? null,
+    geoLon: d.geoLon ?? null,
+    geoAccuracy: d.geoAccuracy ?? null,
+    geoAlt: d.geoAlt ?? null,
+    geoAltAccuracy: d.geoAltAccuracy ?? null,
   }));
   programmaticSort = true;
   table?.setData(rows);
@@ -426,6 +456,11 @@ export function render(container: HTMLElement): void {
     { title: "Time since last contact (ms)", field: "timeSinceLastContactMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[5] } },
     { title: "Disconnect Events", field: "disconnectEvents", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[6] } },
     { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", sorterParams: { field: "estimatedUptimeMs" }, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[7] } },
+    { title: "Latitude", field: "geoLat", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[8] } },
+    { title: "Longitude", field: "geoLon", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[9] } },
+    { title: "Geo Accuracy (m)", field: "geoAccuracy", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[10] } },
+    { title: "Altitude (m)", field: "geoAlt", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[11] } },
+    { title: "Altitude Accuracy (m)", field: "geoAltAccuracy", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[12] } },
   ];
 
   container.innerHTML = `

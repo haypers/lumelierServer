@@ -8,7 +8,8 @@ export function exportState(
   groups: DataSet<DataGroup>,
   items: DataSet<DataItem & { payload?: TimelineItemPayload }>,
   getReadheadSec: () => number,
-  getTitle: () => string
+  getTitle: () => string,
+  getRequestsGPS: () => boolean
 ): TimelineStateJSON {
   const layers = groups.get().map((g: DataGroup) => ({
     id: String(g.id),
@@ -36,6 +37,7 @@ export function exportState(
   return {
     version: 1,
     title: getTitle(),
+    requestsGPS: getRequestsGPS(),
     layers,
     items: itemList,
     readheadSec: getReadheadSec(),
@@ -53,9 +55,11 @@ export function importState(
   items: DataSet<DataItem & { payload?: TimelineItemPayload }>,
   setReadheadSec: (sec: number) => void,
   setNextIds: (ids: NextIds) => void,
-  setTitle: (title: string) => void
+  setTitle: (title: string) => void,
+  setRequestsGPS: (value: boolean) => void
 ): void {
   setTitle(state.title ?? "Untitled Show");
+  setRequestsGPS(state.requestsGPS === true);
   groups.clear();
   items.clear();
   state.layers.forEach((l) => groups.add({ id: l.id, content: l.label }));

@@ -18,6 +18,8 @@ export interface BroadcastTimelineItem {
 export interface BroadcastTimeline {
   version?: number;
   title?: string;
+  /** If true, this show requests GPS/location data from clients. */
+  requestsGPS?: boolean;
   layers?: { id: string; label: string }[];
   items: BroadcastTimelineItem[];
   readheadSec?: number;

@@ -36,6 +36,7 @@ const groupLabelCache = new Map<string, HTMLElement>();
 let nextLayerId = 1;
 let nextItemId = 1;
 let projectTitle = "Untitled Show";
+let requestsGPS = false;
 const EVENT_TYPE_SET_COLOR_BROADCAST = "Set Color Broadcast";
 /** True once the user has opened or created a show; timeline and toolbar are visible. */
 let hasLoadedShow = false;
@@ -344,8 +345,18 @@ function getExportState(): TimelineStateJSON {
     groups,
     items,
     () => (timeline ? dateToSec(timeline.getCustomTime(readheadId)) : 0),
-    () => projectTitle
+    () => projectTitle,
+    () => requestsGPS
   );
+}
+
+function setRequestsGPS(value: boolean): void {
+  requestsGPS = value;
+  const btn = document.getElementById("timeline-request-gps-toggle");
+  if (btn) {
+    btn.classList.toggle("gps-toggle--on", value);
+    btn.setAttribute("aria-pressed", String(value));
+  }
 }
 
 async function uploadTimelineToServer(): Promise<boolean> {
@@ -379,6 +390,7 @@ function getDefaultNewShowState(): TimelineStateJSON {
   return {
     version: 1,
     title: "Untitled Show",
+    requestsGPS: false,
     layers: [{ id: "layer-1", label: "Layer 1" }],
     items: [
       {
@@ -598,7 +610,8 @@ function loadShowState(state: TimelineStateJSON): void {
       projectTitle = title;
       const el = document.getElementById("timeline-project-title-input");
       if (el instanceof HTMLInputElement) el.value = title;
-    }
+    },
+    (value) => setRequestsGPS(value)
   );
   showTimelineContent();
   timeline?.fit();
@@ -720,6 +733,8 @@ function showOpenShowModal(): void {
 export function render(container: HTMLElement): void {
   timeline = null;
   hasLoadedShow = false;
+  isBroadcastMode = false;
+  requestsGPS = false;
   groups = new DataSet<DataGroup>([]);
   items = new DataSet<DataItem & { payload?: TimelineItemPayload }>([]);
 
@@ -744,6 +759,14 @@ export function render(container: HTMLElement): void {
                 </span>
                 <button type="button" class="btn btn-icon-label" data-action="save-show">${saveIcon}<span>Save</span></button>
                 <button type="button" class="btn btn-icon-label" data-action="open-show">${openIcon}<span>Open</span></button>
+                <span class="timeline-toolbar-gps">
+                  <span class="timeline-toolbar-gps-label">Request GPS:</span>
+                  <button type="button" class="mode-switch-toggle gps-toggle" id="timeline-request-gps-toggle" aria-pressed="false" aria-label="Request GPS">
+                    <span class="mode-switch-track">
+                      <span class="mode-switch-knob"></span>
+                    </span>
+                  </button>
+                </span>
               </div>
               <div class="timeline-toolbar-center"></div>
               <div class="timeline-toolbar-right">
@@ -883,6 +906,11 @@ export function render(container: HTMLElement): void {
       projectTitle = titleInput.value.trim() || "Untitled Show";
     });
   }
+
+  document.getElementById("timeline-request-gps-toggle")?.addEventListener("click", () => {
+    setRequestsGPS(!requestsGPS);
+  });
+  setRequestsGPS(requestsGPS);
 
   container.querySelectorAll("[data-action]").forEach((el) => {
     el.addEventListener("click", async () => {

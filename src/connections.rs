@@ -21,6 +21,12 @@ pub struct DeviceState {
     pub handshake_returned: bool,
     /// True after we've counted this device's current disconnect (so we only increment once per disconnect).
     pub disconnect_counted: bool,
+    /// Latest GPS from client (X-Geo-* headers).
+    pub geo_lat: Option<f64>,
+    pub geo_lon: Option<f64>,
+    pub geo_accuracy: Option<f64>,
+    pub geo_alt: Option<f64>,
+    pub geo_alt_accuracy: Option<f64>,
 }
 
 #[derive(Clone, Debug)]
@@ -35,6 +41,21 @@ pub struct DeviceRow {
     pub estimated_uptime_ms: u64,
     /// Milliseconds since this device last contacted the server.
     pub time_since_last_contact_ms: u64,
+    pub geo_lat: Option<f64>,
+    pub geo_lon: Option<f64>,
+    pub geo_accuracy: Option<f64>,
+    pub geo_alt: Option<f64>,
+    pub geo_alt_accuracy: Option<f64>,
+}
+
+/// Geo values from client (X-Geo-* headers). All optional.
+#[derive(Clone, Default)]
+pub struct GeoUpdate {
+    pub lat: Option<f64>,
+    pub lon: Option<f64>,
+    pub accuracy: Option<f64>,
+    pub alt: Option<f64>,
+    pub alt_accuracy: Option<f64>,
 }
 
 impl DeviceState {
@@ -81,6 +102,7 @@ impl ConnectionRegistry {
         now_ms: u64,
         ping_ms: Option<u32>,
         handshake_returned: bool,
+        geo: &GeoUpdate,
     ) {
         let mut entry = self.devices.entry(device_id.clone()).or_insert_with(|| DeviceState {
             device_id: device_id.clone(),
@@ -90,6 +112,11 @@ impl ConnectionRegistry {
             disconnect_events: 0,
             handshake_returned: false,
             disconnect_counted: false,
+            geo_lat: None,
+            geo_lon: None,
+            geo_accuracy: None,
+            geo_alt: None,
+            geo_alt_accuracy: None,
         });
         entry.disconnect_counted = false;
         if handshake_returned {
@@ -101,6 +128,21 @@ impl ConnectionRegistry {
             if entry.ping_samples.len() > PING_SAMPLES_MAX {
                 entry.ping_samples.remove(0);
             }
+        }
+        if geo.lat.is_some() {
+            entry.geo_lat = geo.lat;
+        }
+        if geo.lon.is_some() {
+            entry.geo_lon = geo.lon;
+        }
+        if geo.accuracy.is_some() {
+            entry.geo_accuracy = geo.accuracy;
+        }
+        if geo.alt.is_some() {
+            entry.geo_alt = geo.alt;
+        }
+        if geo.alt_accuracy.is_some() {
+            entry.geo_alt_accuracy = geo.alt_accuracy;
         }
     }
 
@@ -167,6 +209,11 @@ impl ConnectionRegistry {
                     disconnect_events: d.disconnect_events,
                     estimated_uptime_ms: d.estimated_uptime_ms(now_ms),
                     time_since_last_contact_ms: now_ms.saturating_sub(d.last_seen_at_ms),
+                    geo_lat: d.geo_lat,
+                    geo_lon: d.geo_lon,
+                    geo_accuracy: d.geo_accuracy,
+                    geo_alt: d.geo_alt,
+                    geo_alt_accuracy: d.geo_alt_accuracy,
                 }
             })
             .collect();
@@ -224,6 +271,11 @@ impl ConnectionRegistry {
                     disconnect_events: d.disconnect_events,
                     estimated_uptime_ms: d.estimated_uptime_ms(now_ms),
                     time_since_last_contact_ms: now_ms.saturating_sub(d.last_seen_at_ms),
+                    geo_lat: d.geo_lat,
+                    geo_lon: d.geo_lon,
+                    geo_accuracy: d.geo_accuracy,
+                    geo_alt: d.geo_alt,
+                    geo_alt_accuracy: d.geo_alt_accuracy,
                 }
             })
             .collect();
@@ -261,6 +313,11 @@ impl ConnectionRegistry {
                         disconnect_events: d.disconnect_events,
                         estimated_uptime_ms: d.estimated_uptime_ms(now_ms),
                         time_since_last_contact_ms: now_ms.saturating_sub(d.last_seen_at_ms),
+                        geo_lat: d.geo_lat,
+                        geo_lon: d.geo_lon,
+                        geo_accuracy: d.geo_accuracy,
+                        geo_alt: d.geo_alt,
+                        geo_alt_accuracy: d.geo_alt_accuracy,
                     }
                 })
             })

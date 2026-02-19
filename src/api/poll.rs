@@ -13,7 +13,7 @@ use std::sync::RwLock;
 use uuid::Uuid;
 
 use crate::api::{AdminAppState, MainAppState};
-use crate::connections::ConnectionRegistry;
+use crate::connections::{ConnectionRegistry, GeoUpdate};
 use crate::time;
 
 const MAX_DEVICE_ID_LEN: usize = 255;
@@ -70,6 +70,23 @@ fn ping_ms_from_headers(headers: &HeaderMap) -> Option<u32> {
     s.parse().ok()
 }
 
+fn parse_geo_header(headers: &HeaderMap, name: &str) -> Option<f64> {
+    let v = headers.get(name)?;
+    let s = v.to_str().ok()?.trim();
+    s.parse().ok()
+}
+
+/// Build GeoUpdate from X-Geo-* headers (case-insensitive).
+fn geo_from_headers(headers: &HeaderMap) -> GeoUpdate {
+    GeoUpdate {
+        lat: parse_geo_header(headers, "x-geo-lat"),
+        lon: parse_geo_header(headers, "x-geo-lon"),
+        accuracy: parse_geo_header(headers, "x-geo-accuracy"),
+        alt: parse_geo_header(headers, "x-geo-alt"),
+        alt_accuracy: parse_geo_header(headers, "x-geo-alt-accuracy"),
+    }
+}
+
 pub async fn poll(
     State(state): State<MainAppState>,
     headers: HeaderMap,
@@ -96,7 +113,8 @@ async fn poll_impl(
         return Err(StatusCode::BAD_REQUEST);
     }
     let ping_ms = ping_ms_from_headers(&headers);
-    registry.upsert(device_id.clone(), now_ms, ping_ms, handshake_returned);
+    let geo = geo_from_headers(&headers);
+    registry.upsert(device_id.clone(), now_ms, ping_ms, handshake_returned, &geo);
 
     let broadcast_value = {
         let b = broadcast
