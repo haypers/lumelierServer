@@ -175,6 +175,7 @@ async fn main() {
         .route("/api/admin/stats", get(api::get_stats))
         .route("/api/admin/connections/reset", post(api::post_reset_connections))
         .route("/api/admin/broadcast/timeline", post(api::post_broadcast_timeline))
+        .route("/api/admin/broadcast/readhead", post(api::post_broadcast_readhead))
         .route("/api/admin/broadcast/play", post(api::post_broadcast_play))
         .route("/api/admin/broadcast/pause", post(api::post_broadcast_pause))
         .route("/api/admin/shows", get(api::list_shows))

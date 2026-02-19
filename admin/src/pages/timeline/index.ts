@@ -15,6 +15,7 @@ import {
   toMs,
   timeToDate,
   dateToSec,
+  dateToSecFloat,
   type TimelineItemPayload,
 } from "./types";
 import { createInfoBubble } from "../../components/info-bubble";
@@ -59,6 +60,8 @@ let broadcastPauseAtMs: number | null = null;
 let broadcastReadheadTickId: ReturnType<typeof setInterval> | null = null;
 
 const BROADCAST_READHEAD_TICK_MS = 100;
+const BROADCAST_READHEAD_POST_DEBOUNCE_MS = 150;
+let broadcastReadheadPostTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getServerTimeMs(): number {
   return Date.now() + serverTimeOffsetMs;
@@ -73,6 +76,26 @@ function tickBroadcastReadhead(): void {
   }
   const sec = broadcastReadheadSec + (nowMs - broadcastPlayAtMs) / 1000;
   timeline.setCustomTime(timeToDate(sec), readheadId);
+}
+
+function postBroadcastReadheadDebounced(sec: number): void {
+  if (!isBroadcastMode) return;
+  // If currently playing (not yet paused), the readhead is driven by tickBroadcastReadhead().
+  // We intentionally do not spam the server with playback ticks.
+  if (broadcastPlayAtMs != null && broadcastPauseAtMs == null) return;
+  if (broadcastReadheadPostTimer != null) {
+    clearTimeout(broadcastReadheadPostTimer);
+    broadcastReadheadPostTimer = null;
+  }
+  const clamped = Math.max(0, sec);
+  broadcastReadheadPostTimer = setTimeout(() => {
+    broadcastReadheadPostTimer = null;
+    fetch("/api/admin/broadcast/readhead", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ readheadSec: clamped }),
+    }).catch(() => {});
+  }, BROADCAST_READHEAD_POST_DEBOUNCE_MS);
 }
 
 function startBroadcastReadheadTick(): void {
@@ -344,7 +367,10 @@ function getExportState(): TimelineStateJSON {
   return exportState(
     groups,
     items,
-    () => (timeline ? dateToSec(timeline.getCustomTime(readheadId)) : 0),
+    () =>
+      timeline
+        ? dateToSecFloat(new Date(toMs(timeline.getCustomTime(readheadId))))
+        : 0,
     () => projectTitle,
     () => requestsGPS
   );
@@ -381,7 +407,7 @@ async function uploadTimelineToServer(): Promise<boolean> {
 
 function getReadheadSecClamped(): number {
   if (!timeline) return 0;
-  const sec = dateToSec(timeline.getCustomTime(readheadId));
+  const sec = dateToSecFloat(new Date(toMs(timeline.getCustomTime(readheadId))));
   return Math.max(0, sec);
 }
 
@@ -545,8 +571,9 @@ function ensureTimelineCreated(): void {
   timeline.setCustomTimeTitle("Readhead", readheadId);
   timeline.on("timechange", (props: { id?: string; time?: Date | number }) => {
     if (props.id !== readheadId || !timeline) return;
-    const sec = dateToSec(new Date(toMs(props.time ?? 0)));
+    const sec = dateToSecFloat(new Date(toMs(props.time ?? 0)));
     if (sec < 0) timeline.setCustomTime(timeToDate(0), readheadId);
+    postBroadcastReadheadDebounced(sec);
   });
   timeline.on("select", (props) => {
     updateDetailsPanel(

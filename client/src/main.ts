@@ -68,8 +68,15 @@ function rebuildBroadcastColorEvents(): void {
   }
   const items = broadcastCache.timeline?.items ?? [];
   broadcastColorEvents = items
-    .filter((it) => it.effectType === timeline.EVENT_TYPE_SET_COLOR_BROADCAST && it.color != null)
-    .map((it) => ({ startSec: it.startSec, color: it.color! }))
+    .filter(
+      (it) =>
+        it.effectType === timeline.EVENT_TYPE_SET_COLOR_BROADCAST &&
+        typeof it.color === "string" &&
+        it.color.length > 0 &&
+        typeof it.startSec === "number" &&
+        Number.isFinite(it.startSec)
+    )
+    .map((it) => ({ startSec: it.startSec as number, color: it.color as string }))
     .sort((a, b) => a.startSec - b.startSec);
 }
 
@@ -90,6 +97,27 @@ function getColorAtPositionSec(positionSec: number): string | null {
     }
   }
   return ans >= 0 ? events[ans].color : null;
+}
+
+function getColorReferencePositionSec(ctx: timeline.TimelineContext): number {
+  if (broadcastCache == null) return 0;
+  const playingPosSec = timeline.getBroadcastPlaybackSec(ctx);
+  if (playingPosSec != null) return playingPosSec;
+
+  const nowServer = getServerTime();
+  if (
+    broadcastCache.playAtMs != null &&
+    broadcastCache.pauseAtMs != null &&
+    nowServer >= broadcastCache.pauseAtMs
+  ) {
+    return (
+      (broadcastCache.readheadSec ?? 0) +
+      (broadcastCache.pauseAtMs - broadcastCache.playAtMs) / 1000
+    );
+  }
+
+  // Stopped / not-yet-started / playAtMs in the future: use server-provided readhead.
+  return broadcastCache.readheadSec ?? 0;
 }
 
 function stopPlaybackRaf(): void {
@@ -125,29 +153,9 @@ function syncDisplayOnce(): boolean {
   }
 
   const positionSec: number | null = timeline.getBroadcastPlaybackSec(ctx);
-  let colorPositionSec: number | null = positionSec;
-  if (
-    colorPositionSec == null &&
-    broadcastCache.playAtMs != null &&
-    broadcastCache.pauseAtMs != null &&
-    nowServer >= broadcastCache.pauseAtMs
-  ) {
-    colorPositionSec =
-      (broadcastCache.readheadSec ?? 0) +
-      (broadcastCache.pauseAtMs - broadcastCache.playAtMs) / 1000;
-  }
-
-  let currentColor: string | null = null;
-  if (colorPositionSec != null) {
-    currentColor = getColorAtPositionSec(colorPositionSec);
-    if (currentColor != null) lastAppliedBroadcastColor = currentColor;
-  }
-
-  const colorHex =
-    currentColor ??
-    lastAppliedBroadcastColor ??
-    lastDisplayedColor ??
-    (lastEvents[0]?.color ?? "#000000");
+  const refSec = getColorReferencePositionSec(ctx);
+  const currentColor = getColorAtPositionSec(refSec);
+  const colorHex = currentColor ?? "#000000";
   if (colorHex !== lastDisplayedColor) {
     lastDisplayedColor = colorHex;
     ui.applyDisplayedColor(colorHex);
@@ -227,28 +235,8 @@ function computeFirstColor(): string {
   if (broadcastCache == null) {
     return lastEvents[0]?.color ?? "#000000";
   }
-  const positionSec = timeline.getBroadcastPlaybackSec(ctx);
-  let broadcastColor: string | null = null;
-  if (positionSec != null) {
-    broadcastColor = timeline.getColorFromBroadcastTimeline(ctx, positionSec);
-    if (broadcastColor != null) lastAppliedBroadcastColor = broadcastColor;
-  } else if (
-    broadcastCache.playAtMs != null &&
-    broadcastCache.pauseAtMs != null &&
-    getServerTime() >= broadcastCache.pauseAtMs
-  ) {
-    const pausedPositionSec =
-      (broadcastCache.readheadSec ?? 0) +
-      (broadcastPausedAtMs! - broadcastCache.playAtMs) / 1000;
-    broadcastColor = timeline.getColorFromBroadcastTimeline(ctx, pausedPositionSec);
-    if (broadcastColor != null) lastAppliedBroadcastColor = broadcastColor;
-  }
-  return (
-    broadcastColor ??
-    lastAppliedBroadcastColor ??
-    lastDisplayedColor ??
-    (lastEvents[0]?.color ?? "#000000")
-  );
+  const refSec = getColorReferencePositionSec(ctx);
+  return getColorAtPositionSec(refSec) ?? "#000000";
 }
 
 function doRender(): void {
@@ -303,6 +291,7 @@ async function pollLoop(): Promise<void> {
     if (data.broadcast && timeline.isBroadcastTimeline(data.broadcast.timeline)) {
       broadcastCache = data.broadcast;
       rebuildBroadcastColorEvents();
+      lastAppliedBroadcastColor = null;
       const now = getServerTime();
       if (data.broadcast.pauseAtMs != null && now >= data.broadcast.pauseAtMs)
         broadcastPausedAtMs = data.broadcast.pauseAtMs;

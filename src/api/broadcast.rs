@@ -36,6 +36,20 @@ pub struct PauseResponse {
     pub server_time_ms: u64,
 }
 
+#[derive(Deserialize)]
+pub struct ReadheadBody {
+    #[serde(rename = "readheadSec")]
+    pub readhead_sec: f64,
+}
+
+#[derive(Serialize)]
+pub struct ReadheadResponse {
+    #[serde(rename = "readheadSec")]
+    pub readhead_sec: f64,
+    #[serde(rename = "serverTimeMs")]
+    pub server_time_ms: u64,
+}
+
 const SCHEDULED_DELAY_MS: u64 = 1000;
 
 pub async fn post_broadcast_timeline(
@@ -49,13 +63,19 @@ pub async fn post_broadcast_timeline(
     let parsed: serde_json::Value =
         serde_json::from_str(&json).map_err(|_| StatusCode::BAD_REQUEST)?;
 
-    let current = state.broadcast.load_full();
+    let readhead_sec = parsed
+        .get("readheadSec")
+        .and_then(|v| v.as_f64())
+        .filter(|v| v.is_finite())
+        .map(|v| v.max(0.0))
+        .unwrap_or(0.0);
+
     let next = BroadcastSnapshot {
         timeline_raw: Some(Arc::from(json.into_boxed_str())),
         timeline_parsed: Some(Arc::new(parsed)),
-        play_at_ms: current.play_at_ms,
-        readhead_sec: current.readhead_sec,
-        pause_at_ms: current.pause_at_ms,
+        readhead_sec,
+        play_at_ms: None,
+        pause_at_ms: None,
     };
     state.broadcast.store(Arc::new(next));
     Ok(StatusCode::OK)
@@ -124,6 +144,33 @@ pub async fn post_broadcast_pause(
 
     Ok(Json(PauseResponse {
         pause_at_ms,
+        server_time_ms: now_ms,
+    }))
+}
+
+pub async fn post_broadcast_readhead(
+    State(state): State<AdminAppState>,
+    Json(body): Json<ReadheadBody>,
+) -> Result<Json<ReadheadResponse>, StatusCode> {
+    let now_ms = time::unix_now_ms();
+    let sec = if body.readhead_sec.is_finite() {
+        body.readhead_sec.max(0.0)
+    } else {
+        0.0
+    };
+
+    let current = state.broadcast.load_full();
+    let next = BroadcastSnapshot {
+        timeline_raw: current.timeline_raw.clone(),
+        timeline_parsed: current.timeline_parsed.clone(),
+        readhead_sec: sec,
+        play_at_ms: None,
+        pause_at_ms: None,
+    };
+    state.broadcast.store(Arc::new(next));
+
+    Ok(Json(ReadheadResponse {
+        readhead_sec: sec,
         server_time_ms: now_ms,
     }))
 }

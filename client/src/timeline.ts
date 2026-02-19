@@ -80,11 +80,18 @@ export function getColorFromBroadcastTimeline(
   const { broadcastCache } = ctx;
   if (!broadcastCache?.timeline?.items) return null;
   const events = broadcastCache.timeline.items
-    .filter((it) => it.effectType === EVENT_TYPE_SET_COLOR_BROADCAST && it.color != null)
-    .sort((a, b) => a.startSec - b.startSec);
+    .filter(
+      (it) =>
+        it.effectType === EVENT_TYPE_SET_COLOR_BROADCAST &&
+        typeof it.color === "string" &&
+        it.color.length > 0 &&
+        typeof it.startSec === "number" &&
+        Number.isFinite(it.startSec)
+    )
+    .sort((a, b) => (a.startSec as number) - (b.startSec as number));
   let color: string | null = null;
   for (const ev of events) {
-    if (ev.startSec <= positionSec) color = ev.color ?? null;
+    if ((ev.startSec as number) <= positionSec) color = (ev.color as string) ?? null;
   }
   return color;
 }
@@ -97,8 +104,16 @@ export function getNextColorChangeStartSec(
   const { broadcastCache } = ctx;
   if (!broadcastCache?.timeline?.items) return null;
   const events = broadcastCache.timeline.items
-    .filter((it) => it.effectType === EVENT_TYPE_SET_COLOR_BROADCAST && it.color != null)
-    .sort((a, b) => a.startSec - b.startSec);
-  const next = events.find((ev) => ev.startSec > positionSec);
-  return next?.startSec ?? null;
+    .filter(
+      (it) =>
+        it.effectType === EVENT_TYPE_SET_COLOR_BROADCAST &&
+        typeof it.color === "string" &&
+        it.color.length > 0 &&
+        typeof it.startSec === "number" &&
+        Number.isFinite(it.startSec)
+    )
+    .sort((a, b) => (a.startSec as number) - (b.startSec as number));
+  const next = events.find((ev) => (ev.startSec as number) > positionSec);
+  const start = next?.startSec;
+  return typeof start === "number" && Number.isFinite(start) ? start : null;
 }

@@ -50,7 +50,7 @@ pub struct BroadcastTimeline {
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BroadcastTimelineItem {
-    pub start_sec: f64,
+    pub start_sec: Option<f64>,
     pub effect_type: Option<String>,
     pub color: Option<String>,
 }
@@ -132,13 +132,20 @@ fn get_color_from_broadcast_timeline(
                 .as_deref()
                 .map(|e| e == EVENT_TYPE_SET_COLOR_BROADCAST)
                 .unwrap_or(false)
-                && it.color.is_some()
+                && it.color.as_ref().is_some_and(|c| !c.is_empty())
+                && it.start_sec.is_some_and(|s| s.is_finite())
         })
         .collect();
-    events.sort_by(|a, b| a.start_sec.partial_cmp(&b.start_sec).unwrap_or(std::cmp::Ordering::Equal));
+    events.sort_by(|a, b| {
+        a.start_sec
+            .unwrap_or(f64::NAN)
+            .partial_cmp(&b.start_sec.unwrap_or(f64::NAN))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     let mut color = None;
     for ev in events {
-        if ev.start_sec <= position_sec {
+        let start = ev.start_sec.unwrap_or(f64::NAN);
+        if start.is_finite() && start <= position_sec {
             color = ev.color.clone();
         }
     }
@@ -155,14 +162,26 @@ pub fn next_color_change_sec(timeline: &BroadcastTimeline, position_sec: f64) ->
                 .as_deref()
                 .map(|e| e == EVENT_TYPE_SET_COLOR_BROADCAST)
                 .unwrap_or(false)
-                && it.color.is_some()
+                && it.color.as_ref().is_some_and(|c| !c.is_empty())
+                && it.start_sec.is_some_and(|s| s.is_finite())
         })
         .collect();
-    events.sort_by(|a, b| a.start_sec.partial_cmp(&b.start_sec).unwrap_or(std::cmp::Ordering::Equal));
+    events.sort_by(|a, b| {
+        a.start_sec
+            .unwrap_or(f64::NAN)
+            .partial_cmp(&b.start_sec.unwrap_or(f64::NAN))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     events
         .into_iter()
-        .find(|ev| ev.start_sec > position_sec)
-        .map(|ev| ev.start_sec)
+        .find_map(|ev| {
+            let start = ev.start_sec?;
+            if start.is_finite() && start > position_sec {
+                Some(start)
+            } else {
+                None
+            }
+        })
 }
 
 /// Placeholder: we accept any broadcast for now.
@@ -179,33 +198,22 @@ pub fn get_display_color_at(state: &ClientSyncState, now_ms: u64) -> String {
             .clone()
             .unwrap_or_else(|| "#000000".to_string());
     }
+    let cache = state.broadcast_cache.as_ref().unwrap();
     let server_time = get_server_time(now_ms, state.clock_offset_ms);
     let position_sec = get_broadcast_playback_sec(state, now_ms);
-    let broadcast_color = position_sec.and_then(|pos| {
-        get_color_from_broadcast_timeline(
-            &state.broadcast_cache.as_ref().unwrap().timeline,
-            pos,
-        )
-    });
-    let broadcast_color = if let Some(c) = broadcast_color {
-        Some(c)
-    } else if state.broadcast_cache.as_ref().and_then(|b| b.play_at_ms).is_some()
-        && state.broadcast_cache.as_ref().and_then(|b| b.pause_at_ms).is_some()
-        && server_time >= state.broadcast_paused_at_ms.unwrap_or(0) as i64
+    let reference_sec = if let Some(pos) = position_sec {
+        pos
+    } else if cache.play_at_ms.is_some()
+        && cache.pause_at_ms.is_some()
+        && server_time >= cache.pause_at_ms.unwrap_or(0) as i64
     {
-        let cache = state.broadcast_cache.as_ref().unwrap();
-        let paused_elapsed_ms = state
-            .broadcast_paused_at_ms
-            .unwrap_or(0)
-            .saturating_sub(cache.play_at_ms.unwrap_or(0));
-        let paused_pos = cache.readhead_sec + paused_elapsed_ms as f64 / 1000.0;
-        get_color_from_broadcast_timeline(&cache.timeline, paused_pos)
+        let play_at = cache.play_at_ms.unwrap_or(0);
+        let pause_at = cache.pause_at_ms.unwrap_or(0);
+        cache.readhead_sec + pause_at.saturating_sub(play_at) as f64 / 1000.0
     } else {
-        None
+        cache.readhead_sec
     };
-    broadcast_color
-        .or_else(|| state.last_applied_broadcast_color.clone())
-        .or_else(|| state.last_displayed_color.clone())
+    get_color_from_broadcast_timeline(&cache.timeline, reference_sec)
         .unwrap_or_else(|| "#000000".to_string())
 }
 
