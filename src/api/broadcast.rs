@@ -7,8 +7,10 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 use crate::api::AdminAppState;
+use crate::broadcast::BroadcastSnapshot;
 use crate::time;
 use crate::timeline_validator;
 
@@ -44,11 +46,18 @@ pub async fn post_broadcast_timeline(
         return Err(StatusCode::BAD_REQUEST);
     }
     let json = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
-    state
-        .broadcast
-        .write()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .timeline_json = Some(json);
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json).map_err(|_| StatusCode::BAD_REQUEST)?;
+
+    let current = state.broadcast.load_full();
+    let next = BroadcastSnapshot {
+        timeline_raw: Some(Arc::from(json.into_boxed_str())),
+        timeline_parsed: Some(Arc::new(parsed)),
+        play_at_ms: current.play_at_ms,
+        readhead_sec: current.readhead_sec,
+        pause_at_ms: current.pause_at_ms,
+    };
+    state.broadcast.store(Arc::new(next));
     Ok(StatusCode::OK)
 }
 
@@ -63,12 +72,15 @@ pub async fn post_broadcast_play(
     println!("User hit play from {} (readhead sec).", readhead_sec);
     println!("Planning to start playing timeline at {} (unix ms)", play_at_ms);
     println!("Starting to send json to all clients");
-    {
-        let mut b = state.broadcast.write().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        b.play_at_ms = Some(play_at_ms);
-        b.readhead_sec = readhead_sec;
-        b.pause_at_ms = None;
-    }
+    let current = state.broadcast.load_full();
+    let next = BroadcastSnapshot {
+        timeline_raw: current.timeline_raw.clone(),
+        timeline_parsed: current.timeline_parsed.clone(),
+        play_at_ms: Some(play_at_ms),
+        readhead_sec,
+        pause_at_ms: None,
+    };
+    state.broadcast.store(Arc::new(next));
     println!("Finished sending to all clients");
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(SCHEDULED_DELAY_MS)).await;
@@ -95,11 +107,15 @@ pub async fn post_broadcast_pause(
         "Sending pause instruction to clients to pause at {}",
         pause_at_ms
     );
-    state
-        .broadcast
-        .write()
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
-        .pause_at_ms = Some(pause_at_ms);
+    let current = state.broadcast.load_full();
+    let next = BroadcastSnapshot {
+        timeline_raw: current.timeline_raw.clone(),
+        timeline_parsed: current.timeline_parsed.clone(),
+        play_at_ms: current.play_at_ms,
+        readhead_sec: current.readhead_sec,
+        pause_at_ms: Some(pause_at_ms),
+    };
+    state.broadcast.store(Arc::new(next));
     println!("Finished sending pause request");
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(SCHEDULED_DELAY_MS)).await;

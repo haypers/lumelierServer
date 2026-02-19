@@ -13,7 +13,6 @@ use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::process::{Child, Command};
 use std::sync::Arc;
-use std::sync::RwLock;
 use tower_http::services::ServeDir;
 
 mod api;
@@ -78,8 +77,9 @@ async fn main() {
     // Shared state: which devices have polled recently and their ping samples.
     let registry: Arc<connections::ConnectionRegistry> =
         Arc::new(connections::ConnectionRegistry::new());
-    let broadcast_state: Arc<RwLock<broadcast::BroadcastState>> =
-        Arc::new(RwLock::new(broadcast::BroadcastState::new()));
+    let broadcast_state: Arc<arc_swap::ArcSwap<broadcast::BroadcastSnapshot>> = Arc::new(
+        arc_swap::ArcSwap::from_pointee(broadcast::BroadcastSnapshot::new()),
+    );
 
     let show_timelines_path = PathBuf::from("./userData/showTimelines");
     if let Err(e) = std::fs::create_dir_all(&show_timelines_path) {

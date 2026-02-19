@@ -351,22 +351,30 @@ async fn client_poll_loop(client_id: String, config: Arc<RunnerConfig>, client: 
         let s2c_ms = x.round().max(0.0) as u32;
         sleep(Duration::from_millis(s2c_ms as u64)).await;
 
+        // For clock sync math, treat t3 as the *ideal* network receive time (no runtime scheduler bias).
+        // Any lateness between ideal receive and actual apply is modeled as processing/timer delay below.
+        let t3_recv_ms_ideal = t0_ms
+            .saturating_add(u64::from(c2s_ms))
+            .saturating_add(u64::from(s2c_ms));
+
         // Simulate client-side receive/processing delay (browser main-thread / JSON parse / timer slop).
         let processing_anchors = curve_anchors(&record, "clientProcessingDelayMsDist");
-        let processing_ms = record_sample_ms(
+        let processing_sample_ms = record_sample_ms(
             &config.store,
             &client_id,
             "clientProcessingDelayMsDist",
             &processing_anchors,
             &mut rand::thread_rng(),
         );
-        if processing_ms > 0 {
-            sleep(Duration::from_millis(processing_ms as u64)).await;
+        if processing_sample_ms > 0 {
+            sleep(Duration::from_millis(processing_sample_ms as u64)).await;
         }
 
         let deliver_at = now_ms();
         let network_rtt_ms = c2s_ms + s2c_ms;
-        let effective_rtt_ms = network_rtt_ms.saturating_add(processing_ms);
+        // Total time between ideal network receive and actual apply-time.
+        let processing_total_ms = deliver_at.saturating_sub(t3_recv_ms_ideal).min(u64::from(u32::MAX)) as u32;
+        let effective_rtt_ms = network_rtt_ms.saturating_add(processing_total_ms);
 
         let mut state_opt = config.runner_state.clients.get_mut(&client_id);
         let state = match state_opt.as_mut() {
@@ -380,10 +388,11 @@ async fn client_poll_loop(client_id: String, config: Arc<RunnerConfig>, client: 
             &mut state.sync_state,
             &body,
             t0_ms,
+            t3_recv_ms_ideal,
             deliver_at,
         );
         state.last_network_rtt_ms = Some(network_rtt_ms);
-        state.last_processing_ms = Some(processing_ms);
+        state.last_processing_ms = Some(processing_total_ms);
         state.last_effective_rtt_ms = Some(effective_rtt_ms);
         let record = match config.store.get_full(&client_id) {
             Some(r) => r,

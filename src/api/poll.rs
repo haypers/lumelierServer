@@ -13,7 +13,6 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use serde::Serialize;
 use std::sync::Arc;
-use std::sync::RwLock;
 use uuid::Uuid;
 
 use crate::api::{AdminAppState, MainAppState};
@@ -30,7 +29,7 @@ pub struct PollEvent {
 
 #[derive(Serialize)]
 pub struct PollBroadcast {
-    pub timeline: serde_json::Value,
+    pub timeline: Arc<serde_json::Value>,
     #[serde(rename = "readheadSec")]
     pub readhead_sec: f64,
     #[serde(rename = "playAtMs", skip_serializing_if = "Option::is_none")]
@@ -120,7 +119,7 @@ pub async fn poll_admin(
 
 async fn poll_impl(
     registry: Arc<ConnectionRegistry>,
-    broadcast: Arc<RwLock<crate::broadcast::BroadcastState>>,
+    broadcast: Arc<arc_swap::ArcSwap<crate::broadcast::BroadcastSnapshot>>,
     headers: HeaderMap,
 ) -> Result<Json<PollResponse>, StatusCode> {
     // NTP t1: capture server receive time as early as possible.
@@ -135,21 +134,13 @@ async fn poll_impl(
     let ping_ms = ping_ms_from_headers(&headers);
     let geo = geo_from_headers(&headers);
 
-    let broadcast_value = {
-        let b = broadcast
-            .read()
-            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-        b.timeline_json.as_ref().map(|json| {
-            let timeline: serde_json::Value =
-                serde_json::from_str(json).unwrap_or(serde_json::Value::Null);
-            PollBroadcast {
-                timeline,
-                readhead_sec: b.readhead_sec,
-                play_at_ms: b.play_at_ms,
-                pause_at_ms: b.pause_at_ms,
-            }
-        })
-    };
+    let snap = broadcast.load_full();
+    let broadcast_value = snap.timeline_parsed.as_ref().map(|timeline| PollBroadcast {
+        timeline: timeline.clone(),
+        readhead_sec: snap.readhead_sec,
+        play_at_ms: snap.play_at_ms,
+        pause_at_ms: snap.pause_at_ms,
+    });
 
     let events: Vec<PollEvent> = vec![];
 

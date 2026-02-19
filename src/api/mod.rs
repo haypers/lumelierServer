@@ -23,7 +23,6 @@ pub use simulated_profiles::{
 use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::RwLock;
 
 use crate::connections::ConnectionRegistry;
 
@@ -31,7 +30,7 @@ use crate::connections::ConnectionRegistry;
 #[derive(Clone)]
 pub struct MainAppState {
     pub registry: Arc<ConnectionRegistry>,
-    pub broadcast: Arc<RwLock<crate::broadcast::BroadcastState>>,
+    pub broadcast: Arc<arc_swap::ArcSwap<crate::broadcast::BroadcastSnapshot>>,
 }
 
 /// Shared state for the admin app (registry + show timelines storage path + broadcast + simulated client profiles path + venue shapes path).
@@ -41,7 +40,7 @@ pub struct AdminAppState {
     pub show_timelines_path: PathBuf,
     pub simulated_client_profiles_path: PathBuf,
     pub venue_shapes_path: PathBuf,
-    pub broadcast: Arc<RwLock<crate::broadcast::BroadcastState>>,
+    pub broadcast: Arc<arc_swap::ArcSwap<crate::broadcast::BroadcastSnapshot>>,
 }
 
 #[derive(Serialize)]

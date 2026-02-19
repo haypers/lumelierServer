@@ -216,17 +216,18 @@ pub fn apply_poll_response(
     state: &mut ClientSyncState,
     response: &PollResponse,
     t0_ms: u64,
-    t3_ms: u64,
+    t3_recv_ms: u64,
+    now_apply_ms: u64,
 ) -> (String, i64) {
     // NTP-style math using:
     // t0: client send (passed in)
     // t1: server receive (response.server_time_at_recv)
     // t2: server send (response.server_time_at_send)
-    // t3: client receive/deliver (passed in)
+    // t3: client receive (passed in; should NOT include client-side processing delay)
     let t0 = t0_ms as f64;
     let t1 = response.server_time_at_recv as f64;
     let t2 = response.server_time_at_send as f64;
-    let t3 = t3_ms as f64;
+    let t3 = t3_recv_ms as f64;
     let mut offset_ms = ((t1 - t0) + (t2 - t3)) / 2.0;
     let mut delay_ms = (t3 - t0) - (t2 - t1);
     if !offset_ms.is_finite() {
@@ -271,7 +272,7 @@ pub fn apply_poll_response(
     if let Some(ref broadcast) = response.broadcast {
         if is_broadcast_timeline_valid(broadcast) {
             state.broadcast_cache = Some(broadcast.clone());
-            let server_time = get_server_time(t3_ms, state.clock_offset_ms) as u64;
+            let server_time = get_server_time(now_apply_ms, state.clock_offset_ms) as u64;
             if broadcast.pause_at_ms.map_or(false, |p| server_time >= p) {
                 state.broadcast_paused_at_ms = broadcast.pause_at_ms;
             } else {
@@ -289,7 +290,8 @@ pub fn apply_poll_response(
         state.last_applied_broadcast_color = None;
     }
 
-    let server_time = get_server_time(t3_ms, state.clock_offset_ms);
+    // Return the estimate at apply-time (mirrors real client: Date.now()+offset at time of use).
+    let server_time = get_server_time(now_apply_ms, state.clock_offset_ms);
     let first_color = response
         .events
         .first()
@@ -300,7 +302,7 @@ pub fn apply_poll_response(
         state.last_displayed_color = Some(first_color.clone());
         first_color.clone()
     } else {
-        let position_sec = get_broadcast_playback_sec(state, t3_ms);
+        let position_sec = get_broadcast_playback_sec(state, now_apply_ms);
         let broadcast_color = position_sec.and_then(|pos| {
             get_color_from_broadcast_timeline(
                 &state.broadcast_cache.as_ref().unwrap().timeline,
