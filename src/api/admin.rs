@@ -35,6 +35,10 @@ pub struct DeviceRowResponse {
     pub average_ping_ms: Option<f64>,
     #[serde(rename = "lastClientRttMs")]
     pub last_rtt_ms: Option<u32>,
+    #[serde(rename = "averageServerProcessingMs")]
+    pub average_server_processing_ms: Option<f64>,
+    #[serde(rename = "lastServerProcessingMs")]
+    pub last_server_processing_ms: Option<u32>,
     #[serde(rename = "disconnectEvents")]
     pub disconnect_events: u32,
     #[serde(rename = "estimatedUptimeMs")]
@@ -143,6 +147,8 @@ pub async fn get_connected_devices(
             first_connected_at_ms: r.first_connected_at_ms,
             average_ping_ms: r.average_ping_ms,
             last_rtt_ms: r.latest_rtt_ms,
+            average_server_processing_ms: r.average_server_processing_ms,
+            last_server_processing_ms: r.latest_server_processing_ms,
             disconnect_events: r.disconnect_events,
             estimated_uptime_ms: r.estimated_uptime_ms,
             time_since_last_contact_ms: r.time_since_last_contact_ms,
@@ -177,6 +183,14 @@ fn sort_rows(rows: &mut [DeviceRow], sort_field: &str, sort_asc: bool) {
             "firstConnectedAt" => a.first_connected_at_ms.cmp(&b.first_connected_at_ms),
             "averagePingMs" => compare_option_f64(a.average_ping_ms, b.average_ping_ms),
             "lastClientRttMs" => compare_option_u32(a.latest_rtt_ms, b.latest_rtt_ms),
+            "averageServerProcessingMs" => compare_option_f64(
+                a.average_server_processing_ms,
+                b.average_server_processing_ms,
+            ),
+            "lastServerProcessingMs" => compare_option_u32(
+                a.latest_server_processing_ms,
+                b.latest_server_processing_ms,
+            ),
             "timeSinceLastContactMs" => {
                 a.time_since_last_contact_ms.cmp(&b.time_since_last_contact_ms)
             }
@@ -272,6 +286,8 @@ pub async fn post_by_ids(
             first_connected_at_ms: r.first_connected_at_ms,
             average_ping_ms: r.average_ping_ms,
             last_rtt_ms: r.latest_rtt_ms,
+            average_server_processing_ms: r.average_server_processing_ms,
+            last_server_processing_ms: r.latest_server_processing_ms,
             disconnect_events: r.disconnect_events,
             estimated_uptime_ms: r.estimated_uptime_ms,
             time_since_last_contact_ms: r.time_since_last_contact_ms,

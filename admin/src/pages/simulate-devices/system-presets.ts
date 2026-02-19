@@ -6,6 +6,13 @@ export const SYSTEM_PRESET_REALISTIC_BAD_DEVICE = "realistic-bad-device";
 /** Display label for the system preset in the dropdown. */
 export const SYSTEM_PRESET_REALISTIC_BAD_DEVICE_LABEL = "Realistic bad device (system)";
 
+/** Reserved name for the built-in "Stadium uplink congestion" profile. */
+export const SYSTEM_PRESET_STADIUM_UPLINK_CONGESTION = "stadium-uplink-congestion";
+
+/** Display label for the system preset in the dropdown. */
+export const SYSTEM_PRESET_STADIUM_UPLINK_CONGESTION_LABEL =
+  "Stadium uplink congestion (system)";
+
 /**
  * Static system preset: realistic bad device.
  * Bundled in the frontend; always available and cannot be overwritten by user saves.
@@ -41,6 +48,14 @@ export const REALISTIC_BAD_DEVICE_PROFILE: Record<SimulatedClientDistKey, Distri
       { destructionChance: 0, x: 253.4881667255387, xMutationRange: 0, y: 0, yMutationRange: 0 },
     ],
   },
+  clientProcessingDelayMsDist: {
+    anchors: [
+      { destructionChance: 0, x: 0, xMutationRange: 0, y: 0, yMutationRange: 0 },
+      { destructionChance: 0, x: 20, xMutationRange: 10, y: 18, yMutationRange: 25 },
+      { destructionChance: 0, x: 80, xMutationRange: 20, y: 0, yMutationRange: 0 },
+      { destructionChance: 0, x: 110, xMutationRange: 0, y: 0, yMutationRange: 0 },
+    ],
+  },
   timeBetweenLagSpikesDist: {
     anchors: [
       { destructionChance: 0, x: 12.01739667961851, xMutationRange: 11, y: 0, yMutationRange: 0 },
@@ -52,11 +67,67 @@ export const REALISTIC_BAD_DEVICE_PROFILE: Record<SimulatedClientDistKey, Distri
   },
 };
 
+/**
+ * Static system preset: stadium uplink congestion.
+ * Designed to reproduce RTT/2 symmetry failure modes (slow uplink, faster downlink).
+ */
+export const STADIUM_UPLINK_CONGESTION_PROFILE: Record<
+  SimulatedClientDistKey,
+  DistributionCurve
+> = {
+  pingsEverySecDist: {
+    anchors: [
+      { destructionChance: 0, x: 1.0, xMutationRange: 0.5, y: 5, yMutationRange: 10 },
+      { destructionChance: 0, x: 2.5, xMutationRange: 1.5, y: 20, yMutationRange: 20 },
+      { destructionChance: 0, x: 4.0, xMutationRange: 0, y: 0, yMutationRange: 0 },
+    ],
+  },
+  clientToServerDelayDist: {
+    anchors: [
+      { destructionChance: 0, x: 250, xMutationRange: 100, y: 0, yMutationRange: 0 },
+      { destructionChance: 0, x: 420, xMutationRange: 180, y: 25, yMutationRange: 20 },
+      { destructionChance: 0, x: 650, xMutationRange: 0, y: 0, yMutationRange: 0 },
+    ],
+  },
+  serverToClientDelayDist: {
+    anchors: [
+      { destructionChance: 0, x: 30, xMutationRange: 40, y: 0, yMutationRange: 0 },
+      { destructionChance: 0, x: 90, xMutationRange: 80, y: 18, yMutationRange: 15 },
+      { destructionChance: 0, x: 160, xMutationRange: 0, y: 0, yMutationRange: 0 },
+    ],
+  },
+  clientProcessingDelayMsDist: {
+    anchors: [
+      { destructionChance: 0, x: 0, xMutationRange: 20, y: 20, yMutationRange: 15 },
+      { destructionChance: 0, x: 40, xMutationRange: 80, y: 10, yMutationRange: 20 },
+      { destructionChance: 0, x: 120, xMutationRange: 0, y: 0, yMutationRange: 0 },
+    ],
+  },
+  timeBetweenLagSpikesDist: {
+    anchors: [
+      { destructionChance: 0, x: 30, xMutationRange: 20, y: 0, yMutationRange: 0 },
+      { destructionChance: 0, x: 90, xMutationRange: 30, y: 5, yMutationRange: 10 },
+      { destructionChance: 0, x: 120, xMutationRange: 0, y: 0, yMutationRange: 0 },
+    ],
+  },
+  lagSpikeDurationDist: {
+    anchors: [
+      { destructionChance: 0, x: 0.5, xMutationRange: 0.5, y: 10, yMutationRange: 20 },
+      { destructionChance: 0, x: 1.5, xMutationRange: 1.0, y: 5, yMutationRange: 15 },
+      { destructionChance: 0, x: 3.0, xMutationRange: 0, y: 0, yMutationRange: 0 },
+    ],
+  },
+};
+
 /** Normalize profile name for comparison (lowercase, no .json). */
 export function normalizedProfileName(name: string): string {
   return name.trim().replace(/\.json$/i, "").toLowerCase();
 }
 
 export function isReservedSystemPresetName(name: string): boolean {
-  return normalizedProfileName(name) === SYSTEM_PRESET_REALISTIC_BAD_DEVICE;
+  const n = normalizedProfileName(name);
+  return (
+    n === SYSTEM_PRESET_REALISTIC_BAD_DEVICE ||
+    n === SYSTEM_PRESET_STADIUM_UPLINK_CONGESTION
+  );
 }

@@ -8,20 +8,22 @@ use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-/// Names of the five distribution curves (match admin UI and client).
+/// Names of the distribution curves (match admin UI and runner).
 pub const DIST_KEYS: &[&str] = &[
     "pingsEverySecDist",
     "clientToServerDelayDist",
     "serverToClientDelayDist",
+    "clientProcessingDelayMsDist",
     "timeBetweenLagSpikesDist",
     "lagSpikeDurationDist",
 ];
 
 /// (x_min, x_max) for each distribution chart; used when sampling.
-pub const CHART_BOUNDS: [(f64, f64); 5] = [
+pub const CHART_BOUNDS: [(f64, f64); 6] = [
     (0.25, 5.25),
     (0.0, 500.0),
     (0.0, 500.0),
+    (0.0, 300.0),
     (5.0, 120.0),
     (0.25, 5.0),
 ];
@@ -75,6 +77,7 @@ pub struct SimulatedClientRecord {
     pub pings_every_sec_dist: DistributionCurve,
     pub client_to_server_delay_dist: DistributionCurve,
     pub server_to_client_delay_dist: DistributionCurve,
+    pub client_processing_delay_ms_dist: DistributionCurve,
     pub time_between_lag_spikes_dist: DistributionCurve,
     pub lag_spike_duration_dist: DistributionCurve,
     pub sample_history: HashMap<String, Vec<SamplePoint>>,
@@ -112,6 +115,7 @@ pub struct SimulatedClientInput {
     pub pings_every_sec_dist: Option<DistributionCurve>,
     pub client_to_server_delay_dist: Option<DistributionCurve>,
     pub server_to_client_delay_dist: Option<DistributionCurve>,
+    pub client_processing_delay_ms_dist: Option<DistributionCurve>,
     pub time_between_lag_spikes_dist: Option<DistributionCurve>,
     pub lag_spike_duration_dist: Option<DistributionCurve>,
 }
@@ -163,6 +167,9 @@ impl SimulatedStore {
                 pings_every_sec_dist: normalize_curve(c.pings_every_sec_dist.as_ref()),
                 client_to_server_delay_dist: normalize_curve(c.client_to_server_delay_dist.as_ref()),
                 server_to_client_delay_dist: normalize_curve(c.server_to_client_delay_dist.as_ref()),
+                client_processing_delay_ms_dist: normalize_curve(
+                    c.client_processing_delay_ms_dist.as_ref(),
+                ),
                 time_between_lag_spikes_dist: normalize_curve(
                     c.time_between_lag_spikes_dist.as_ref(),
                 ),
@@ -224,6 +231,7 @@ impl SimulatedStore {
             "pingsEverySecDist" => &record.pings_every_sec_dist,
             "clientToServerDelayDist" => &record.client_to_server_delay_dist,
             "serverToClientDelayDist" => &record.server_to_client_delay_dist,
+            "clientProcessingDelayMsDist" => &record.client_processing_delay_ms_dist,
             "timeBetweenLagSpikesDist" => &record.time_between_lag_spikes_dist,
             "lagSpikeDurationDist" => &record.lag_spike_duration_dist,
             _ => &record.pings_every_sec_dist,
@@ -288,6 +296,7 @@ impl SimulatedStore {
                         "pingsEverySecDist" => r.pings_every_sec_dist = curve,
                         "clientToServerDelayDist" => r.client_to_server_delay_dist = curve,
                         "serverToClientDelayDist" => r.server_to_client_delay_dist = curve,
+                        "clientProcessingDelayMsDist" => r.client_processing_delay_ms_dist = curve,
                         "timeBetweenLagSpikesDist" => r.time_between_lag_spikes_dist = curve,
                         "lagSpikeDurationDist" => r.lag_spike_duration_dist = curve,
                         _ => {}

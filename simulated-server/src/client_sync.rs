@@ -8,7 +8,9 @@ use serde::Deserialize;
 use std::collections::VecDeque;
 
 const EVENT_TYPE_SET_COLOR_BROADCAST: &str = "Set Color Broadcast";
-const OFFSET_SAMPLES_MAX: usize = 5;
+const SYNC_SAMPLES_MAX: usize = 30;
+const DELAY_SLACK_MS: f64 = 40.0;
+const SLEW_MAX_STEP_MS: f64 = 25.0;
 
 /// JSON shape of the main server's GET /api/poll response. Deserialize with serde.
 #[derive(Clone, Debug, Deserialize)]
@@ -16,7 +18,9 @@ const OFFSET_SAMPLES_MAX: usize = 5;
 #[allow(dead_code)]
 pub struct PollResponse {
     pub server_time: u64,
-    pub server_time_at_send: Option<u64>,
+    pub server_time_at_recv: u64,
+    pub server_time_at_send: u64,
+    pub client_send_ms_echo: u64,
     pub device_id: String,
     pub events: Vec<PollEvent>,
     pub broadcast: Option<PollBroadcast>,
@@ -55,7 +59,7 @@ pub struct BroadcastTimelineItem {
 #[derive(Clone, Debug, Default)]
 pub struct ClientSyncState {
     pub clock_offset_ms: i64,
-    pub offset_samples: VecDeque<f64>,
+    pub sync_samples: VecDeque<SyncSample>,
     pub broadcast_cache: Option<PollBroadcast>,
     pub broadcast_playback_started_at_ms: Option<u64>,
     pub broadcast_paused_at_ms: Option<u64>,
@@ -63,12 +67,17 @@ pub struct ClientSyncState {
     pub last_displayed_color: Option<String>,
 }
 
-/// Median of the offset samples; used for clock_offset_ms so one bad sample doesn't skew the estimate.
-fn median(samples: &VecDeque<f64>) -> f64 {
-    if samples.is_empty() {
+#[derive(Clone, Copy, Debug)]
+pub struct SyncSample {
+    pub offset_ms: f64,
+    pub delay_ms: f64,
+}
+
+fn median(values: &[f64]) -> f64 {
+    if values.is_empty() {
         return 0.0;
     }
-    let mut sorted: Vec<f64> = samples.iter().copied().collect();
+    let mut sorted: Vec<f64> = values.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let mid = sorted.len() / 2;
     if sorted.len() % 2 != 0 {
@@ -76,6 +85,10 @@ fn median(samples: &VecDeque<f64>) -> f64 {
     } else {
         (sorted[mid - 1] + sorted[mid]) / 2.0
     }
+}
+
+fn clamp(n: f64, min: f64, max: f64) -> f64 {
+    n.max(min).min(max)
 }
 
 /// Client's estimate of server time: now + clock_offset_ms.
@@ -202,25 +215,63 @@ pub fn get_display_color_at(state: &ClientSyncState, now_ms: u64) -> String {
 pub fn apply_poll_response(
     state: &mut ClientSyncState,
     response: &PollResponse,
-    rtt_ms: u32,
-    now_ms: u64,
+    t0_ms: u64,
+    t3_ms: u64,
 ) -> (String, i64) {
-    let server_ts = response
-        .server_time_at_send
-        .unwrap_or(response.server_time) as f64;
-    let rtt_f = rtt_ms as f64;
-    let now_f = now_ms as f64;
-    let raw_offset = server_ts + rtt_f / 2.0 - now_f;
-    state.offset_samples.push_back(raw_offset);
-    if state.offset_samples.len() > OFFSET_SAMPLES_MAX {
-        state.offset_samples.pop_front();
+    // NTP-style math using:
+    // t0: client send (passed in)
+    // t1: server receive (response.server_time_at_recv)
+    // t2: server send (response.server_time_at_send)
+    // t3: client receive/deliver (passed in)
+    let t0 = t0_ms as f64;
+    let t1 = response.server_time_at_recv as f64;
+    let t2 = response.server_time_at_send as f64;
+    let t3 = t3_ms as f64;
+    let mut offset_ms = ((t1 - t0) + (t2 - t3)) / 2.0;
+    let mut delay_ms = (t3 - t0) - (t2 - t1);
+    if !offset_ms.is_finite() {
+        offset_ms = 0.0;
     }
-    state.clock_offset_ms = median(&state.offset_samples) as i64;
+    if !delay_ms.is_finite() {
+        delay_ms = 0.0;
+    }
+    delay_ms = delay_ms.max(0.0);
+
+    state.sync_samples.push_back(SyncSample { offset_ms, delay_ms });
+    if state.sync_samples.len() > SYNC_SAMPLES_MAX {
+        state.sync_samples.pop_front();
+    }
+
+    let min_delay = state
+        .sync_samples
+        .iter()
+        .map(|s| s.delay_ms)
+        .fold(f64::INFINITY, f64::min);
+    let good_offsets: Vec<f64> = state
+        .sync_samples
+        .iter()
+        .filter(|s| s.delay_ms <= min_delay + DELAY_SLACK_MS)
+        .map(|s| s.offset_ms)
+        .collect();
+    let all_offsets: Vec<f64> = state.sync_samples.iter().map(|s| s.offset_ms).collect();
+    let filtered_offset = if !good_offsets.is_empty() {
+        median(&good_offsets)
+    } else {
+        median(&all_offsets)
+    };
+
+    if state.sync_samples.len() < 3 {
+        state.clock_offset_ms = filtered_offset.round() as i64;
+    } else {
+        let current = state.clock_offset_ms as f64;
+        let delta = filtered_offset - current;
+        state.clock_offset_ms = (current + clamp(delta, -SLEW_MAX_STEP_MS, SLEW_MAX_STEP_MS)).round() as i64;
+    }
 
     if let Some(ref broadcast) = response.broadcast {
         if is_broadcast_timeline_valid(broadcast) {
             state.broadcast_cache = Some(broadcast.clone());
-            let server_time = get_server_time(now_ms, state.clock_offset_ms) as u64;
+            let server_time = get_server_time(t3_ms, state.clock_offset_ms) as u64;
             if broadcast.pause_at_ms.map_or(false, |p| server_time >= p) {
                 state.broadcast_paused_at_ms = broadcast.pause_at_ms;
             } else {
@@ -238,7 +289,7 @@ pub fn apply_poll_response(
         state.last_applied_broadcast_color = None;
     }
 
-    let server_time = get_server_time(now_ms, state.clock_offset_ms);
+    let server_time = get_server_time(t3_ms, state.clock_offset_ms);
     let first_color = response
         .events
         .first()
@@ -249,7 +300,7 @@ pub fn apply_poll_response(
         state.last_displayed_color = Some(first_color.clone());
         first_color.clone()
     } else {
-        let position_sec = get_broadcast_playback_sec(state, now_ms);
+        let position_sec = get_broadcast_playback_sec(state, t3_ms);
         let broadcast_color = position_sec.and_then(|pos| {
             get_color_from_broadcast_timeline(
                 &state.broadcast_cache.as_ref().unwrap().timeline,

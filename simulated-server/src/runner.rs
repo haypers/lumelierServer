@@ -282,6 +282,7 @@ async fn client_poll_loop(client_id: String, config: Arc<RunnerConfig>, client: 
             None => return,
         };
         let c2s_anchors = curve_anchors(&record, "clientToServerDelayDist");
+        let t0_ms = now_ms();
         let c2s_ms = record_sample_ms(
             &config.store,
             &client_id,
@@ -303,7 +304,11 @@ async fn client_poll_loop(client_id: String, config: Arc<RunnerConfig>, client: 
         }
 
         let device_id = record.device_id.clone();
-        let last_rtt = config.runner_state.clients.get(&client_id).and_then(|s| s.last_rtt_ms);
+        let last_rtt = config
+            .runner_state
+            .clients
+            .get(&client_id)
+            .and_then(|s| s.last_network_rtt_ms);
         let mut headers = reqwest::header::HeaderMap::new();
         if let Ok(h) = reqwest::header::HeaderValue::from_str(&device_id) {
             headers.insert("x-device-id", h);
@@ -312,6 +317,9 @@ async fn client_poll_loop(client_id: String, config: Arc<RunnerConfig>, client: 
             if let Ok(h) = reqwest::header::HeaderValue::from_str(&rtt.to_string()) {
                 headers.insert("x-ping-ms", h);
             }
+        }
+        if let Ok(h) = reqwest::header::HeaderValue::from_str(&t0_ms.to_string()) {
+            headers.insert("x-client-send-ms", h);
         }
         let res = client.get(&url).headers(headers).send().await;
         let response = match res.and_then(|r| r.error_for_status()) {
@@ -343,8 +351,22 @@ async fn client_poll_loop(client_id: String, config: Arc<RunnerConfig>, client: 
         let s2c_ms = x.round().max(0.0) as u32;
         sleep(Duration::from_millis(s2c_ms as u64)).await;
 
+        // Simulate client-side receive/processing delay (browser main-thread / JSON parse / timer slop).
+        let processing_anchors = curve_anchors(&record, "clientProcessingDelayMsDist");
+        let processing_ms = record_sample_ms(
+            &config.store,
+            &client_id,
+            "clientProcessingDelayMsDist",
+            &processing_anchors,
+            &mut rand::thread_rng(),
+        );
+        if processing_ms > 0 {
+            sleep(Duration::from_millis(processing_ms as u64)).await;
+        }
+
         let deliver_at = now_ms();
-        let rtt = c2s_ms + s2c_ms;
+        let network_rtt_ms = c2s_ms + s2c_ms;
+        let effective_rtt_ms = network_rtt_ms.saturating_add(processing_ms);
 
         let mut state_opt = config.runner_state.clients.get_mut(&client_id);
         let state = match state_opt.as_mut() {
@@ -357,10 +379,12 @@ async fn client_poll_loop(client_id: String, config: Arc<RunnerConfig>, client: 
         let (display_color, server_time_est) = client_sync::apply_poll_response(
             &mut state.sync_state,
             &body,
-            rtt,
+            t0_ms,
             deliver_at,
         );
-        state.last_rtt_ms = Some(rtt);
+        state.last_network_rtt_ms = Some(network_rtt_ms);
+        state.last_processing_ms = Some(processing_ms);
+        state.last_effective_rtt_ms = Some(effective_rtt_ms);
         let record = match config.store.get_full(&client_id) {
             Some(r) => r,
             None => continue,
@@ -452,10 +476,18 @@ async fn sync_and_schedule(
 
     if let Some(next_sec) = next_sec {
         let delay_sec = (next_sec - position_sec).max(0.0);
-        let delay_ms = (delay_sec * 1000.0).round().max(1.0) as u64;
+        let mut delay_ms = (delay_sec * 1000.0).round().max(1.0) as u64;
+        // Timer slop: wake up late by a sampled client processing delay.
+        if let Some(record) = config.store.get_full(client_id) {
+            delay_ms = delay_ms.saturating_add(sample_curve_ms(&record, "clientProcessingDelayMsDist"));
+        }
         *sleep = Box::pin(tokio::time::sleep(Duration::from_millis(delay_ms)));
     } else {
-        *sleep = Box::pin(tokio::time::sleep(Duration::from_secs(DISPLAY_FALLBACK_SEC)));
+        let mut delay_ms = DISPLAY_FALLBACK_SEC * 1000;
+        if let Some(record) = config.store.get_full(client_id) {
+            delay_ms = delay_ms.saturating_add(sample_curve_ms(&record, "clientProcessingDelayMsDist"));
+        }
+        *sleep = Box::pin(tokio::time::sleep(Duration::from_millis(delay_ms)));
     }
 }
 
@@ -463,4 +495,13 @@ async fn sync_and_schedule(
 fn curve_anchors(record: &store::SimulatedClientRecord, dist_key: &str) -> Vec<(f64, f64)> {
     let curve = SimulatedStore::curve_for_key(record, dist_key);
     curve.anchors.iter().map(|a| (a.x, a.y)).collect()
+}
+
+/// Sample a curve (ms) without recording a sample history point.
+fn sample_curve_ms(record: &store::SimulatedClientRecord, dist_key: &str) -> u64 {
+    let curve = SimulatedStore::curve_for_key(record, dist_key);
+    let anchors: Vec<(f64, f64)> = curve.anchors.iter().map(|a| (a.x, a.y)).collect();
+    let (x_min, x_max) = store::chart_bounds_for_key(dist_key);
+    let (x, _) = distribution::sample_from_distribution(&anchors, x_min, x_max, &mut rand::thread_rng());
+    x.round().max(0.0) as u64
 }

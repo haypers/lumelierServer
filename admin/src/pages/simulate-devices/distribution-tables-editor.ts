@@ -37,14 +37,14 @@ export function renderDistributionTablesEditor(
   const curves: DistributionCurve[] = initialCurves.map((c) => ({
     anchors: c.anchors.map((a) => ({ ...a })),
   }));
-  const chartContainers: (HTMLDivElement | null)[] = [null, null, null, null, null];
-  const settingsContainers: (HTMLDivElement | null)[] = [
-    null,
-    null,
-    null,
-    null,
-    null,
-  ];
+  const chartContainers: (HTMLDivElement | null)[] = Array.from(
+    { length: DISTRIBUTION_CHART_PRESETS.length },
+    () => null
+  );
+  const settingsContainers: (HTMLDivElement | null)[] = Array.from(
+    { length: DISTRIBUTION_CHART_PRESETS.length },
+    () => null
+  );
   let selectedChartIndex: number | null = null;
   let selectedAnchorIndices: number[] = [];
 

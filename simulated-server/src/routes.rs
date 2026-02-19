@@ -69,7 +69,15 @@ struct ClientFullResponse {
     next_poll_in_ms: Option<u64>,
     next_lag_spike_in_ms: Option<u64>,
     lag_ends_in_ms: Option<u64>,
+    /// Back-compat: original field name used by the UI.
+    #[serde(rename = "lastRttMs")]
     last_rtt_ms: Option<u32>,
+    #[serde(rename = "lastNetworkRttMs")]
+    last_network_rtt_ms: Option<u32>,
+    #[serde(rename = "lastProcessingMs")]
+    last_processing_ms: Option<u32>,
+    #[serde(rename = "lastEffectiveRttMs")]
+    last_effective_rtt_ms: Option<u32>,
 }
 
 /// Current time as milliseconds since Unix epoch (for timer math).
@@ -97,7 +105,7 @@ async fn get_client_full(
 ) -> Result<Json<ClientFullResponse>, StatusCode> {
     let record = state.store.get_full(&id).ok_or(StatusCode::NOT_FOUND)?;
     let now = now_ms();
-    let (next_poll_in_ms, next_lag_spike_in_ms, lag_ends_in_ms, last_rtt_ms) =
+    let (next_poll_in_ms, next_lag_spike_in_ms, lag_ends_in_ms, last_rtt_ms, last_network_rtt_ms, last_processing_ms, last_effective_rtt_ms) =
         if let Some(runner) = state.runner_state.clients.get(&id) {
             let next_poll_in_ms = runner.next_poll_at_ms.saturating_sub(now);
             let next_lag_spike_in_ms = if runner.next_lag_spike_at_ms == 0 {
@@ -110,15 +118,21 @@ async fn get_client_full(
             } else {
                 0
             };
-            let last_rtt_ms = runner.last_rtt_ms;
+            let last_rtt_ms = runner.last_network_rtt_ms;
+            let last_network_rtt_ms = runner.last_network_rtt_ms;
+            let last_processing_ms = runner.last_processing_ms;
+            let last_effective_rtt_ms = runner.last_effective_rtt_ms;
             (
                 Some(next_poll_in_ms),
                 next_lag_spike_in_ms,
                 Some(lag_ends_in_ms),
                 last_rtt_ms,
+                last_network_rtt_ms,
+                last_processing_ms,
+                last_effective_rtt_ms,
             )
         } else {
-            (None, None, None, None)
+            (None, None, None, None, None, None, None)
         };
     Ok(Json(ClientFullResponse {
         record,
@@ -126,6 +140,9 @@ async fn get_client_full(
         next_lag_spike_in_ms,
         lag_ends_in_ms,
         last_rtt_ms,
+        last_network_rtt_ms,
+        last_processing_ms,
+        last_effective_rtt_ms,
     }))
 }
 

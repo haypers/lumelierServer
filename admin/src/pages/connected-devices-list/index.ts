@@ -17,6 +17,8 @@ const SORT_FIELD_MAP: Record<string, string> = {
   firstConnectedAtFormatted: "firstConnectedAt",
   averagePingMs: "averagePingMs",
   lastClientRttMs: "lastClientRttMs",
+  averageServerProcessingMs: "averageServerProcessingMs",
+  lastServerProcessingMs: "lastServerProcessingMs",
   timeSinceLastContactMs: "timeSinceLastContactMs",
   disconnectEvents: "disconnectEvents",
   estimatedUptimeFormatted: "estimatedUptimeMs",
@@ -35,6 +37,8 @@ const COLUMN_HEADER_TOOLTIPS = [
   "Server time (Unix ms) when this device was first seen. Shown in local time.",
   "Round-trip time reported by the client (average of last few polls). Measured by the client from send of GET /api/poll to receipt of response, sent on the next poll as X-Ping-Ms.",
   "Most recent round-trip time reported by the client for the previous poll. Same measurement as Avg but not averaged.",
+  "Average server-side processing time (ms) for /api/poll for this device: serverTimeAtSend - serverTimeAtRecv (average of recent samples). Useful for spotting server load.",
+  "Most recent server-side processing time (ms) for /api/poll for this device: serverTimeAtSend - serverTimeAtRecv.",
   "Milliseconds since the server last received a poll request from this device.",
   "Number of times this device has gone silent (no poll within 20 s) and then contacted again. Increments once per disconnect.",
   "Time from first contact to now (if connected) or to last contact (if disconnected).",
@@ -56,6 +60,8 @@ interface DeviceRow {
   firstConnectedAt: number;
   averagePingMs: number | null;
   lastClientRttMs: number | null;
+  averageServerProcessingMs?: number | null;
+  lastServerProcessingMs?: number | null;
   disconnectEvents: number;
   estimatedUptimeMs: number;
   timeSinceLastContactMs: number;
@@ -179,6 +185,8 @@ function buildDevicesCsv(devices: DeviceRow[]): string {
     "First Connected At",
     "Avg Client RTT (ms)",
     "Last Client RTT (ms)",
+    "Avg Server Processing (ms)",
+    "Last Server Processing (ms)",
     "Time since last contact (ms)",
     "Disconnect Events",
     "Estimated Uptime",
@@ -196,6 +204,8 @@ function buildDevicesCsv(devices: DeviceRow[]): string {
       formatTime(d.firstConnectedAt),
       d.averagePingMs != null ? String(d.averagePingMs) : "",
       d.lastClientRttMs != null ? String(d.lastClientRttMs) : "",
+      d.averageServerProcessingMs != null ? String(d.averageServerProcessingMs) : "",
+      d.lastServerProcessingMs != null ? String(d.lastServerProcessingMs) : "",
       String(d.timeSinceLastContactMs),
       String(d.disconnectEvents),
       formatUptime(d.estimatedUptimeMs),
@@ -330,6 +340,8 @@ function updateTable(data: DeviceRow[], orderIds?: string[]): void {
     firstConnectedAtFormatted: formatTime(d.firstConnectedAt),
     averagePingMs: d.averagePingMs ?? null,
     lastClientRttMs: d.lastClientRttMs ?? null,
+    averageServerProcessingMs: d.averageServerProcessingMs ?? null,
+    lastServerProcessingMs: d.lastServerProcessingMs ?? null,
     disconnectEvents: d.disconnectEvents,
     estimatedUptimeMs: d.estimatedUptimeMs,
     estimatedUptimeFormatted: formatUptime(d.estimatedUptimeMs),
@@ -450,17 +462,19 @@ export function render(container: HTMLElement): void {
   const columnDefs = [
     { title: "Device ID", field: "deviceId", sorter: "string", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[0] } },
     { title: "Connection Status", field: "connectionStatus", sorter: "string", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[1] } },
-    { title: "First Connected At", field: "firstConnectedAtFormatted", sorter: "string", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[2] } },
+    { title: "First Connected At", field: "firstConnectedAtFormatted", sorter: "string", visible: false, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[2] } },
     { title: "Avg Client RTT (ms)", field: "averagePingMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[3] } },
     { title: "Last Client RTT (ms)", field: "lastClientRttMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[4] } },
-    { title: "Time since last contact (ms)", field: "timeSinceLastContactMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[5] } },
-    { title: "Disconnect Events", field: "disconnectEvents", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[6] } },
-    { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", sorterParams: { field: "estimatedUptimeMs" }, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[7] } },
-    { title: "Latitude", field: "geoLat", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[8] } },
-    { title: "Longitude", field: "geoLon", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[9] } },
-    { title: "Geo Accuracy (m)", field: "geoAccuracy", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[10] } },
-    { title: "Altitude (m)", field: "geoAlt", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[11] } },
-    { title: "Altitude Accuracy (m)", field: "geoAltAccuracy", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[12] } },
+    { title: "Avg Server Processing (ms)", field: "averageServerProcessingMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[5] } },
+    { title: "Last Server Processing (ms)", field: "lastServerProcessingMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[6] } },
+    { title: "Time since last contact (ms)", field: "timeSinceLastContactMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[7] } },
+    { title: "Disconnect Events", field: "disconnectEvents", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[8] } },
+    { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", visible: false, sorterParams: { field: "estimatedUptimeMs" }, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[9] } },
+    { title: "Latitude", field: "geoLat", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[10] } },
+    { title: "Longitude", field: "geoLon", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[11] } },
+    { title: "Geo Accuracy (m)", field: "geoAccuracy", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[12] } },
+    { title: "Altitude (m)", field: "geoAlt", sorter: "number", visible: false, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[13] } },
+    { title: "Altitude Accuracy (m)", field: "geoAltAccuracy", sorter: "number", visible: false, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[14] } },
   ];
 
   container.innerHTML = `
@@ -598,7 +612,8 @@ export function render(container: HTMLElement): void {
       .map(
         (def, i) => {
           const title = def.title ?? def.field ?? `Column ${i + 1}`;
-          return `<label class="column-chooser-label"><input type="checkbox" data-col-index="${i}" checked /> ${title}</label>`;
+          const checked = def.visible !== false ? "checked" : "";
+          return `<label class="column-chooser-label"><input type="checkbox" data-col-index="${i}" ${checked} /> ${title}</label>`;
         }
       )
       .join("");

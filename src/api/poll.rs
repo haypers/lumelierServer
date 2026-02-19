@@ -2,7 +2,11 @@
 //!
 //! Clients (and simulated clients) call this to get server time, device id echo, and optional broadcast
 //! (timeline + play/pause). We read X-Device-ID and X-Ping-Ms from headers, upsert the registry, then
-//! return JSON with serverTime, serverTimeAtSend, deviceId, events (empty), and broadcast if set.
+//! return JSON with NTP-style timing fields:
+//! - clientSendMsEcho (t0, echoed from request header X-Client-Send-Ms)
+//! - serverTimeAtRecv (t1)
+//! - serverTimeAtSend (t2)
+//! plus deviceId, events (empty), and broadcast if set.
 
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
@@ -39,9 +43,15 @@ pub struct PollBroadcast {
 pub struct PollResponse {
     #[serde(rename = "serverTime")]
     pub server_time: u64,
+    /// Server time taken at request receipt (t1).
+    #[serde(rename = "serverTimeAtRecv")]
+    pub server_time_at_recv: u64,
     /// Server time taken right before sending the response; use with RTT/2 for better sync.
     #[serde(rename = "serverTimeAtSend")]
     pub server_time_at_send: u64,
+    /// Echo of X-Client-Send-Ms (t0). Useful for debugging client/server timestamp pairing.
+    #[serde(rename = "clientSendMsEcho")]
+    pub client_send_ms_echo: u64,
     #[serde(rename = "deviceId")]
     pub device_id: String,
     pub events: Vec<PollEvent>,
@@ -66,6 +76,13 @@ fn device_id_from_headers(headers: &HeaderMap) -> (String, bool) {
 /// Parse X-Ping-Ms header as u32 (client's last RTT in ms).
 fn ping_ms_from_headers(headers: &HeaderMap) -> Option<u32> {
     let v = headers.get("x-ping-ms")?;
+    let s = v.to_str().ok()?.trim();
+    s.parse().ok()
+}
+
+/// Parse X-Client-Send-Ms header as u64 (client timestamp t0 in epoch ms).
+fn client_send_ms_from_headers(headers: &HeaderMap) -> Option<u64> {
+    let v = headers.get("x-client-send-ms")?;
     let s = v.to_str().ok()?.trim();
     s.parse().ok()
 }
@@ -106,7 +123,10 @@ async fn poll_impl(
     broadcast: Arc<RwLock<crate::broadcast::BroadcastState>>,
     headers: HeaderMap,
 ) -> Result<Json<PollResponse>, StatusCode> {
-    let now_ms = time::unix_now_ms();
+    // NTP t1: capture server receive time as early as possible.
+    let server_time_at_recv = time::unix_now_ms();
+    let client_send_ms = client_send_ms_from_headers(&headers).ok_or(StatusCode::BAD_REQUEST)?;
+    let now_ms = server_time_at_recv;
 
     let (device_id, handshake_returned) = device_id_from_headers(&headers);
     if device_id.len() > MAX_DEVICE_ID_LEN {
@@ -114,7 +134,6 @@ async fn poll_impl(
     }
     let ping_ms = ping_ms_from_headers(&headers);
     let geo = geo_from_headers(&headers);
-    registry.upsert(device_id.clone(), now_ms, ping_ms, handshake_returned, &geo);
 
     let broadcast_value = {
         let b = broadcast
@@ -134,11 +153,26 @@ async fn poll_impl(
 
     let events: Vec<PollEvent> = vec![];
 
+    // NTP t2: capture server send time right before returning.
     let server_time_at_send = time::unix_now_ms();
+
+    let server_processing_ms = server_time_at_send
+        .saturating_sub(server_time_at_recv)
+        .min(u64::from(u32::MAX)) as u32;
+    registry.upsert(
+        device_id.clone(),
+        now_ms,
+        ping_ms,
+        Some(server_processing_ms),
+        handshake_returned,
+        &geo,
+    );
 
     Ok(Json(PollResponse {
         server_time: now_ms,
+        server_time_at_recv,
         server_time_at_send,
+        client_send_ms_echo: client_send_ms,
         device_id,
         events,
         broadcast: broadcast_value,

@@ -57,7 +57,7 @@ const PROFILE_VALIDATION_TOOLTIP =
 
 /** True iff every curve has at least one anchor with destructionChance 0 (or undefined). Used to enable Create/Save/Confirm in profile mode. */
 function hasZeroDestructionPointInAllCharts(curves: DistributionCurve[]): boolean {
-  if (!curves || curves.length !== 5) return false;
+  if (!curves || curves.length !== DIST_KEYS_BY_PRESET_INDEX.length) return false;
   return curves.every(
     (c) => c.anchors?.some((a) => (a.destructionChance ?? 0) === 0) ?? false
   );
@@ -650,7 +650,7 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
     if (name == null || name.trim() === "") return;
     const profileName = name.trim();
     if (isReservedSystemPresetName(profileName)) {
-      alert(`"${SYSTEM_PRESET_REALISTIC_BAD_DEVICE}" is a reserved system preset name. Please choose a different name.`);
+      alert(`"${profileName}" is a reserved system preset name. Please choose a different name.`);
       return;
     }
     let result = await saveProfile(profileName, false);
