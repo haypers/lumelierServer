@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "node -e \"require('fs').mkdirSync('public',{recursive:true}); require('fs').copyFileSync('../branding/favicon.svg','public/favicon.svg')\" && tsc && vite build",
+    "build": "node -e \"const fs=require('fs'); fs.mkdirSync('public/branding',{recursive:true}); ['favicon.svg','svg.svg','svgAlpha.svg'].forEach(f=>fs.copyFileSync('branding/'+f,'public/branding/'+f)); fs.copyFileSync('branding/favicon.svg','public/favicon.svg')\" && tsc && vite build",
     "preview": "vite preview"
   },
   "devDependencies": {
