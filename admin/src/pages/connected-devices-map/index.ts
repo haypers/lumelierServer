@@ -7,17 +7,28 @@ import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
 import openIcon from "../../icons/open.svg?raw";
 import saveIcon from "../../icons/save.svg?raw";
 import mapIcon from "../../icons/map.svg?raw";
+import eyeIcon from "../../icons/eye.svg?raw";
+import noEyeIcon from "../../icons/no-eye.svg?raw";
+import carrotIcon from "../../icons/carrot.svg?raw";
+import lightOffIcon from "../../icons/light-off.svg?raw";
+import lightOnIcon from "../../icons/light-on.svg?raw";
+import robotIcon from "../../icons/robot.svg?raw";
+import { createInfoBubble } from "../../components/info-bubble";
 
 const MAP_CONTAINER_ID = "connected-devices-map";
 const SEARCH_INPUT_ID = "connected-devices-map-search-input";
 const SEARCH_BTN_ID = "connected-devices-map-search-btn";
 const SEARCH_WRAP_ID = "connected-devices-map-search-wrap";
 const SEARCH_RESULTS_ID = "connected-devices-map-search-results";
+const MAP_CLIENTS_WRAP_ID = "connected-devices-map-map-clients-wrap";
+const MAP_CLIENTS_BTN_ID = "connected-devices-map-map-clients-btn";
+const MAP_CLIENTS_DROPDOWN_ID = "connected-devices-map-map-clients-dropdown";
 const TOOLBAR_ID = "connected-devices-map-toolbar";
 const EDIT_VENUE_BTN_ID = "connected-devices-map-edit-venue-btn";
 const LOAD_VENUE_DROPDOWN_ID = "connected-devices-map-load-dropdown";
 const NOMINATIM_USER_AGENT = "Lumelier Light Show Planner";
 const SEARCH_TIMEOUT_MS = 12_000;
+const EDIT_BTN_CONFIRM_CLASS = "connected-devices-map-edit-btn--confirm";
 
 /** Sanitize venue name to a safe filename (only [a-zA-Z0-9._-]); append .json. */
 function venueNameToFilename(name: string): string {
@@ -39,6 +50,9 @@ interface NominatimResult {
   display_name: string;
 }
 
+type MapClientsParentMode = "none" | "mapped";
+type MapClientsSubMode = "locationOnly" | "plannedColor" | "simulatedColors";
+
 export function render(container: HTMLElement): void {
   container.innerHTML = `
     <div class="connected-devices-map-wrap">
@@ -56,6 +70,13 @@ export function render(container: HTMLElement): void {
         </div>
         <button type="button" class="devices-toolbar-btn" id="connected-devices-map-save-btn">${saveIcon}<span>Save Venue</span></button>
         <button type="button" class="devices-toolbar-btn" id="${EDIT_VENUE_BTN_ID}">${mapIcon}<span>Edit Venue Shape</span></button>
+        <div class="connected-devices-map-map-clients-wrap" id="${MAP_CLIENTS_WRAP_ID}">
+          <button type="button" class="devices-toolbar-btn connected-devices-map-map-clients-btn" id="${MAP_CLIENTS_BTN_ID}" aria-expanded="false" aria-haspopup="true" aria-controls="${MAP_CLIENTS_DROPDOWN_ID}">
+            <span class="connected-devices-map-map-clients-leading-icon" data-map-clients-btn-icon aria-hidden="true">${eyeIcon}</span>
+            <span class="connected-devices-map-map-clients-label">Map Clients<span class="connected-devices-map-map-clients-caret" aria-hidden="true">${carrotIcon}</span></span>
+          </button>
+          <div class="connected-devices-map-map-clients-dropdown" id="${MAP_CLIENTS_DROPDOWN_ID}" hidden role="menu"></div>
+        </div>
       </div>
       <div class="connected-devices-map-area">
         <div id="${MAP_CONTAINER_ID}"></div>
@@ -107,6 +128,29 @@ export function render(container: HTMLElement): void {
   const searchBtnEl = document.getElementById(SEARCH_BTN_ID) as HTMLButtonElement;
   const searchWrapEl = document.getElementById(SEARCH_WRAP_ID);
   const searchResultsEl = document.getElementById(SEARCH_RESULTS_ID);
+
+  const mapClientsWrapEl = document.getElementById(MAP_CLIENTS_WRAP_ID);
+  const mapClientsBtnEl = document.getElementById(MAP_CLIENTS_BTN_ID) as HTMLButtonElement;
+  const mapClientsDropdownEl = document.getElementById(MAP_CLIENTS_DROPDOWN_ID);
+
+  let mapClientsParentMode: MapClientsParentMode = "none";
+  let mapClientsMappedLimit = 10;
+  let mapClientsSubMode: MapClientsSubMode | null = null;
+
+  const MAP_CLIENTS_TOOLTIP: Record<MapClientsSubMode, string> = {
+    locationOnly:
+      "This is the least resource intensive operation, simply plotting the locations of the connected clients with a grey dot",
+    plannedColor:
+      "This opperation will additionally request the timeline for each client, and set the points to the intended color. This will require significant resources.",
+    simulatedColors:
+      "This opperation will connect to the simulated clients server, and plot the color of simulated clients in real time, allowing a simulation preview. This is very resource intensive.",
+  };
+
+  function clampInt(n: number, min: number, max: number): number {
+    const nn = Math.round(n);
+    if (!Number.isFinite(nn)) return min;
+    return Math.min(max, Math.max(min, nn));
+  }
 
   function setSearchButtonIcon(loading: boolean): void {
     if (!searchBtnEl) return;
@@ -231,8 +275,194 @@ export function render(container: HTMLElement): void {
 
   document.addEventListener("click", () => closeSearchResults());
 
+  // --- Map Clients dropdown UI (no functionality yet) ---
+  function closeMapClientsDropdown(): void {
+    if (!mapClientsDropdownEl) return;
+    mapClientsDropdownEl.hidden = true;
+    mapClientsBtnEl?.setAttribute("aria-expanded", "false");
+  }
+
+  function openMapClientsDropdown(): void {
+    if (!mapClientsDropdownEl) return;
+    closeSearchResults();
+    // If the load venue dropdown is open, close it too.
+    closeLoadDropdown();
+    mapClientsDropdownEl.hidden = false;
+    mapClientsBtnEl?.setAttribute("aria-expanded", "true");
+    syncMapClientsDropdown();
+  }
+
+  function toggleMapClientsDropdown(): void {
+    if (!mapClientsDropdownEl) return;
+    if (mapClientsDropdownEl.hidden) openMapClientsDropdown();
+    else closeMapClientsDropdown();
+  }
+
+  function setBubbleSelected(bubble: HTMLElement | null, selected: boolean): void {
+    if (!bubble) return;
+    bubble.classList.toggle("map-clients-bubble--selected", selected);
+  }
+
+  function ensureDefaultSubMode(): void {
+    if (mapClientsParentMode === "mapped" && mapClientsSubMode == null) {
+      mapClientsSubMode = "locationOnly";
+    }
+  }
+
+  function syncMapClientsButtonIcon(): void {
+    if (!mapClientsBtnEl) return;
+    const slot = mapClientsBtnEl.querySelector<HTMLElement>("[data-map-clients-btn-icon]");
+    if (!slot) return;
+    slot.innerHTML = mapClientsParentMode === "none" ? noEyeIcon : eyeIcon;
+  }
+
+  function attachMapClientsTooltips(): void {
+    if (!mapClientsDropdownEl) return;
+    const slots = mapClientsDropdownEl.querySelectorAll<HTMLElement>("[data-map-clients-sub-info]");
+    slots.forEach((slot) => {
+      const key = slot.dataset.mapClientsSubInfo as MapClientsSubMode | undefined;
+      if (!key) return;
+      const tooltipText = MAP_CLIENTS_TOOLTIP[key] ?? "";
+      const bubble = createInfoBubble({
+        tooltipText,
+        ariaLabel: "Info",
+      });
+      bubble.classList.add("map-clients-info");
+      slot.replaceWith(bubble);
+    });
+  }
+
+  function syncMapClientsDropdown(): void {
+    if (!mapClientsDropdownEl) return;
+    const parentNoneBtn = mapClientsDropdownEl.querySelector<HTMLElement>(
+      '[data-map-clients-parent="none"]'
+    );
+    const parentMappedBtn = mapClientsDropdownEl.querySelector<HTMLElement>(
+      '[data-map-clients-parent="mapped"]'
+    );
+    const limitInput =
+      mapClientsDropdownEl.querySelector<HTMLInputElement>(".map-clients-limit-input");
+
+    setBubbleSelected(
+      parentNoneBtn?.querySelector<HTMLElement>(".map-clients-bubble") ?? null,
+      mapClientsParentMode === "none"
+    );
+    setBubbleSelected(
+      parentMappedBtn?.querySelector<HTMLElement>(".map-clients-bubble") ?? null,
+      mapClientsParentMode === "mapped"
+    );
+    parentNoneBtn?.setAttribute("aria-checked", String(mapClientsParentMode === "none"));
+    parentMappedBtn?.setAttribute("aria-checked", String(mapClientsParentMode === "mapped"));
+
+    if (limitInput) {
+      limitInput.disabled = mapClientsParentMode !== "mapped";
+      limitInput.value = String(mapClientsMappedLimit);
+    }
+
+    const subEnabled = mapClientsParentMode === "mapped";
+    const subButtons = mapClientsDropdownEl.querySelectorAll<HTMLButtonElement>(
+      "[data-map-clients-sub]"
+    );
+    subButtons.forEach((btn) => {
+      const key = btn.dataset.mapClientsSub as MapClientsSubMode | undefined;
+      const bubble = btn.querySelector<HTMLElement>(".map-clients-bubble");
+      btn.classList.toggle("map-clients-row--disabled", !subEnabled);
+      btn.setAttribute("aria-disabled", String(!subEnabled));
+      const selected = subEnabled && key != null && key === mapClientsSubMode;
+      setBubbleSelected(bubble, selected);
+      if (!subEnabled) setBubbleSelected(bubble, false);
+    });
+
+    syncMapClientsButtonIcon();
+  }
+
+  if (mapClientsDropdownEl) {
+    mapClientsDropdownEl.innerHTML = `
+      <div class="map-clients-section">
+        <button type="button" class="map-clients-row" data-map-clients-parent="none" role="menuitemradio" aria-checked="true">
+          <span class="map-clients-bubble" aria-hidden="true"></span>
+          <span class="map-clients-icon" aria-hidden="true">${noEyeIcon}</span>
+          <span class="map-clients-text">No clients are mapped</span>
+        </button>
+        <button type="button" class="map-clients-row" data-map-clients-parent="mapped" role="menuitemradio" aria-checked="false">
+          <span class="map-clients-bubble" aria-hidden="true"></span>
+          <span class="map-clients-icon" aria-hidden="true">${eyeIcon}</span>
+          <span class="map-clients-text">Up to</span>
+          <input class="map-clients-limit-input" type="number" min="1" max="10000" step="1" value="${mapClientsMappedLimit}" aria-label="Max mapped devices" disabled />
+          <span class="map-clients-text">devices are mapped.</span>
+        </button>
+      </div>
+      <div class="map-clients-section map-clients-section--sub">
+        <button type="button" class="map-clients-row map-clients-row--indented map-clients-row--disabled" data-map-clients-sub="locationOnly" role="menuitemradio" aria-checked="false" aria-disabled="true">
+          <span class="map-clients-bubble" aria-hidden="true"></span>
+          <span class="map-clients-icon" aria-hidden="true">${lightOffIcon}</span>
+          <span class="map-clients-text">Location Only</span>
+          <span class="map-clients-info-slot" data-map-clients-sub-info="locationOnly"></span>
+        </button>
+        <button type="button" class="map-clients-row map-clients-row--indented map-clients-row--disabled" data-map-clients-sub="plannedColor" role="menuitemradio" aria-checked="false" aria-disabled="true">
+          <span class="map-clients-bubble" aria-hidden="true"></span>
+          <span class="map-clients-icon" aria-hidden="true">${lightOnIcon}</span>
+          <span class="map-clients-text">Location and Planned Color</span>
+          <span class="map-clients-info-slot" data-map-clients-sub-info="plannedColor"></span>
+        </button>
+        <button type="button" class="map-clients-row map-clients-row--indented map-clients-row--disabled" data-map-clients-sub="simulatedColors" role="menuitemradio" aria-checked="false" aria-disabled="true">
+          <span class="map-clients-bubble" aria-hidden="true"></span>
+          <span class="map-clients-icon" aria-hidden="true">${robotIcon}</span>
+          <span class="map-clients-text">Location, and Simulated Client Colors</span>
+          <span class="map-clients-info-slot" data-map-clients-sub-info="simulatedColors"></span>
+        </button>
+      </div>
+    `;
+    attachMapClientsTooltips();
+  }
+
+  mapClientsWrapEl?.addEventListener("click", (e) => e.stopPropagation());
+  mapClientsBtnEl?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    toggleMapClientsDropdown();
+  });
+  mapClientsDropdownEl?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const target = e.target as HTMLElement | null;
+    const parentBtn = target?.closest?.("[data-map-clients-parent]") as HTMLButtonElement | null;
+    if (parentBtn && mapClientsDropdownEl?.contains(parentBtn)) {
+      const mode = parentBtn.dataset.mapClientsParent as MapClientsParentMode | undefined;
+      if (mode === "none") {
+        mapClientsParentMode = "none";
+        mapClientsSubMode = null;
+      } else if (mode === "mapped") {
+        mapClientsParentMode = "mapped";
+        ensureDefaultSubMode();
+      }
+      syncMapClientsDropdown();
+      return;
+    }
+    const subBtn = target?.closest?.("[data-map-clients-sub]") as HTMLButtonElement | null;
+    if (subBtn && mapClientsDropdownEl?.contains(subBtn)) {
+      if (mapClientsParentMode !== "mapped") return;
+      const sub = subBtn.dataset.mapClientsSub as MapClientsSubMode | undefined;
+      if (!sub) return;
+      mapClientsSubMode = sub;
+      syncMapClientsDropdown();
+    }
+  });
+  mapClientsDropdownEl
+    ?.querySelector<HTMLInputElement>(".map-clients-limit-input")
+    ?.addEventListener("input", (e) => {
+      if (mapClientsParentMode !== "mapped") return;
+      const input = e.currentTarget as HTMLInputElement;
+      const n = clampInt(parseInt(input.value || "0", 10), 1, 10000);
+      mapClientsMappedLimit = n;
+      syncMapClientsDropdown();
+    });
+
+  document.addEventListener("click", () => closeMapClientsDropdown());
+
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeSearchResults();
+    if (e.key === "Escape") {
+      closeSearchResults();
+      closeMapClientsDropdown();
+    }
   });
 
   // --- Drawing mode: venue polygon (convex hull), no dimming ---
@@ -256,7 +486,10 @@ export function render(container: HTMLElement): void {
   function setDrawingMode(active: boolean): void {
     drawingMode = active;
     toolbarEl?.classList.toggle("connected-devices-map-toolbar--drawing", active);
-    if (active) closeSearchResults();
+    if (active) {
+      closeSearchResults();
+      closeMapClientsDropdown();
+    }
     updateSaveLoadDisabled();
   }
 
@@ -272,10 +505,19 @@ export function render(container: HTMLElement): void {
     if (!span) return;
     if (!drawingMode || confirmed) {
       span.textContent = "Edit Venue Shape";
+      editVenueBtn.classList.remove("devices-toolbar-btn-danger");
+      editVenueBtn.classList.remove(EDIT_BTN_CONFIRM_CLASS);
       return;
     }
-    if (points.length < 3) span.textContent = "Cancel Drawing Shape";
-    else span.textContent = "Confirm Polygon Shape";
+    if (points.length < 3) {
+      span.textContent = "Cancel Drawing Shape";
+      editVenueBtn.classList.add("devices-toolbar-btn-danger");
+      editVenueBtn.classList.remove(EDIT_BTN_CONFIRM_CLASS);
+    } else {
+      span.textContent = "Confirm Polygon Shape";
+      editVenueBtn.classList.remove("devices-toolbar-btn-danger");
+      editVenueBtn.classList.add(EDIT_BTN_CONFIRM_CLASS);
+    }
   }
 
   function removeHullLayers(): void {
