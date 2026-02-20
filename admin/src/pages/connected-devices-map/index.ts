@@ -11,6 +11,8 @@ import mapIcon from "../../icons/map.svg?raw";
 const MAP_CONTAINER_ID = "connected-devices-map";
 const SEARCH_INPUT_ID = "connected-devices-map-search-input";
 const SEARCH_BTN_ID = "connected-devices-map-search-btn";
+const SEARCH_WRAP_ID = "connected-devices-map-search-wrap";
+const SEARCH_RESULTS_ID = "connected-devices-map-search-results";
 const TOOLBAR_ID = "connected-devices-map-toolbar";
 const EDIT_VENUE_BTN_ID = "connected-devices-map-edit-venue-btn";
 const LOAD_VENUE_DROPDOWN_ID = "connected-devices-map-load-dropdown";
@@ -41,9 +43,12 @@ export function render(container: HTMLElement): void {
   container.innerHTML = `
     <div class="connected-devices-map-wrap">
       <div class="connected-devices-map-toolbar" id="${TOOLBAR_ID}">
-        <div class="connected-devices-map-search-group">
-          <input type="text" id="${SEARCH_INPUT_ID}" placeholder="Search for a place…" aria-label="Search place" />
-          <button type="button" class="connected-devices-map-search-btn" id="${SEARCH_BTN_ID}" aria-label="Search">${searchIcon}</button>
+        <div class="connected-devices-map-search-wrap" id="${SEARCH_WRAP_ID}">
+          <div class="connected-devices-map-search-group">
+            <input type="text" id="${SEARCH_INPUT_ID}" placeholder="Search for a place…" aria-label="Search place" />
+            <button type="button" class="connected-devices-map-search-btn" id="${SEARCH_BTN_ID}" aria-label="Search">${searchIcon}</button>
+          </div>
+          <div class="connected-devices-map-search-results" id="${SEARCH_RESULTS_ID}" hidden role="listbox" aria-label="Search results"></div>
         </div>
         <div class="connected-devices-map-load-wrap" id="${LOAD_VENUE_DROPDOWN_ID}">
           <button type="button" class="devices-toolbar-btn" id="connected-devices-map-load-btn" aria-expanded="false" aria-haspopup="true">${openIcon}<span>Load Venue</span></button>
@@ -70,17 +75,85 @@ export function render(container: HTMLElement): void {
     maxZoom: 20,
   }).addTo(map);
 
+  // Temporary marker for search results (cleared on next map click).
+  const searchResultMarkerLayer = L.layerGroup().addTo(map);
+  let clearSearchMarkerHandler: ((e: L.LeafletMouseEvent) => void) | null = null;
+
+  function clearSearchMarker(): void {
+    searchResultMarkerLayer.clearLayers();
+    if (clearSearchMarkerHandler) {
+      map.off("click", clearSearchMarkerHandler);
+      clearSearchMarkerHandler = null;
+    }
+  }
+
+  function addTemporarySearchMarker(latNum: number, lonNum: number): void {
+    clearSearchMarker();
+    L.marker([latNum, lonNum], {
+      icon: L.divIcon({
+        className: "connected-devices-map-search-pin",
+        html: "<span></span>",
+        iconSize: [18, 18],
+        iconAnchor: [9, 9],
+      }),
+      interactive: false,
+      keyboard: false,
+    }).addTo(searchResultMarkerLayer);
+
+    clearSearchMarkerHandler = () => clearSearchMarker();
+    map.once("click", clearSearchMarkerHandler);
+  }
+
   const searchBtnEl = document.getElementById(SEARCH_BTN_ID) as HTMLButtonElement;
+  const searchWrapEl = document.getElementById(SEARCH_WRAP_ID);
+  const searchResultsEl = document.getElementById(SEARCH_RESULTS_ID);
 
   function setSearchButtonIcon(loading: boolean): void {
     if (!searchBtnEl) return;
     searchBtnEl.innerHTML = loading ? animatedLoadingIcon : searchIcon;
   }
 
+  function closeSearchResults(): void {
+    if (!searchResultsEl) return;
+    searchResultsEl.hidden = true;
+    searchResultsEl.innerHTML = "";
+  }
+
+  function showNoSearchResults(): void {
+    if (!searchResultsEl) return;
+    searchResultsEl.innerHTML =
+      '<div class="connected-devices-map-search-results-empty">No places found</div>';
+    searchResultsEl.hidden = false;
+  }
+
+  function showSearchResultsList(results: NominatimResult[]): void {
+    if (!searchResultsEl) return;
+    searchResultsEl.innerHTML = "";
+    for (const r of results) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "connected-devices-map-search-results-item";
+      btn.setAttribute("role", "option");
+      btn.dataset.lat = r.lat;
+      btn.dataset.lon = r.lon;
+      btn.textContent = r.display_name;
+      searchResultsEl.appendChild(btn);
+    }
+    searchResultsEl.hidden = false;
+  }
+
+  function flyToAndMark(latNum: number, lonNum: number): void {
+    map.invalidateSize();
+    map.flyTo([latNum, lonNum], 14, { duration: 0.5 });
+    addTemporarySearchMarker(latNum, lonNum);
+  }
+
   async function search(): Promise<void> {
     const input = document.getElementById(SEARCH_INPUT_ID) as HTMLInputElement;
     const q = input?.value?.trim();
     if (!q) return;
+
+    closeSearchResults();
 
     let timeoutId: ReturnType<typeof setTimeout> | null = null;
     let resolved = false;
@@ -98,27 +171,68 @@ export function render(container: HTMLElement): void {
     timeoutId = setTimeout(restoreIcon, SEARCH_TIMEOUT_MS);
 
     try {
-      const params = new URLSearchParams({ q, format: "json", limit: "1" });
+      const params = new URLSearchParams({ q, format: "json", limit: "10" });
       const res = await fetch(`https://nominatim.openstreetmap.org/search?${params}`, {
         headers: { "User-Agent": NOMINATIM_USER_AGENT },
       });
       restoreIcon();
       if (!res.ok) throw new Error("Search failed");
       const data = (await res.json()) as NominatimResult[];
-      if (!data.length) return;
-      const { lat, lon } = data[0];
-      const latNum = Number(lat);
-      const lonNum = Number(lon);
-      map.invalidateSize();
-      map.flyTo([latNum, lonNum], 14, { duration: 0.5 });
+      const cleaned = (data ?? []).filter(
+        (r) =>
+          r &&
+          typeof r.display_name === "string" &&
+          typeof r.lat === "string" &&
+          typeof r.lon === "string" &&
+          Number.isFinite(Number(r.lat)) &&
+          Number.isFinite(Number(r.lon))
+      );
+      if (!cleaned.length) {
+        showNoSearchResults();
+        return;
+      }
+      if (cleaned.length === 1) {
+        const latNum = Number(cleaned[0].lat);
+        const lonNum = Number(cleaned[0].lon);
+        flyToAndMark(latNum, lonNum);
+        return;
+      }
+      showSearchResultsList(cleaned);
     } catch {
       restoreIcon();
     }
   }
 
-  searchBtnEl?.addEventListener("click", () => search());
+  // Prevent document-level outside-click handlers from firing when interacting with search UI.
+  searchWrapEl?.addEventListener("click", (e) => e.stopPropagation());
+
+  searchBtnEl?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    search();
+  });
+
   document.getElementById(SEARCH_INPUT_ID)?.addEventListener("keydown", (e) => {
     if (e.key === "Enter") search();
+  });
+
+  searchResultsEl?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    const target = e.target as HTMLElement | null;
+    const btn = target?.closest?.(".connected-devices-map-search-results-item") as
+      | HTMLButtonElement
+      | null;
+    if (!btn) return;
+    const latNum = Number(btn.dataset.lat);
+    const lonNum = Number(btn.dataset.lon);
+    if (!Number.isFinite(latNum) || !Number.isFinite(lonNum)) return;
+    closeSearchResults();
+    flyToAndMark(latNum, lonNum);
+  });
+
+  document.addEventListener("click", () => closeSearchResults());
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") closeSearchResults();
   });
 
   // --- Drawing mode: venue polygon (convex hull), no dimming ---
@@ -142,6 +256,7 @@ export function render(container: HTMLElement): void {
   function setDrawingMode(active: boolean): void {
     drawingMode = active;
     toolbarEl?.classList.toggle("connected-devices-map-toolbar--drawing", active);
+    if (active) closeSearchResults();
     updateSaveLoadDisabled();
   }
 

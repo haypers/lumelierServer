@@ -18,6 +18,12 @@
 }
 
 /* Search: fixed-width input + icon button attached (no gap) */
+.connected-devices-map-search-wrap {
+  position: relative;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
 .connected-devices-map-search-group {
   display: flex;
   align-items: stretch;
@@ -75,6 +81,45 @@
   width: 16px;
   height: 16px;
   display: block;
+}
+
+/* Search results dropdown (Nominatim disambiguation) */
+.connected-devices-map-search-results {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  margin-top: 4px;
+  width: 100%;
+  max-height: 240px;
+  overflow: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  z-index: 9999;
+  padding: 4px 0;
+}
+
+.connected-devices-map-search-results-empty {
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.connected-devices-map-search-results-item {
+  display: block;
+  width: 100%;
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 12px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.connected-devices-map-search-results-item:hover {
+  background: var(--border);
 }
 
 /* Grey out toolbar controls when in drawing mode */
@@ -174,4 +219,19 @@
   background: var(--accent);
   border-color: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* Temporary search-result marker (removed on next map click) */
+.connected-devices-map-search-pin {
+  background: none;
+  border: none;
+}
+.connected-devices-map-search-pin span {
+  display: block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
 }
