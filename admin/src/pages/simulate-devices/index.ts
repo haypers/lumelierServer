@@ -726,6 +726,10 @@ let pagePrevBtn: HTMLButtonElement | null = null;
 let pageNextBtn: HTMLButtonElement | null = null;
 /** Prevents overlapping grid stats requests so the RefreshEvery disconnect timeout is not cleared by a new request. */
 let gridRefreshStatsInFlight = false;
+/** If a full refresh is requested during an in-flight refresh, run it after the in-flight completes. */
+let gridRefreshFullPending = false;
+/** Prevent auto-selecting clients while we're intentionally clearing the list (e.g. delete-all). */
+let suppressAutoSelect = false;
 
 function computeGridLayout(
   containerWidth: number,
@@ -970,7 +974,7 @@ async function fetchVisibleSummariesAndRefresh(): Promise<boolean> {
 
 function refresh(): void {
   if (!gridContainer || !detailsContainer) return;
-  if (clients.length > 0 && getSelected() === null) selectedId = clients[0].id;
+  if (!suppressAutoSelect && clients.length > 0 && getSelected() === null) selectedId = clients[0].id;
   const savedScrollTop = detailsContainer.scrollTop;
   updateGridLayoutAndRender();
   const client = selectedClientFull;
@@ -1057,7 +1061,10 @@ function refresh(): void {
 
 /** Full refresh: fetch client list then summaries. Use on load, manual refresh, and after Create/Destroy/Delete/Clone. */
 async function runGridRefreshFull(): Promise<void> {
-  if (gridRefreshStatsInFlight) return;
+  if (gridRefreshStatsInFlight) {
+    gridRefreshFullPending = true;
+    return;
+  }
   gridRefreshStatsInFlight = true;
   gridRefreshApi?.requestStarted();
   gridRefreshApi?.recordRefresh();
@@ -1066,17 +1073,24 @@ async function runGridRefreshFull(): Promise<void> {
     const list = await getClients();
     clients.length = 0;
     clients.push(...list);
+    // Once we've pulled fresh state from the server, it's safe to auto-select again.
+    suppressAutoSelect = false;
     if (selectedId != null && !clients.some((c) => c.id === selectedId)) {
       selectedId = null;
       selectedClientFull = null;
     }
-    if (clients.length > 0 && selectedId == null) selectedId = clients[0].id;
+    if (!suppressAutoSelect && clients.length > 0 && selectedId == null) selectedId = clients[0].id;
     success = await fetchVisibleSummariesAndRefresh();
   } catch {
     // Leave clients as-is; disconnect indicator will show
   } finally {
     gridRefreshStatsInFlight = false;
     gridRefreshApi?.requestCompleted(success);
+    if (gridRefreshFullPending) {
+      gridRefreshFullPending = false;
+      // Best-effort; if another refresh started, it will re-pend.
+      runGridRefreshFull();
+    }
   }
 }
 
@@ -1094,6 +1108,10 @@ async function runGridRefreshStatsOnly(): Promise<void> {
   } finally {
     gridRefreshStatsInFlight = false;
     gridRefreshApi?.requestCompleted(success);
+    if (gridRefreshFullPending) {
+      gridRefreshFullPending = false;
+      runGridRefreshFull();
+    }
   }
 }
 
@@ -1116,7 +1134,11 @@ function ensureDetailsRefreshTimer(): void {
       .then((full) => {
         if (selectedId !== id) return;
         if (full == null) {
+          // Selected client no longer exists (e.g. deleted individually or via delete-all).
+          // Clear selection so we don't hammer the server with repeated 404s.
+          selectedId = null;
           selectedClientFull = null;
+          selectedAnchor = null;
           refresh();
           return;
         }
@@ -1318,12 +1340,18 @@ export function render(container: HTMLElement): void {
   });
 
   document.getElementById("simulate-devices-destroy")?.addEventListener("click", () => {
+    // Make UI immediately consistent (empty grid + no selection), even if refresh calls are in-flight.
+    suppressAutoSelect = true;
+    clients.length = 0;
+    pageIndex = 0;
+    selectedId = null;
+    selectedClientFull = null;
+    selectedAnchor = null;
+    refresh();
+    ensureDetailsRefreshTimer();
+
     deleteAllClients()
-      .then(() => {
-        selectedId = null;
-        selectedClientFull = null;
-        runGridRefreshFull();
-      })
+      .then(() => runGridRefreshFull())
       .catch(() => runGridRefreshFull());
   });
 
