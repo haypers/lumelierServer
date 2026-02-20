@@ -108,7 +108,7 @@ let serverTimeRafId: number | null = null;
 let paginationPage = 1;
 let paginationPageSize = DEFAULT_PAGE_SIZE;
 let paginationTotalCount = 0;
-let sortField = "timeSinceLastContactMs";
+let sortField = "deviceId";
 let sortDir: "asc" | "desc" = "asc";
 /** When true, updateTable will set this so dataSorted does not trigger a refresh. */
 let programmaticSort = false;
@@ -133,7 +133,7 @@ function getStoredPageSize(): number {
   const s = localStorage.getItem(PAGE_SIZE_STORAGE_KEY);
   if (s == null) return DEFAULT_PAGE_SIZE;
   const n = parseInt(s, 10);
-  return Number.isFinite(n) && (n === 0 || n >= 10) ? n : DEFAULT_PAGE_SIZE;
+  return Number.isFinite(n) && n >= 10 ? n : DEFAULT_PAGE_SIZE;
 }
 
 async function fetchPageIds(): Promise<PageIdsResponse> {
@@ -352,13 +352,54 @@ function updateTable(data: DeviceRow[], orderIds?: string[]): void {
     geoAlt: d.geoAlt ?? null,
     geoAltAccuracy: d.geoAltAccuracy ?? null,
   }));
+
+  const t = table;
+  if (!t) return;
+
+  // Avoid page scroll/layout jump by not rebuilding the whole table on each refresh.
+  // We update rows in-place keyed by deviceId, and only delete/add as needed.
   programmaticSort = true;
-  table?.setData(rows);
-  const sortCol = Object.keys(SORT_FIELD_MAP).find((k) => SORT_FIELD_MAP[k] === sortField) ?? sortField;
-  table?.setSort([{ column: sortCol, dir: sortDir }]);
-  setTimeout(() => {
-    programmaticSort = false;
-  }, 0);
+  const tab = t as unknown as {
+    blockRedraw?: () => void;
+    restoreRedraw?: () => void;
+    updateOrAddData?: (rows: unknown[]) => void;
+    getRows?: () => { getData: () => unknown; delete: () => void }[];
+    getSorters?: () => unknown[];
+    setSort: (sorters: unknown[]) => void;
+  };
+  tab.blockRedraw?.();
+  try {
+    // Update existing + add new (requires Tabulator `index: "deviceId"`).
+    tab.updateOrAddData?.(rows);
+
+    // Delete any rows that are no longer present in the current page.
+    const desired = new Set(rows.map((r) => r.deviceId));
+    for (const row of tab.getRows?.() ?? []) {
+      const d = row.getData() as { deviceId?: string } | undefined;
+      const id = d?.deviceId;
+      if (id && !desired.has(id)) {
+        row.delete();
+      }
+    }
+
+    // Keep the sort indicator consistent, but don't resort every refresh.
+    const sortCol =
+      Object.keys(SORT_FIELD_MAP).find((k) => SORT_FIELD_MAP[k] === sortField) ??
+      sortField;
+    const existing = tab.getSorters?.() ?? [];
+    const first = existing[0] as { field?: string; dir?: string } | undefined;
+    const existingField = first?.field ?? "";
+    const existingDir = (first?.dir === "desc" ? "desc" : "asc") as "asc" | "desc";
+    if (existingField !== sortCol || existingDir !== sortDir) {
+      t.setSort([{ column: sortCol, dir: sortDir }]);
+    }
+  } finally {
+    tab.restoreRedraw?.();
+    // Allow dataSorted handlers to fire normally after this tick.
+    setTimeout(() => {
+      programmaticSort = false;
+    }, 0);
+  }
 }
 
 let refreshEveryApi: ReturnType<typeof createRefreshEvery> | null = null;
@@ -518,7 +559,6 @@ export function render(container: HTMLElement): void {
             <option value="10" ${paginationPageSize === 10 ? "selected" : ""}>10</option>
             <option value="20" ${paginationPageSize === 20 ? "selected" : ""}>20</option>
             <option value="50" ${paginationPageSize === 50 ? "selected" : ""}>50</option>
-            <option value="0" ${paginationPageSize === 0 ? "selected" : ""}>All</option>
           </select>
         </div>
         <div id="devices-table" class="devices-table"></div>
@@ -527,6 +567,7 @@ export function render(container: HTMLElement): void {
 
   table = new Tabulator("#devices-table", {
     layout: "fitColumns",
+    index: "deviceId",
     columns: columnDefs,
     columnDefaults: {
       headerFilter: false,
