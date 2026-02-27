@@ -730,6 +730,7 @@ let gridRefreshStatsInFlight = false;
 let gridRefreshFullPending = false;
 /** Prevent auto-selecting clients while we're intentionally clearing the list (e.g. delete-all). */
 let suppressAutoSelect = false;
+let simulateDevicesIsDataLive = false;
 
 function computeGridLayout(
   containerWidth: number,
@@ -1117,7 +1118,8 @@ async function runGridRefreshStatsOnly(): Promise<void> {
 
 function ensureDetailsRefreshTimer(): void {
   const ms = detailsRefreshIntervalMs;
-  const shouldRun = ms > 0 && selectedId != null && detailsRefreshApi != null;
+  const shouldRun =
+    simulateDevicesIsDataLive && ms > 0 && selectedId != null && detailsRefreshApi != null;
   if (!shouldRun) {
     if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
     detailsRefreshTimer = null;
@@ -1167,7 +1169,17 @@ function ensureDetailsRefreshTimer(): void {
   }, ms);
 }
 
-export function render(container: HTMLElement): void {
+const SIMULATE_DEVICES_EMPTY_MESSAGE =
+  "Please open or create a show to simulate extra devices.";
+
+export function render(container: HTMLElement, showId: string | null): void {
+  if (showId === null) {
+    container.innerHTML = `
+      <div class="show-required-empty-state">
+        <p class="show-required-empty-state-message">${SIMULATE_DEVICES_EMPTY_MESSAGE}</p>
+      </div>`;
+    return;
+  }
   if (clockRafId != null) {
     cancelAnimationFrame(clockRafId);
     clockRafId = null;
@@ -1237,6 +1249,7 @@ export function render(container: HTMLElement): void {
   pagePrevBtn = document.getElementById("simulate-devices-page-prev") as HTMLButtonElement | null;
   pageNextBtn = document.getElementById("simulate-devices-page-next") as HTMLButtonElement | null;
 
+  simulateDevicesIsDataLive = false;
   const gridPanelEl = document.getElementById("simulate-devices-grid-panel");
   const toolbarEl = gridPanelEl?.querySelector<HTMLElement>(".simulate-devices-toolbar");
   if (toolbarEl) {
@@ -1246,10 +1259,11 @@ export function render(container: HTMLElement): void {
       responseTimeoutMs: DEFAULT_RESPONSE_TIMEOUT_MS,
       disconnectTooltip: "The Simulated Client Server is not responding. It may be down.",
       infoTooltip: "Refreshing these values often can cause UI lag.",
+      isDataLive: simulateDevicesIsDataLive,
       onIntervalChange(ms) {
         if (gridRefreshTimer) clearInterval(gridRefreshTimer);
         gridRefreshTimer = null;
-        if (ms > 0) gridRefreshTimer = setInterval(() => runGridRefreshStatsOnly(), ms);
+        if (simulateDevicesIsDataLive && ms > 0) gridRefreshTimer = setInterval(() => runGridRefreshStatsOnly(), ms);
       },
       onManualRefresh: runGridRefreshFull,
     });
@@ -1264,6 +1278,7 @@ export function render(container: HTMLElement): void {
       responseTimeoutMs: DEFAULT_RESPONSE_TIMEOUT_MS,
       disconnectTooltip: "The simulated client server is not responding to our requests.",
       infoTooltip: "Refreshing these values often can cause UI lag.",
+      isDataLive: simulateDevicesIsDataLive,
       onIntervalChange(ms) {
         detailsRefreshIntervalMs = ms;
         if (detailsRefreshTimer) clearInterval(detailsRefreshTimer);
@@ -1279,7 +1294,7 @@ export function render(container: HTMLElement): void {
   const gridMs = gridRefreshApi?.getIntervalMs() ?? 1000;
   if (gridRefreshTimer) clearInterval(gridRefreshTimer);
   gridRefreshTimer = null;
-  if (gridMs > 0) gridRefreshTimer = setInterval(runGridRefreshStatsOnly, gridMs);
+  if (simulateDevicesIsDataLive && gridMs > 0) gridRefreshTimer = setInterval(runGridRefreshStatsOnly, gridMs);
 
   function tickClocks(): void {
     gridRefreshApi?.updateClockHand();

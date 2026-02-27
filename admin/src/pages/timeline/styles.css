@@ -519,6 +519,33 @@
   width: 32px;
   height: 32px;
 }
+.timeline-autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.timeline-autosave-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.timeline-autosave-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.timeline-autosave-icon--spin svg {
+  animation: timeline-autosave-spin 1s linear infinite;
+}
+@keyframes timeline-autosave-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
 #timeline-mount {
   flex: 1;
   min-height: 0;

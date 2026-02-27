@@ -479,7 +479,17 @@ function columnTitleWithInfoBubble(
   return container;
 }
 
-export function render(container: HTMLElement): void {
+const CONNECTED_DEVICES_LIST_EMPTY_MESSAGE =
+  "Please open or create a show to view the connected devices list.";
+
+export function render(container: HTMLElement, showId: string | null): void {
+  if (showId === null) {
+    container.innerHTML = `
+      <div class="show-required-empty-state">
+        <p class="show-required-empty-state-message">${CONNECTED_DEVICES_LIST_EMPTY_MESSAGE}</p>
+      </div>`;
+    return;
+  }
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;
@@ -693,6 +703,7 @@ export function render(container: HTMLElement): void {
   }
   document.addEventListener("click", () => closeColumnChooser());
 
+  const isDataLive = false;
   statsRefreshEveryApi = createRefreshEvery({
     name: "Connected_Devices_List-StatsWidgets",
     defaultMs: DEFAULT_REFRESH_MS,
@@ -704,6 +715,7 @@ export function render(container: HTMLElement): void {
       statsRefreshTimer = null;
       if (ms > 0) statsRefreshTimer = setInterval(refreshStats, ms);
     },
+    isDataLive,
   });
   const statsControlsEl = document.getElementById("devices-stats-controls");
   if (statsControlsEl) statsControlsEl.appendChild(statsRefreshEveryApi.root);
@@ -719,6 +731,7 @@ export function render(container: HTMLElement): void {
       refreshTimer = null;
       if (ms > 0) refreshTimer = setInterval(refresh, ms);
     },
+    isDataLive,
   });
   const controlsEl = document.getElementById("devices-controls");
   if (controlsEl) controlsEl.insertBefore(refreshEveryApi.root, controlsEl.firstChild);
@@ -736,7 +749,7 @@ export function render(container: HTMLElement): void {
   refresh();
   const statsMs = statsRefreshEveryApi.getIntervalMs();
   const devicesMs = refreshEveryApi.getIntervalMs();
-  if (statsMs > 0) statsRefreshTimer = setInterval(refreshStats, statsMs);
-  if (devicesMs > 0) refreshTimer = setInterval(refresh, devicesMs);
+  if (isDataLive && statsMs > 0) statsRefreshTimer = setInterval(refreshStats, statsMs);
+  if (isDataLive && devicesMs > 0) refreshTimer = setInterval(refresh, devicesMs);
   serverTimeRafId = requestAnimationFrame(updateServerTimeDisplay);
 }
