@@ -1,3 +1,16 @@
+slightly new but still outdated prompt:
+
+
+if admin requests to go live the backend will create a new live server instance for this show, which is essentially just a unique table of connected devices and the brodcast json for a particualr show. Once this table has been created the backend creates a unique url for clients to join that particular show instance. th is will be listed in teh atendee acess point tab. I'll build it out more but for now just print the url tehre and remove the global client url (which now does nothing because client urls will always have a show id now like 3002\showID) from printing in the console on server startup.
+
+this means we can braodcast to multiple shows at the same time. 
+
+When the server is live, all the refresh every components get their isDataLive value set to true, and those pages become functional.
+
+Note that not only will we need to compartmentalize the entire server, but the simulated server as well. Every live server (its all the same server, it's just seperate tabeles of devices basically) will also ahve an associated table of simulated devices in the simulated client server, so that the simulator server can create simulated clients on multiple servers at the same time. This is all scoped so that an admin over a particular server would never know if another show was running or had simulated clients, or wht it's timeline was etc.
+
+ask any questions you have about this major migration
+
 Current setup (single show)
 Main server (port 3002)
 Serves the client app and GET /api/poll.

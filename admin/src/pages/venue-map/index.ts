@@ -80,7 +80,7 @@ export function render(container: HTMLElement, showId: string | null): void {
         </div>
         <button type="button" class="devices-toolbar-btn" id="${EDIT_VENUE_BTN_ID}">${mapIcon}<span>Edit Venue Shape</span></button>
       </div>
-      <div class="connected-devices-map-live-controls">
+      <div class="connected-devices-map-options-bar">
         <div class="connected-devices-map-refresh-wrap" id="${MAP_REFRESH_WRAP_ID}"></div>
         <div class="connected-devices-map-map-clients-wrap" id="${MAP_CLIENTS_WRAP_ID}">
           <button type="button" class="devices-toolbar-btn connected-devices-map-map-clients-btn" id="${MAP_CLIENTS_BTN_ID}" aria-expanded="false" aria-haspopup="true" aria-controls="${MAP_CLIENTS_DROPDOWN_ID}">
@@ -426,7 +426,6 @@ export function render(container: HTMLElement, showId: string | null): void {
   // Prevent document-level outside-click handlers from firing when interacting with search UI.
   searchWrapEl?.addEventListener("click", (e) => e.stopPropagation());
 
-  const isDataLive = false;
   mapRefreshEveryApi = createRefreshEvery({
     name: MAP_STATE_REFRESH_STORAGE_KEY,
     defaultMs: MAP_STATE_REFRESH_DEFAULT_MS,
@@ -435,17 +434,14 @@ export function render(container: HTMLElement, showId: string | null): void {
     onIntervalChange(ms) {
       startMapStateRefresh(ms);
     },
-    isDataLive,
   });
   if (mapRefreshWrapEl && mapRefreshEveryApi) {
     mapRefreshWrapEl.appendChild(mapRefreshEveryApi.root);
   }
   const initialMapRefreshMs = mapRefreshEveryApi.getIntervalMs();
-  if (isDataLive) {
-    startMapStateRefresh(initialMapRefreshMs);
-    if (refreshClockRafId == null) {
-      refreshClockRafId = requestAnimationFrame(runRefreshClock);
-    }
+  startMapStateRefresh(initialMapRefreshMs);
+  if (refreshClockRafId == null) {
+    refreshClockRafId = requestAnimationFrame(runRefreshClock);
   }
 
   searchBtnEl?.addEventListener("click", (e) => {
@@ -678,8 +674,6 @@ export function render(container: HTMLElement, showId: string | null): void {
   function setDrawingMode(active: boolean): void {
     drawingMode = active;
     toolbarEl?.classList.toggle("connected-devices-map-toolbar--drawing", active);
-    const wrapEl = toolbarEl?.closest(".connected-devices-map-wrap");
-    wrapEl?.classList.toggle("connected-devices-map-wrap--drawing", active);
     if (active) {
       closeSearchResults();
       closeMapClientsDropdown();

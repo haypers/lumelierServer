@@ -88,10 +88,17 @@ let currentShow: { id: string; name: string } | null = null;
 let lastUsername = "";
 
 const SHOW_NAME_DROPDOWN_ID = "show-name-dropdown";
+const SHOW_STATUS_DROPDOWN_ID = "show-status-dropdown";
+
+type ShowLiveState = "not_live" | "requesting" | "live";
+let showLiveState: ShowLiveState = "not_live";
 
 function renderSelectedShowBlock(): string {
   if (currentShow) {
     const name = currentShow.name.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
+    const statusLabel = showLiveState === "not_live" ? "Not Live" : showLiveState === "requesting" ? "Requesting Server" : "Live";
+    const statusClass = showLiveState === "not_live" ? "admin-header-status-wrap--not-live" : showLiveState === "requesting" ? "admin-header-status-wrap--requesting" : "admin-header-status-wrap--live";
+    const statusHasDropdown = showLiveState === "not_live" || showLiveState === "live";
     return `
       <div class="admin-header-show-name-wrap">
         <button type="button" class="admin-header-show-name-btn" id="show-name-dropdown-btn" aria-haspopup="true" aria-expanded="false" aria-controls="${SHOW_NAME_DROPDOWN_ID}">
@@ -105,10 +112,13 @@ function renderSelectedShowBlock(): string {
           <button type="button" class="admin-header-show-name-menu-item admin-header-show-name-menu-item--danger" data-action="delete-show" role="menuitem"><span class="admin-header-show-name-menu-icon">${trashIcon}</span>Delete This Show</button>
         </div>
       </div>
-      <button type="button" class="admin-header-status-wrap" id="show-status-btn" aria-haspopup="listbox" aria-expanded="false">
-        <span class="admin-header-status-tag">Not Live</span>
-        <span class="admin-header-status-caret" aria-hidden="true">${carrotIcon}</span>
-      </button>`;
+      <div class="admin-header-status-wrap-container">
+        <button type="button" class="admin-header-status-wrap ${statusClass}" id="show-status-btn" aria-haspopup="true" aria-expanded="false" aria-controls="${SHOW_STATUS_DROPDOWN_ID}" ${!statusHasDropdown ? "disabled" : ""}>
+          <span class="admin-header-status-tag">${statusLabel}</span>
+          ${statusHasDropdown ? `<span class="admin-header-status-caret" aria-hidden="true">${carrotIcon}</span>` : ""}
+        </button>
+        <div class="admin-header-status-dropdown" id="${SHOW_STATUS_DROPDOWN_ID}" hidden role="menu" aria-label="Live status"></div>
+      </div>`;
   }
   return `
     <div class="admin-header-selected-show-empty" id="selected-show-empty">
@@ -181,6 +191,10 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
         const showNameB = document.getElementById("show-name-dropdown-btn");
         if (showNameD) showNameD.hidden = true;
         if (showNameB) showNameB.setAttribute("aria-expanded", "false");
+        const statusD = document.getElementById(SHOW_STATUS_DROPDOWN_ID);
+        const statusB = document.getElementById("show-status-btn");
+        if (statusD) statusD.hidden = true;
+        if (statusB) statusB.setAttribute("aria-expanded", "false");
       });
     }
   }
@@ -261,6 +275,82 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
     });
   }
 
+  function syncShowStatusUI(): void {
+    const statusBtn = document.getElementById("show-status-btn");
+    const statusDropdown = document.getElementById(SHOW_STATUS_DROPDOWN_ID);
+    if (!statusBtn || !statusDropdown) return;
+    const tag = statusBtn.querySelector(".admin-header-status-tag");
+    const label = showLiveState === "not_live" ? "Not Live" : showLiveState === "requesting" ? "Requesting Server" : "Live";
+    const stateClass = showLiveState === "not_live" ? "admin-header-status-wrap--not-live" : showLiveState === "requesting" ? "admin-header-status-wrap--requesting" : "admin-header-status-wrap--live";
+    statusBtn.className = "admin-header-status-wrap " + stateClass;
+    statusBtn.removeAttribute("disabled");
+    if (tag) tag.textContent = label;
+    const hasDropdown = showLiveState === "not_live" || showLiveState === "live";
+    if (hasDropdown) {
+      if (!statusBtn.querySelector(".admin-header-status-caret")) {
+        const caret = document.createElement("span");
+        caret.className = "admin-header-status-caret";
+        caret.setAttribute("aria-hidden", "true");
+        caret.innerHTML = carrotIcon;
+        statusBtn.appendChild(caret);
+      }
+    } else {
+      statusBtn.setAttribute("disabled", "");
+      const caret = statusBtn.querySelector(".admin-header-status-caret");
+      if (caret) caret.remove();
+    }
+    if (showLiveState === "not_live") {
+      statusDropdown.innerHTML = `<button type="button" class="admin-header-show-name-menu-item" data-status-action="go-live" role="menuitem">Request Server to Go Live</button>`;
+    } else if (showLiveState === "live") {
+      statusDropdown.innerHTML = `<button type="button" class="admin-header-show-name-menu-item" data-status-action="end-live" role="menuitem">End Live Session</button>`;
+    } else {
+      statusDropdown.innerHTML = "";
+    }
+    statusDropdown.hidden = true;
+    statusBtn.setAttribute("aria-expanded", "false");
+  }
+
+  const statusBtn = document.getElementById("show-status-btn");
+  const statusDropdown = document.getElementById(SHOW_STATUS_DROPDOWN_ID);
+  if (statusBtn && statusDropdown && currentShow) {
+    statusBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (statusBtn.hasAttribute("disabled")) return;
+      const open = !statusDropdown.hidden;
+      statusDropdown.hidden = open;
+      statusBtn.setAttribute("aria-expanded", String(!open));
+      if (!open) {
+        const ad = document.getElementById(ACCOUNT_DROPDOWN_ID) as HTMLElement | null;
+        if (ad) ad.hidden = true;
+        if (dropdown) dropdown.hidden = true;
+        const showNameD = document.getElementById(SHOW_NAME_DROPDOWN_ID);
+        const showNameB = document.getElementById("show-name-dropdown-btn");
+        if (showNameD) showNameD.hidden = true;
+        if (showNameB) showNameB.setAttribute("aria-expanded", "false");
+      }
+    });
+    statusDropdown.addEventListener("click", (e) => e.stopPropagation());
+    statusDropdown.addEventListener("click", (e) => {
+      const target = (e.target as HTMLElement).closest("[data-status-action]");
+      if (!target) return;
+      const action = (target as HTMLElement).dataset.statusAction;
+      statusDropdown.hidden = true;
+      statusBtn.setAttribute("aria-expanded", "false");
+      if (action === "go-live") {
+        showLiveState = "requesting";
+        syncShowStatusUI();
+        setTimeout(() => {
+          showLiveState = "live";
+          syncShowStatusUI();
+        }, 1000);
+      } else if (action === "end-live") {
+        showLiveState = "not_live";
+        syncShowStatusUI();
+      }
+    });
+    syncShowStatusUI();
+  }
+
   if (currentPath === "/simulateDevices") {
     const extra = document.getElementById("page-header-extra");
     if (extra) {
@@ -325,6 +415,7 @@ function openNewShowModal(): void {
       const data = await res.json().catch(() => ({})) as { show_id?: string; name?: string };
       if (res.ok && data.show_id != null && data.name != null) {
         currentShow = { id: data.show_id, name: data.name };
+        showLiveState = "not_live";
         closeModal();
         navigateToPathWithShow(getPath(), currentShow);
         renderApp(lastUsername);
@@ -417,6 +508,7 @@ function openOpenShowModal(): void {
     const show = shows.find((s) => s.show_id === selectedShowId);
     if (show) {
       currentShow = { id: show.show_id, name: show.name };
+      showLiveState = "not_live";
       closeModal();
       navigateToPathWithShow(getPath(), currentShow);
       renderApp(lastUsername);
@@ -446,6 +538,7 @@ function openOpenShowModal(): void {
 
 function closeCurrentShow(): void {
   currentShow = null;
+  showLiveState = "not_live";
   window.history.replaceState(null, "", getPath());
   renderApp(lastUsername);
 }

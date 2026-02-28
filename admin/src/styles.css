@@ -151,6 +151,10 @@ body {
   color: var(--text);
   line-height: 1.2;
 }
+.admin-header-status-wrap-container {
+  position: relative;
+  display: inline-flex;
+}
 .admin-header-status-wrap {
   display: inline-flex;
   align-items: center;
@@ -165,9 +169,26 @@ body {
   border-radius: var(--radius);
   cursor: pointer;
 }
-.admin-header-status-wrap:hover {
+.admin-header-status-wrap:not(:disabled):hover {
   background: var(--bg-elevated);
   color: var(--text);
+}
+.admin-header-status-wrap:disabled {
+  cursor: default;
+}
+.admin-header-status-wrap--not-live {
+  background: var(--border);
+  color: var(--text-muted);
+}
+.admin-header-status-wrap--requesting {
+  background: #8a7a20;
+  color: #1a1d21;
+  border-color: #8a7a20;
+}
+.admin-header-status-wrap--live {
+  background: #b54a4a;
+  color: #fff;
+  border-color: #b54a4a;
 }
 .admin-header-status-tag {
   line-height: 1;
@@ -181,6 +202,25 @@ body {
 .admin-header-status-caret svg {
   width: 12px;
   height: 12px;
+}
+.admin-header-status-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 200px;
+  padding: 4px 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  z-index: 200;
+}
+.admin-header-status-dropdown .admin-header-show-name-menu-item {
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 13px;
+  justify-content: flex-start;
 }
 .admin-header-open-btn {
   display: inline-flex;
@@ -521,27 +561,6 @@ body {
 }
 .devices-toolbar-btn-danger:hover {
   background: rgba(232, 122, 122, 0.15);
-}
-
-/* Refresh-every: not-live alert icon (light yellow) and tooltip line breaks */
-.refresh-every-not-live-trigger {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-}
-.refresh-every-not-live-icon {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: #e6d96b;
-}
-.refresh-every-not-live-icon svg {
-  width: 18px;
-  height: 18px;
-}
-.refresh-every-not-live-trigger .info-tooltip {
-  white-space: pre-line;
 }
 
 /* Shared: info-bubble and portal tooltip (header, simulate-devices, refresh-every) */

@@ -9,7 +9,7 @@
 }
 
 
-/* Toolbar: search + Edit Venue Shape only */
+/* Toolbar: search + Edit Venue Shape */
 .connected-devices-map-toolbar {
   display: flex;
   align-items: center;
@@ -18,13 +18,15 @@
   flex-shrink: 0;
 }
 
-/* Dedicated row: refresh-every + map clients dropdown */
-.connected-devices-map-live-controls {
+/* Dedicated row for refresh interval and map clients */
+.connected-devices-map-options-bar {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 6px 0;
+  padding: 4px 0 6px;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
 }
 
 /* Search: fixed-width input + icon button attached (no gap) */
@@ -373,12 +375,12 @@
   opacity: 0.9;
 }
 
-/* Grey out toolbar search and live controls when in drawing mode */
-.connected-devices-map-toolbar--drawing .connected-devices-map-search-group {
-  opacity: 0.5;
-  pointer-events: none;
-}
-.connected-devices-map-wrap--drawing .connected-devices-map-live-controls {
+/* Grey out toolbar controls when in drawing mode */
+.connected-devices-map-toolbar--drawing .connected-devices-map-search-group,
+.connected-devices-map-toolbar--drawing .connected-devices-map-refresh-wrap,
+.connected-devices-map-toolbar--drawing .connected-devices-map-map-clients-wrap,
+.connected-devices-map-toolbar--drawing .connected-devices-map-load-wrap,
+.connected-devices-map-toolbar--drawing #connected-devices-map-save-btn {
   opacity: 0.5;
   pointer-events: none;
 }

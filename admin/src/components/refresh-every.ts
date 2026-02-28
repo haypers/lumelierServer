@@ -7,7 +7,6 @@ import { createInfoBubble } from "./info-bubble";
 import { createPopupTrigger } from "./popup-tooltip";
 import warningBulbEmpty from "../icons/warningBulbEmpty.svg?raw";
 import warningBulbFilled from "../icons/warningBulbFilled.svg?raw";
-import alertIcon from "../icons/alert.svg?raw";
 
 const FLASH_FRAME_COUNT = 8;
 const MIN_INTERVAL_MS_TO_SHOW_CLOCK = 500;
@@ -54,8 +53,6 @@ export interface RefreshEveryOptions {
   responseTimeoutMs?: number;
   /** Custom tooltip for the disconnect indicator when responseTimeoutMs is set. Defaults to a generic server-not-responding message. */
   disconnectTooltip?: string;
-  /** When false (default), timer does not run, clock does not spin, and a light-yellow alert icon with tooltip is shown. */
-  isDataLive?: boolean;
 }
 
 export interface RefreshEveryApi {
@@ -86,18 +83,15 @@ function removeFlashAfterFrames(clockEl: HTMLElement, framesLeft: number): void 
 
 const DISCONNECT_TOOLTIP = "The server is not responding to our requests to update this value.";
 
-const NOT_LIVE_TOOLTIP =
-  "This show is not being broadcast on a live show server.\n\nOnce live, this timer will determine how often your UI will refresh.";
-
 export function createRefreshEvery(opts: RefreshEveryOptions): RefreshEveryApi {
-  const { name, defaultMs, onIntervalChange, onManualRefresh, infoTooltip, responseTimeoutMs, disconnectTooltip, isDataLive = false } = opts;
+  const { name, defaultMs, onIntervalChange, onManualRefresh, infoTooltip, responseTimeoutMs, disconnectTooltip } = opts;
   const intervalMs = getStoredIntervalMs(name, defaultMs);
   let lastRefreshTime = 0;
   let responseTimeoutId: ReturnType<typeof setTimeout> | null = null;
   let disconnectIndicatorVisible = false;
 
   const root = document.createElement("div");
-  root.className = "refresh-every-wrapper" + (isDataLive ? "" : " refresh-every-wrapper--not-live");
+  root.className = "refresh-every-wrapper";
 
   const optionsHtml = REFRESH_EVERY_OPTIONS.map(
     (o) =>
@@ -125,15 +119,6 @@ export function createRefreshEvery(opts: RefreshEveryOptions): RefreshEveryApi {
       ${REFRESH_ICON_SVG}
     </button>
   `;
-  if (!isDataLive) {
-    const notLiveTrigger = createPopupTrigger({
-      triggerContent: `<span class="refresh-every-not-live-icon" aria-hidden="true">${alertIcon}</span>`,
-      tooltipText: NOT_LIVE_TOOLTIP,
-      ariaLabel: "Not live",
-      wrapperClass: "refresh-every-not-live-trigger",
-    });
-    root.insertBefore(notLiveTrigger, root.firstChild);
-  }
   if (infoTooltip != null && infoTooltip !== "") {
     const infoBubble = createInfoBubble({ tooltipText: infoTooltip, ariaLabel: "Info" });
     root.appendChild(infoBubble);
@@ -195,7 +180,6 @@ export function createRefreshEvery(opts: RefreshEveryOptions): RefreshEveryApi {
   }
 
   function updateClockHand(): void {
-    if (!isDataLive) return;
     const ms = getIntervalMs();
     if (ms === NEVER_MS || ms < MIN_INTERVAL_MS_TO_SHOW_CLOCK || !clockHandEl) return;
     if (lastRefreshTime <= 0) lastRefreshTime = Date.now();

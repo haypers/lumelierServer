@@ -81,8 +81,6 @@ export interface DetailsPaneRefreshEveryOptions {
   onIntervalChange: (ms: number) => void;
   /** If set, show an info icon with this tooltip (e.g. "Refreshing often can cause UI lag."). */
   infoTooltip?: string;
-  /** When false (default), show not-live alert and do not run the clock. */
-  isDataLive?: boolean;
 }
 
 function formatServerTimeStr(client: SimulatedClient): string {
@@ -157,7 +155,6 @@ export function renderDetailsPane(
       defaultMs: refreshEveryOptions.defaultMs,
       onIntervalChange: refreshEveryOptions.onIntervalChange,
       infoTooltip: refreshEveryOptions.infoTooltip,
-      isDataLive: refreshEveryOptions.isDataLive ?? false,
     });
     const refreshWrap = document.createElement("div");
     refreshWrap.className = "simulate-devices-details-refresh-wrap";

@@ -703,7 +703,6 @@ export function render(container: HTMLElement, showId: string | null): void {
   }
   document.addEventListener("click", () => closeColumnChooser());
 
-  const isDataLive = false;
   statsRefreshEveryApi = createRefreshEvery({
     name: "Connected_Devices_List-StatsWidgets",
     defaultMs: DEFAULT_REFRESH_MS,
@@ -715,7 +714,6 @@ export function render(container: HTMLElement, showId: string | null): void {
       statsRefreshTimer = null;
       if (ms > 0) statsRefreshTimer = setInterval(refreshStats, ms);
     },
-    isDataLive,
   });
   const statsControlsEl = document.getElementById("devices-stats-controls");
   if (statsControlsEl) statsControlsEl.appendChild(statsRefreshEveryApi.root);
@@ -731,7 +729,6 @@ export function render(container: HTMLElement, showId: string | null): void {
       refreshTimer = null;
       if (ms > 0) refreshTimer = setInterval(refresh, ms);
     },
-    isDataLive,
   });
   const controlsEl = document.getElementById("devices-controls");
   if (controlsEl) controlsEl.insertBefore(refreshEveryApi.root, controlsEl.firstChild);
@@ -749,7 +746,7 @@ export function render(container: HTMLElement, showId: string | null): void {
   refresh();
   const statsMs = statsRefreshEveryApi.getIntervalMs();
   const devicesMs = refreshEveryApi.getIntervalMs();
-  if (isDataLive && statsMs > 0) statsRefreshTimer = setInterval(refreshStats, statsMs);
-  if (isDataLive && devicesMs > 0) refreshTimer = setInterval(refresh, devicesMs);
+  if (statsMs > 0) statsRefreshTimer = setInterval(refreshStats, statsMs);
+  if (devicesMs > 0) refreshTimer = setInterval(refresh, devicesMs);
   serverTimeRafId = requestAnimationFrame(updateServerTimeDisplay);
 }
