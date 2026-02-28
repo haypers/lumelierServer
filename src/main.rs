@@ -22,17 +22,12 @@ mod api;
 mod auth;
 mod broadcast;
 mod connections;
+mod live_shows;
 mod time;
 mod timeline_validator;
 
 const PORT: u16 = 3002;
 const ADMIN_PORT: u16 = 3010;
-
-/// Base URL for clients; uses local IP so phones can scan QR and connect. Fallback 127.0.0.1.
-fn local_url() -> String {
-    let host = local_ip().unwrap_or_else(|| "127.0.0.1".to_string());
-    format!("http://{}:{}", host, PORT)
-}
 
 /// Detect local network IP by connecting a UDP socket to 8.8.8.8 and reading local_addr. Returns None on failure.
 fn local_ip() -> Option<String> {
@@ -42,48 +37,15 @@ fn local_ip() -> Option<String> {
     Some(addr.ip().to_string())
 }
 
-fn print_qr(url: &str) {
-    use qrcode::types::Color;
-    let code = match qrcode::QrCode::new(url.as_bytes()) {
-        Ok(c) => c,
-        Err(_) => {
-            eprintln!("could not generate QR code for URL");
-            return;
-        }
-    };
-    // Compact: two QR rows per terminal line using upper/lower half-blocks (▀ ▄ █)
-    let w = code.width();
-    let quiet = " ".repeat(w);
-    println!("\nScan to join from a phone on the same network:");
-    println!("{}", url);
-    println!("{}", quiet);
-    let mut y = 0;
-    while y < w {
-        let mut line = String::with_capacity(w);
-        for x in 0..w {
-            let top = code[(x, y)] == Color::Dark;
-            let bot = y + 1 < w && code[(x, y + 1)] == Color::Dark;
-            let ch = match (top, bot) {
-                (false, false) => ' ',
-                (true, false) => '\u{2580}', // ▀ upper half
-                (false, true) => '\u{2584}', // ▄ lower half
-                (true, true) => '█',
-            };
-            line.push(ch);
-        }
-        println!("{}", line);
-        y += 2;
-    }
+/// Base URL for the client app (main server). Used for live-join-url.
+fn client_base_url() -> String {
+    let host = local_ip().unwrap_or_else(|| "127.0.0.1".to_string());
+    format!("http://{}:{}", host, PORT)
 }
 
 #[tokio::main]
 async fn main() {
-    // Shared state: which devices have polled recently and their ping samples.
-    let registry: Arc<connections::ConnectionRegistry> =
-        Arc::new(connections::ConnectionRegistry::new());
-    let broadcast_state: Arc<arc_swap::ArcSwap<broadcast::BroadcastSnapshot>> = Arc::new(
-        arc_swap::ArcSwap::from_pointee(broadcast::BroadcastSnapshot::new()),
-    );
+    let live_shows: Arc<live_shows::LiveShowStore> = Arc::new(live_shows::LiveShowStore::new());
 
     let show_timelines_path = PathBuf::from("./userData/showTimelines");
     if let Err(e) = std::fs::create_dir_all(&show_timelines_path) {
@@ -120,13 +82,13 @@ async fn main() {
     };
 
     let admin_state = api::AdminAppState {
-        registry: registry.clone(),
+        live_shows: live_shows.clone(),
+        client_base_url: client_base_url(),
         show_timelines_path,
         simulated_client_profiles_path,
         venue_shapes_path,
         shows_path,
         map_state: Arc::new(arc_swap::ArcSwap::from_pointee(api::MapState::default())),
-        broadcast: broadcast_state.clone(),
         auth: auth_state,
     };
 
@@ -160,23 +122,31 @@ async fn main() {
         }
     };
 
-    let registry_tick = registry.clone();
+    let live_shows_tick = live_shows.clone();
     tokio::spawn(async move {
         let mut interval =
             tokio::time::interval(std::time::Duration::from_secs(10));
         loop {
             interval.tick().await;
             let now_ms = crate::time::unix_now_ms();
-            registry_tick.tick_disconnects(now_ms);
+            live_shows_tick.tick_all_disconnects(now_ms);
         }
     });
+
+    async fn serve_client_index() -> impl IntoResponse {
+        match tokio::fs::read_to_string("dist-client/index.html").await {
+            Ok(html) => ([("content-type", "text/html; charset=utf-8")], html).into_response(),
+            Err(_) => (axum::http::StatusCode::NOT_FOUND, "client not built").into_response(),
+        }
+    }
 
     let app_main = Router::new()
         .route("/api/health", get(api::health))
         .route("/api/poll", get(api::poll))
+        .route("/:show_id", get(serve_client_index))
+        .route("/:show_id/", get(serve_client_index))
         .with_state(api::MainAppState {
-            registry: registry.clone(),
-            broadcast: broadcast_state.clone(),
+            live_shows: live_shows.clone(),
         })
         .fallback_service(ServeDir::new("dist-client"));
 
@@ -211,15 +181,18 @@ async fn main() {
     }
 
     let admin_protected = Router::new()
-        .route("/connected-devices", get(api::get_connected_devices))
-        .route("/connected-devices/page-ids", get(api::get_page_ids))
-        .route("/connected-devices/by-ids", post(api::post_by_ids))
-        .route("/stats", get(api::get_stats))
-        .route("/connections/reset", post(api::post_reset_connections))
-        .route("/broadcast/timeline", post(api::post_broadcast_timeline))
-        .route("/broadcast/readhead", post(api::post_broadcast_readhead))
-        .route("/broadcast/play", post(api::post_broadcast_play))
-        .route("/broadcast/pause", post(api::post_broadcast_pause))
+        .route("/show-workspaces/:show_id/go-live", post(api::post_go_live))
+        .route("/show-workspaces/:show_id/end-live", post(api::post_end_live))
+        .route("/show-workspaces/:show_id/live-join-url", get(api::get_live_join_url))
+        .route("/shows/:show_id/connected-devices", get(api::get_connected_devices))
+        .route("/shows/:show_id/connected-devices/page-ids", get(api::get_page_ids))
+        .route("/shows/:show_id/connected-devices/by-ids", post(api::post_by_ids))
+        .route("/shows/:show_id/stats", get(api::get_stats))
+        .route("/shows/:show_id/connections/reset", post(api::post_reset_connections))
+        .route("/shows/:show_id/broadcast/timeline", post(api::post_broadcast_timeline))
+        .route("/shows/:show_id/broadcast/readhead", post(api::post_broadcast_readhead))
+        .route("/shows/:show_id/broadcast/play", post(api::post_broadcast_play))
+        .route("/shows/:show_id/broadcast/pause", post(api::post_broadcast_pause))
         .route("/shows", get(api::list_shows))
         .route("/shows/:name", get(api::get_show).put(api::put_show))
         .route("/venues", get(api::list_venues))
@@ -298,13 +271,11 @@ async fn main() {
 
     let addr_main = SocketAddr::from(([0, 0, 0, 0], PORT));
     let addr_admin = SocketAddr::from(([0, 0, 0, 0], ADMIN_PORT));
-    let url = local_url();
     println!("listening on http://0.0.0.0:{}", PORT);
     println!("admin panel on http://0.0.0.0:{}", ADMIN_PORT);
     if let Some(host) = local_ip() {
         println!("admin panel (local): http://{}:{}", host, ADMIN_PORT);
     }
-    print_qr(&url);
 
     let listener_main = tokio::net::TcpListener::bind(addr_main).await.unwrap();
     let listener_admin = tokio::net::TcpListener::bind(addr_admin).await.unwrap();

@@ -6,6 +6,22 @@ import * as ui from "./ui";
 const DEVICE_ID_STORAGE_KEY = "lumelier_device_id";
 
 const POLL_INTERVAL_MS = 2500;
+const SHOW_ID_LEN = 8;
+
+/** Parse show_id from URL: path /{show_id} or /{show_id}/ or query ?show= */
+function getShowIdFromUrl(): string | null {
+  const path = window.location.pathname.replace(/\/$/, "").replace(/^\//, "");
+  const firstSegment = path.split("/")[0];
+  if (firstSegment && firstSegment.length === SHOW_ID_LEN && /^[a-z0-9]+$/.test(firstSegment)) {
+    return firstSegment;
+  }
+  const params = new URLSearchParams(window.location.search);
+  const show = params.get("show");
+  if (show && show.length === SHOW_ID_LEN && /^[a-z0-9]+$/.test(show)) {
+    return show;
+  }
+  return null;
+}
 const SYNC_SAMPLES_MAX = 30;
 const DELAY_SLACK_MS = 40;
 const SLEW_MAX_STEP_MS = 25;
@@ -213,7 +229,7 @@ function syncDisplayAndScheduleNext(): void {
   }, delayMs);
 }
 
-async function fetchPoll(): Promise<{ data: timeline.PollResponse; t0: number; t3: number }> {
+async function fetchPoll(showId: string): Promise<{ data: timeline.PollResponse; t0: number; t3: number }> {
   const deviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
   const headers: HeadersInit = {};
   if (deviceId) (headers as Record<string, string>)["X-Device-ID"] = deviceId;
@@ -221,7 +237,8 @@ async function fetchPoll(): Promise<{ data: timeline.PollResponse; t0: number; t
   const t0 = nowEpochMs();
   (headers as Record<string, string>)["X-Client-Send-Ms"] = String(Math.round(t0));
   gps.addGeoHeaders(headers as Record<string, string>);
-  const res = await fetch("/api/poll", { headers });
+  const url = `/api/poll?show=${encodeURIComponent(showId)}`;
+  const res = await fetch(url, { headers });
   const t3 = nowEpochMs();
   lastRttMs = Math.round(t3 - t0);
   if (!res.ok) throw new Error(`poll failed: ${res.status}`);
@@ -249,9 +266,9 @@ function doRender(): void {
   });
 }
 
-async function pollLoop(): Promise<void> {
+async function pollLoop(showId: string): Promise<void> {
   try {
-    const { data, t0, t3 } = await fetchPoll();
+    const { data, t0, t3 } = await fetchPoll(showId);
     const t1 = data.serverTimeAtRecv;
     const t2 = data.serverTimeAtSend ?? data.serverTime;
 
@@ -323,14 +340,22 @@ async function pollLoop(): Promise<void> {
       });
     }
   }
-  setTimeout(pollLoop, POLL_INTERVAL_MS);
+  setTimeout(() => pollLoop(showId), POLL_INTERVAL_MS);
 }
 
-lastDisplayedColor = "#000000";
-lastDeviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY) || "—";
-ui.render({
-  deviceId: lastDeviceId,
-  serverTime: getServerTime(),
-  firstColor: "#000000",
-});
-pollLoop();
+const showId = getShowIdFromUrl();
+if (showId == null) {
+  document.body.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:16px;text-align:center;font-family:system-ui,sans-serif;color:#ccc;background:#111;">
+      <p>Invalid or missing show link.</p>
+    </div>`;
+} else {
+  lastDisplayedColor = "#000000";
+  lastDeviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY) || "—";
+  ui.render({
+    deviceId: lastDeviceId,
+    serverTime: getServerTime(),
+    firstColor: "#000000",
+  });
+  pollLoop(showId);
+}

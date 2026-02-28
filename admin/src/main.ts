@@ -330,22 +330,46 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
       }
     });
     statusDropdown.addEventListener("click", (e) => e.stopPropagation());
-    statusDropdown.addEventListener("click", (e) => {
+    statusDropdown.addEventListener("click", async (e) => {
       const target = (e.target as HTMLElement).closest("[data-status-action]");
       if (!target) return;
       const action = (target as HTMLElement).dataset.statusAction;
       statusDropdown.hidden = true;
       statusBtn.setAttribute("aria-expanded", "false");
+      const showId = currentShow?.id;
+      if (!showId) return;
       if (action === "go-live") {
         showLiveState = "requesting";
         syncShowStatusUI();
-        setTimeout(() => {
-          showLiveState = "live";
+        try {
+          const res = await fetch(`/api/admin/show-workspaces/${showId}/go-live`, {
+            method: "POST",
+            credentials: "include",
+          });
+          if (res.ok) {
+            showLiveState = "live";
+            syncShowStatusUI();
+          } else {
+            showLiveState = "not_live";
+            syncShowStatusUI();
+          }
+        } catch {
+          showLiveState = "not_live";
           syncShowStatusUI();
-        }, 1000);
+        }
       } else if (action === "end-live") {
-        showLiveState = "not_live";
-        syncShowStatusUI();
+        try {
+          const res = await fetch(`/api/admin/show-workspaces/${showId}/end-live`, {
+            method: "POST",
+            credentials: "include",
+          });
+          if (res.ok) {
+            showLiveState = "not_live";
+            syncShowStatusUI();
+          }
+        } catch {
+          // keep current UI state on error
+        }
       }
     });
     syncShowStatusUI();

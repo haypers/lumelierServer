@@ -519,3 +519,78 @@ pub async fn delete_show(
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+// --- Go live / End live / Live join URL (Phase 1 multi-show) ---
+
+#[derive(Serialize)]
+pub struct LiveJoinUrlResponse {
+    pub live: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+}
+
+/// POST /api/admin/show-workspaces/:show_id/go-live — ensure live bucket exists for show. No URL printed to console.
+pub async fn post_go_live(
+    State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, StatusCode> {
+    if !is_valid_show_id_format(&show_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &username, &show_id).await?;
+    let _ = state.live_shows.get_or_create(&show_id);
+    Ok(StatusCode::OK)
+}
+
+/// POST /api/admin/show-workspaces/:show_id/end-live — remove live bucket for show.
+pub async fn post_end_live(
+    State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<StatusCode, StatusCode> {
+    if !is_valid_show_id_format(&show_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &username, &show_id).await?;
+    state.live_shows.remove(&show_id);
+    Ok(StatusCode::NO_CONTENT)
+}
+
+/// GET /api/admin/show-workspaces/:show_id/live-join-url — { live: true, url } or { live: false }.
+pub async fn get_live_join_url(
+    State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<LiveJoinUrlResponse>, StatusCode> {
+    if !is_valid_show_id_format(&show_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &username, &show_id).await?;
+    let (live, url) = match state.live_shows.get(&show_id) {
+        Some(_) => (true, Some(format!("{}/{}", state.client_base_url, show_id))),
+        None => (false, None),
+    };
+    Ok(Json(LiveJoinUrlResponse { live, url }))
+}

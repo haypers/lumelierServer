@@ -96,10 +96,12 @@ function postBroadcastReadheadDebounced(sec: number): void {
   const clamped = Math.max(0, sec);
   broadcastReadheadPostTimer = setTimeout(() => {
     broadcastReadheadPostTimer = null;
-    fetch("/api/admin/broadcast/readhead", {
+    if (!currentShowId) return;
+    fetch(`/api/admin/shows/${currentShowId}/broadcast/readhead`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ readheadSec: clamped }),
+      credentials: "include",
     }).catch(() => {});
   }, BROADCAST_READHEAD_POST_DEBOUNCE_MS);
 }
@@ -384,12 +386,14 @@ function setRequestsGPS(value: boolean): void {
 }
 
 async function uploadTimelineToServer(): Promise<boolean> {
+  if (!currentShowId) return false;
   const state = getExportState();
   try {
-    const res = await fetch("/api/admin/broadcast/timeline", {
+    const res = await fetch(`/api/admin/shows/${currentShowId}/broadcast/timeline`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(state),
+      credentials: "include",
     });
     if (!res.ok) {
       console.error("Failed to upload timeline:", res.status, await res.text());
@@ -908,10 +912,12 @@ export function render(container: HTMLElement, showId: string | null): void {
           const readheadSec = getReadheadSecClamped();
           console.log("User hit play from", readheadSec, "(readhead sec).");
           try {
-            const res = await fetch("/api/admin/broadcast/play", {
+            if (!currentShowId) throw new Error("No show selected");
+            const res = await fetch(`/api/admin/shows/${currentShowId}/broadcast/play`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ readheadSec }),
+              credentials: "include",
             });
             if (!res.ok) throw new Error(String(res.status));
             const data = (await res.json()) as { playAtMs?: number; serverTimeMs?: number };
@@ -940,7 +946,8 @@ export function render(container: HTMLElement, showId: string | null): void {
         }
         case "pause": {
           try {
-            const res = await fetch("/api/admin/broadcast/pause", { method: "POST" });
+            if (!currentShowId) throw new Error("No show selected");
+            const res = await fetch(`/api/admin/shows/${currentShowId}/broadcast/pause`, { method: "POST", credentials: "include" });
             if (!res.ok) throw new Error(String(res.status));
             const data = (await res.json()) as { pauseAtMs?: number; serverTimeMs?: number };
             const pauseAtMs = data.pauseAtMs ?? 0;
