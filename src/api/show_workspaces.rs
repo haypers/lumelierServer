@@ -530,6 +530,7 @@ pub struct LiveJoinUrlResponse {
 }
 
 /// POST /api/admin/show-workspaces/:show_id/go-live — ensure live bucket exists for show. No URL printed to console.
+/// Notifies the simulated client server so it can create a per-show bucket immediately (in addition to the 10s poll).
 pub async fn post_go_live(
     State(state): State<AdminAppState>,
     Path(show_id): Path<String>,
@@ -547,10 +548,19 @@ pub async fn post_go_live(
         .ok_or(StatusCode::UNAUTHORIZED)?;
     check_show_access(&state, &username, &show_id).await?;
     let _ = state.live_shows.get_or_create(&show_id);
+
+    // Notify simulated server in real time so it can create the bucket without waiting for the next 10s poll.
+    let simulated_url = state.simulated_server_url.clone();
+    let show_id_notify = show_id.clone();
+    tokio::spawn(async move {
+        notify_simulated_server_show_live(&simulated_url, &show_id_notify).await;
+    });
+
     Ok(StatusCode::OK)
 }
 
 /// POST /api/admin/show-workspaces/:show_id/end-live — remove live bucket for show.
+/// Notifies the simulated client server so it can drop the per-show bucket immediately (in addition to the 10s poll).
 pub async fn post_end_live(
     State(state): State<AdminAppState>,
     Path(show_id): Path<String>,
@@ -568,7 +578,51 @@ pub async fn post_end_live(
         .ok_or(StatusCode::UNAUTHORIZED)?;
     check_show_access(&state, &username, &show_id).await?;
     state.live_shows.remove(&show_id);
+
+    // Notify simulated server in real time so it can remove the bucket without waiting for the next 10s poll.
+    let simulated_url = state.simulated_server_url.clone();
+    let show_id_notify = show_id.clone();
+    tokio::spawn(async move {
+        notify_simulated_server_show_ended(&simulated_url, &show_id_notify).await;
+    });
+
     Ok(StatusCode::NO_CONTENT)
+}
+
+/// Sends a POST to the simulated client server to tell it a show just went live.
+/// The simulated server will create a bucket for this show_id immediately (so the admin UI can add simulated clients without waiting for the 10s poll).
+/// Fire-and-forget: we do not block the go-live response on this; failures are logged and the 10s poll will sync anyway.
+async fn notify_simulated_server_show_live(base_url: &str, show_id: &str) {
+    let url = format!("{}/notify/show-live", base_url.trim_end_matches('/'));
+    let body = serde_json::json!({ "show_id": show_id });
+    let client = match reqwest::Client::builder().build() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("notify simulated server (go-live): failed to build client: {}", e);
+            return;
+        }
+    };
+    if let Err(e) = client.post(&url).json(&body).send().await {
+        eprintln!("notify simulated server (go-live): request failed: {}", e);
+    }
+}
+
+/// Sends a POST to the simulated client server to tell it a show just ended live.
+/// The simulated server will remove the bucket for this show_id immediately (freeing memory).
+/// Fire-and-forget: we do not block the end-live response on this; failures are logged and the 10s poll will sync anyway.
+async fn notify_simulated_server_show_ended(base_url: &str, show_id: &str) {
+    let url = format!("{}/notify/show-ended", base_url.trim_end_matches('/'));
+    let body = serde_json::json!({ "show_id": show_id });
+    let client = match reqwest::Client::builder().build() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("notify simulated server (end-live): failed to build client: {}", e);
+            return;
+        }
+    };
+    if let Err(e) = client.post(&url).json(&body).send().await {
+        eprintln!("notify simulated server (end-live): request failed: {}", e);
+    }
 }
 
 /// GET /api/admin/show-workspaces/:show_id/live-join-url — { live: true, url } or { live: false }.
@@ -593,4 +647,35 @@ pub async fn get_live_join_url(
         None => (false, None),
     };
     Ok(Json(LiveJoinUrlResponse { live, url }))
+}
+
+// ---------------------------------------------------------------------------
+// Live show IDs — used by the simulated client server to know which shows are live
+// ---------------------------------------------------------------------------
+//
+// The simulated client server keeps a "bucket" (store + runner state) only for shows that are
+// live. It learns which shows are live in two ways:
+//
+// 1. **Real-time notify:** When an admin goes live or ends live, we POST to the simulated server
+//    (POST /notify/show-live or POST /notify/show-ended) so it can add/remove the bucket immediately.
+//
+// 2. **10-second poll:** The simulated server also polls GET /api/admin/live-show-ids every 10
+//    seconds. This endpoint returns the list of show_ids that currently have a live bucket. We
+//    do *not* put this endpoint behind session auth so the simulated server (a separate process
+//    with no browser cookies) can call it. The data is low-sensitivity (just which show IDs are live).
+
+#[derive(Serialize)]
+pub struct LiveShowIdsResponse {
+    #[serde(rename = "show_ids")]
+    pub show_ids: Vec<String>,
+}
+
+/// GET /api/admin/live-show-ids — returns { "show_ids": ["id1", "id2", ...] } for all shows that are currently live.
+/// Used by the simulated client server: it polls this every 10s and adds/removes its per-show buckets to match.
+/// Not behind session auth so the simulated server (no cookies) can call it.
+pub async fn get_live_show_ids(
+    State(state): State<AdminAppState>,
+) -> Result<Json<LiveShowIdsResponse>, StatusCode> {
+    let show_ids = state.live_shows.live_show_ids();
+    Ok(Json(LiveShowIdsResponse { show_ids }))
 }

@@ -809,6 +809,7 @@ dependencies = [
  "hex",
  "qrcode",
  "rand",
+ "reqwest",
  "serde",
  "serde_json",
  "tokio",

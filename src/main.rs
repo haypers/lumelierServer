@@ -84,6 +84,7 @@ async fn main() {
     let admin_state = api::AdminAppState {
         live_shows: live_shows.clone(),
         client_base_url: client_base_url(),
+        simulated_server_url: std::env::var("SIMULATED_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3003".to_string()),
         show_timelines_path,
         simulated_client_profiles_path,
         venue_shapes_path,
@@ -180,6 +181,12 @@ async fn main() {
         }
     }
 
+    // Live-show-ids: the simulated client server polls this every 10s to know which shows are live.
+    // It has no browser session, so we expose this route without the session layer.
+    let admin_live_show_ids = Router::new()
+        .route("/live-show-ids", get(api::get_live_show_ids))
+        .with_state(admin_state.clone());
+
     let admin_protected = Router::new()
         .route("/show-workspaces/:show_id/go-live", post(api::post_go_live))
         .route("/show-workspaces/:show_id/end-live", post(api::post_end_live))
@@ -236,7 +243,7 @@ async fn main() {
         .route("/api/auth/login", post(auth::post_login::<api::AdminAppState>))
         .route("/api/auth/logout", post(auth::post_logout::<api::AdminAppState>))
         .route("/api/auth/me", get(auth::get_me::<api::AdminAppState>))
-        .nest("/api/admin", admin_protected)
+        .nest("/api/admin", admin_live_show_ids.merge(admin_protected))
         .route("/", any(serve_admin_index))
         .route("/dashboard/:show_id", any(serve_admin_index_if_show_access))
         .route("/dashboard/:show_id/", any(serve_admin_index_if_show_access))

@@ -27,9 +27,10 @@ pub use poll::{poll, poll_admin};
 pub use shows::{get_show, list_shows, put_show};
 pub use venues::{get_venue, list_venues, put_venue};
 pub use show_workspaces::{
-    check_show_access, delete_show, get_list_shows, get_live_join_url, get_show_by_id, get_show_members,
-    get_timeline, get_user_exists, get_venue_shape, is_valid_show_id_format, post_create_show,
-    post_end_live, post_go_live, post_show_member, put_timeline, put_venue_shape,
+    check_show_access, delete_show, get_list_shows, get_live_join_url, get_live_show_ids,
+    get_show_by_id, get_show_members, get_timeline, get_user_exists, get_venue_shape,
+    is_valid_show_id_format, post_create_show, post_end_live, post_go_live, post_show_member,
+    put_timeline, put_venue_shape,
 };
 pub use simulated_profiles::{
     get_simulated_client_profile, list_simulated_client_profiles, post_save_simulated_client_profile,
@@ -47,10 +48,13 @@ pub struct MainAppState {
 }
 
 /// Shared state for the admin app (live show store + paths + auth). client_base_url is main server base (e.g. http://host:3002) for live-join-url.
+/// simulated_server_url is used to POST real-time go-live/end-live notifications to the simulated client server (optional; env SIMULATED_SERVER_URL).
 #[derive(Clone)]
 pub struct AdminAppState {
     pub live_shows: Arc<LiveShowStore>,
     pub client_base_url: String,
+    /// Base URL of the simulated client server (e.g. http://127.0.0.1:3003). Used to notify it when a show goes live or ends, so it can update its per-show buckets immediately instead of waiting for the next 10s poll.
+    pub simulated_server_url: String,
     pub show_timelines_path: PathBuf,
     pub simulated_client_profiles_path: PathBuf,
     pub venue_shapes_path: PathBuf,

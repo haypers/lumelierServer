@@ -64,6 +64,11 @@ impl LiveShowStore {
         self.inner.get(show_id).map(|r| Arc::clone(r.value()))
     }
 
+    /// Returns the list of show_ids that currently have a live bucket.
+    pub fn live_show_ids(&self) -> Vec<String> {
+        self.inner.iter().map(|r| r.key().clone()).collect()
+    }
+
     /// Call tick_disconnects on every live registry. Run periodically (e.g. every 10s).
     pub fn tick_all_disconnects(&self, now_ms: u64) {
         for entry in self.inner.iter() {
