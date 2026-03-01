@@ -6,6 +6,7 @@ import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
 import openIcon from "../../icons/open.svg?raw";
 import pauseIcon from "../../icons/pause.svg?raw";
 import playIcon from "../../icons/play.svg?raw";
+import resetIcon from "../../icons/reset.svg?raw";
 import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import {
@@ -432,6 +433,126 @@ function getDefaultNewShowState(): TimelineStateJSON {
   };
 }
 
+/** Rainbow effect: cycles through spectrum colors as fast as polling allows (single layer). */
+function getRainbowShowState(): TimelineStateJSON {
+  const layers = [
+    { id: "layer-1", label: "Layer 1" },
+  ];
+  
+  // Rainbow colors changing every 2.5 seconds
+  const colors = [
+    "#FF0000", // Red
+    "#FF7F00", // Orange
+    "#FFFF00", // Yellow
+    "#00FF00", // Green
+    "#0000FF", // Blue
+    "#8B00FF", // Purple
+  ];
+  
+  const items: TimelineStateJSON["items"] = [];
+  
+  colors.forEach((color, idx) => {
+    const time = idx * 2.5;
+    if (time <= 20) {
+      items.push({
+        id: `rainbow-${idx + 1}`,
+        layerId: "layer-1",
+        kind: "event" as const,
+        startSec: time,
+        label: `Color ${idx + 1}`,
+        effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
+        color: color,
+        target: "All",
+      });
+    }
+  });
+  
+  return {
+    version: 1,
+    title: "Rainbow",
+    requestsGPS: false,
+    layers,
+    items,
+    readheadSec: 0,
+  };
+}
+
+/** Purple Blue Rhythm: rhythmic pattern cycling through purple, black, and blue (single layer). */
+function getBreathingShowState(): TimelineStateJSON {
+  const layers = [
+    { id: "layer-1", label: "Layer 1" },
+  ];
+  
+  // Three colors in rhythm: Purple, Black, Blue
+  const colors = [
+    { color: "#8B00FF", name: "Purple" },
+    { color: "#000000", name: "Black" },
+    { color: "#0000FF", name: "Blue" },
+  ];
+  
+  const items: TimelineStateJSON["items"] = [];
+  let itemId = 1;
+  
+  // Cycle through colors every 2.5 seconds
+  for (let t = 0; t <= 20; t += 2.5) {
+    const colorIdx = Math.floor(t / 2.5) % 3;
+    const colorData = colors[colorIdx];
+    
+    items.push({
+      id: `rhythm-${itemId++}`,
+      layerId: "layer-1",
+      kind: "event" as const,
+      startSec: t,
+      label: colorData.name,
+      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
+      color: colorData.color,
+      target: "All",
+    });
+  }
+  
+  return {
+    version: 1,
+    title: "Purple Blue Rhythm",
+    requestsGPS: false,
+    layers,
+    items,
+    readheadSec: 0,
+  };
+}
+
+/** BYU Alternating: alternates between blue and white as fast as polling allows (single layer). */
+function getCosmicJourneyShowState(): TimelineStateJSON {
+  const layers = [
+    { id: "layer-1", label: "Layer 1" },
+  ];
+  
+  // Alternate blue and white every 2.5 seconds
+  const items: TimelineStateJSON["items"] = [];
+  
+  for (let t = 0; t <= 20; t += 2.5) {
+    const isBlue = Math.floor((t / 2.5) % 2) === 0;
+    items.push({
+      id: `byu-alt-${t / 2.5 + 1}`,
+      layerId: "layer-1",
+      kind: "event" as const,
+      startSec: t,
+      label: isBlue ? "Blue" : "White",
+      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
+      color: isBlue ? "#0047AB" : "#FFFFFF",
+      target: "All",
+    });
+  }
+  
+  return {
+    version: 1,
+    title: "BYU Alternating",
+    requestsGPS: false,
+    layers,
+    items,
+    readheadSec: 0,
+  };
+}
+
 function refreshDetailsPanel(forceItemId?: IdType): void {
   if (!timelineDetailsPanelEl) return;
   const itemId = forceItemId ?? timeline?.getSelection()?.[0];
@@ -775,6 +896,14 @@ export function render(container: HTMLElement): void {
             <div class="timeline-empty-state-actions">
               <button type="button" class="btn btn-primary" id="timeline-empty-open-show">Open Show</button>
               <button type="button" class="btn btn-primary" id="timeline-empty-create-show">Create New Show</button>
+              <div class="timeline-default-show-dropdown">
+                <button type="button" class="btn btn-primary" id="timeline-use-default-show">Use Default Show ▼</button>
+                <div class="timeline-default-show-menu" id="timeline-default-show-menu" hidden>
+                  <button type="button" class="timeline-default-show-option" data-preset="byu-alt">BYU Alternating (20s)</button>
+                  <button type="button" class="timeline-default-show-option" data-preset="rainbow">Rainbow (20s)</button>
+                  <button type="button" class="timeline-default-show-option" data-preset="rhythm">Purple Blue Rhythm (20s)</button>
+                </div>
+              </div>
             </div>
           </div>
           <div class="timeline-content timeline-content--hidden">
@@ -807,6 +936,7 @@ export function render(container: HTMLElement): void {
                 <span class="timeline-broadcast-show-name" id="timeline-broadcast-show-name">Untitled Show</span>
               </div>
               <div class="timeline-toolbar-center">
+                <button type="button" class="btn btn-icon-only" data-action="restart" aria-label="Restart">${resetIcon}</button>
                 <button type="button" class="btn btn-icon-only" data-action="play" aria-label="Play">${playIcon}</button>
                 <button type="button" class="btn btn-icon-only" data-action="pause" aria-label="Pause">${pauseIcon}</button>
               </div>
@@ -924,6 +1054,51 @@ export function render(container: HTMLElement): void {
   document.getElementById("timeline-empty-open-show")?.addEventListener("click", () => showOpenShowModal());
   document.getElementById("timeline-empty-create-show")?.addEventListener("click", () => createNewShow());
 
+  // Default show dropdown
+  const useDefaultShowBtn = document.getElementById("timeline-use-default-show");
+  const defaultShowMenu = document.getElementById("timeline-default-show-menu");
+  
+  useDefaultShowBtn?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    if (defaultShowMenu) {
+      defaultShowMenu.hidden = !defaultShowMenu.hidden;
+    }
+  });
+
+  // Close dropdown when clicking outside
+  document.addEventListener("click", (e) => {
+    if (defaultShowMenu && !defaultShowMenu.hidden) {
+      const target = e.target as HTMLElement;
+      if (!target.closest(".timeline-default-show-dropdown")) {
+        defaultShowMenu.hidden = true;
+      }
+    }
+  });
+
+  // Handle preset selection
+  defaultShowMenu?.querySelectorAll(".timeline-default-show-option").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const preset = (btn as HTMLElement).getAttribute("data-preset");
+      if (defaultShowMenu) defaultShowMenu.hidden = true;
+      
+      let state: TimelineStateJSON;
+      switch (preset) {
+        case "byu-alt":
+          state = getCosmicJourneyShowState();
+          break;
+        case "rainbow":
+          state = getRainbowShowState();
+          break;
+        case "rhythm":
+          state = getBreathingShowState();
+          break;
+        default:
+          return;
+      }
+      loadShowState(state);
+    });
+  });
+
   if (!mount || !detailsPanel) return;
 
   const titleInput = document.getElementById("timeline-project-title-input");
@@ -949,6 +1124,38 @@ export function render(container: HTMLElement): void {
         case "open-show":
           showOpenShowModal();
           break;
+        case "restart": {
+          // Set readhead to 0 and start playing
+          if (timeline) {
+            timeline.setCustomTime(timeToDate(0), readheadId);
+          }
+          console.log("User hit restart, playing from beginning.");
+          try {
+            const res = await fetch("/api/admin/broadcast/play", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ readheadSec: 0 }),
+            });
+            if (!res.ok) throw new Error(String(res.status));
+            const data = (await res.json()) as { playAtMs?: number; serverTimeMs?: number };
+            const playAtMs = data.playAtMs ?? 0;
+            if (data.serverTimeMs != null) {
+              serverTimeOffsetMs = data.serverTimeMs - Date.now();
+            }
+            broadcastPlayAtMs = playAtMs;
+            broadcastReadheadSec = 0;
+            broadcastPauseAtMs = null;
+            startBroadcastReadheadTick();
+            timeline?.setOptions({
+              editable: { add: false, remove: false, updateGroup: false, updateTime: false },
+            });
+            timelineContentEl?.classList.add("timeline-readhead-no-drag");
+            console.log("Restarting timeline from beginning at", playAtMs);
+          } catch (e) {
+            console.error("Broadcast restart failed:", e);
+          }
+          break;
+        }
         case "play": {
           const readheadSec = getReadheadSecClamped();
           console.log("User hit play from", readheadSec, "(readhead sec).");

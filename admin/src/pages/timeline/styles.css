@@ -169,6 +169,48 @@
 .timeline-empty-state-actions .btn-primary:hover {
   filter: brightness(1.1);
 }
+.timeline-default-show-dropdown {
+  position: relative;
+  display: inline-block;
+}
+.timeline-default-show-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 200px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 100;
+  overflow: hidden;
+}
+.timeline-default-show-menu[hidden] {
+  display: none;
+}
+.timeline-default-show-option {
+  display: block;
+  width: 100%;
+  padding: 10px 14px;
+  font-size: 13px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  transition: background 0.15s;
+  border-bottom: 1px solid var(--border);
+}
+.timeline-default-show-option:last-child {
+  border-bottom: none;
+}
+.timeline-default-show-option:hover {
+  background: var(--border);
+}
+.timeline-default-show-option:active {
+  background: var(--accent);
+  color: #fff;
+}
 .timeline-content {
   flex: 1;
   min-height: 0;
