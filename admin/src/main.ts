@@ -93,6 +93,75 @@ const SHOW_STATUS_DROPDOWN_ID = "show-status-dropdown";
 type ShowLiveState = "not_live" | "requesting" | "live";
 let showLiveState: ShowLiveState = "not_live";
 
+// Live-state sync: poll server and BroadcastChannel so one tab is "voice" (30s), others "listeners" (40+ random).
+const LIVE_STATE_CHANNEL_NAME = "lumelier-live-state";
+const LIVE_STATE_INITIAL_POLL_MS = 15000;
+const LIVE_STATE_VOICE_INTERVAL_MS = 30000;
+const LIVE_STATE_LISTENER_BACKOFF_MS = 40000;
+const LIVE_STATE_LISTENER_BACKOFF_RANDOM_MS = 10000;
+
+const liveStateChannel: BroadcastChannel | null =
+  typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(LIVE_STATE_CHANNEL_NAME) : null;
+let liveStatePollTimerId: ReturnType<typeof setTimeout> | null = null;
+/** Set in renderHeader so timer/broadcast handlers can refresh the status UI. */
+let syncShowStatusUIRef: (() => void) | null = null;
+
+async function fetchLiveStateFromServer(showId: string): Promise<boolean> {
+  const res = await fetch(`/api/admin/show-workspaces/${showId}/live-join-url`, { credentials: "include" });
+  if (!res.ok) return false;
+  const data = (await res.json()) as { live?: boolean };
+  return data.live === true;
+}
+
+function clearLiveStatePollTimer(): void {
+  if (liveStatePollTimerId != null) {
+    clearTimeout(liveStatePollTimerId);
+    liveStatePollTimerId = null;
+  }
+}
+
+function scheduleNextLiveStatePoll(ms: number): void {
+  clearLiveStatePollTimer();
+  if (!currentShow) return;
+  const showId = currentShow.id;
+  liveStatePollTimerId = setTimeout(() => {
+    liveStatePollTimerId = null;
+    if (!currentShow || currentShow.id !== showId) return;
+    fetchLiveStateFromServer(showId)
+      .then((live) => {
+        if (!currentShow || currentShow.id !== showId) return;
+        showLiveState = live ? "live" : "not_live";
+        syncShowStatusUIRef?.();
+        if (liveStateChannel) {
+          liveStateChannel.postMessage({ showId, live });
+        }
+        scheduleNextLiveStatePoll(LIVE_STATE_VOICE_INTERVAL_MS);
+      })
+      .catch(() => {
+        if (currentShow?.id === showId) scheduleNextLiveStatePoll(LIVE_STATE_VOICE_INTERVAL_MS);
+      });
+  }, ms);
+}
+
+function broadcastLiveState(showId: string, live: boolean): void {
+  if (liveStateChannel) liveStateChannel.postMessage({ showId, live });
+}
+
+function setupLiveStateBroadcastListener(): void {
+  if (!liveStateChannel) return;
+  liveStateChannel.onmessage = (e: MessageEvent) => {
+    const msg = e.data as { showId?: string; live?: boolean } | null;
+    if (msg == null || typeof msg.showId !== "string" || typeof msg.live !== "boolean") return;
+    if (currentShow?.id !== msg.showId) return;
+    showLiveState = msg.live ? "live" : "not_live";
+    syncShowStatusUIRef?.();
+    const backoffMs =
+      LIVE_STATE_LISTENER_BACKOFF_MS +
+      Math.random() * LIVE_STATE_LISTENER_BACKOFF_RANDOM_MS;
+    scheduleNextLiveStatePoll(backoffMs);
+  };
+}
+
 function renderSelectedShowBlock(): string {
   if (currentShow) {
     const name = currentShow.name.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
@@ -309,6 +378,7 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
     statusDropdown.hidden = true;
     statusBtn.setAttribute("aria-expanded", "false");
   }
+  syncShowStatusUIRef = syncShowStatusUI;
 
   const statusBtn = document.getElementById("show-status-btn");
   const statusDropdown = document.getElementById(SHOW_STATUS_DROPDOWN_ID);
@@ -349,6 +419,7 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
           if (res.ok) {
             showLiveState = "live";
             syncShowStatusUI();
+            broadcastLiveState(showId, true);
           } else {
             showLiveState = "not_live";
             syncShowStatusUI();
@@ -366,6 +437,7 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
           if (res.ok) {
             showLiveState = "not_live";
             syncShowStatusUI();
+            broadcastLiveState(showId, false);
           }
         } catch {
           // keep current UI state on error
@@ -443,6 +515,13 @@ function openNewShowModal(): void {
         closeModal();
         navigateToPathWithShow(getPath(), currentShow);
         renderApp(lastUsername);
+        fetchLiveStateFromServer(currentShow.id)
+          .then((live) => {
+            showLiveState = live ? "live" : "not_live";
+            syncShowStatusUIRef?.();
+            scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
+          })
+          .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
         return;
       }
       errorEl.textContent = res.status === 400 ? "Invalid show name." : "Failed to create show.";
@@ -536,6 +615,13 @@ function openOpenShowModal(): void {
       closeModal();
       navigateToPathWithShow(getPath(), currentShow);
       renderApp(lastUsername);
+      fetchLiveStateFromServer(currentShow.id)
+        .then((live) => {
+          showLiveState = live ? "live" : "not_live";
+          syncShowStatusUIRef?.();
+          scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
+        })
+        .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
     }
   });
 
@@ -563,6 +649,7 @@ function openOpenShowModal(): void {
 function closeCurrentShow(): void {
   currentShow = null;
   showLiveState = "not_live";
+  clearLiveStatePollTimer();
   window.history.replaceState(null, "", getPath());
   renderApp(lastUsername);
 }
@@ -817,12 +904,19 @@ function render(): void {
       const data = await res.json() as { username: string };
       const path = getPath();
       const showId = getShowIdFromPath();
+      clearLiveStatePollTimer();
       if (showId) {
         try {
           const showRes = await fetch(`/api/admin/show-workspaces/${showId}`, { credentials: "include" });
           if (showRes.ok) {
             const showData = (await showRes.json()) as { show_id: string; name: string };
             currentShow = { id: showData.show_id, name: showData.name };
+            try {
+              const live = await fetchLiveStateFromServer(currentShow.id);
+              showLiveState = live ? "live" : "not_live";
+            } catch {
+              showLiveState = "not_live";
+            }
           } else {
             currentShow = null;
             window.history.replaceState(null, "", path);
@@ -835,11 +929,16 @@ function render(): void {
         currentShow = null;
       }
       renderApp(data.username);
+      if (currentShow) {
+        scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
+      }
     })
     .catch(() => {
       window.location.href = "/login";
     });
 }
+
+setupLiveStateBroadcastListener();
 
 window.addEventListener("popstate", () => render());
 
