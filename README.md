@@ -1,5 +1,6 @@
 # Lumelier Server
 
+Just ask the model how to get this project running. it can make a translation of the runAll.sh command for your os. i'm on linux rn. - hayden
 
 ## Requirements
 

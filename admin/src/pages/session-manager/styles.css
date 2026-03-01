@@ -1,0 +1,93 @@
+/* Attendee Access Point — live join URL, QR code, and actions. Aligns with other tab styles. */
+
+.attendee-access-page {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  padding: var(--space);
+  max-width: 100%;
+}
+
+.attendee-access-button-row {
+  display: flex;
+  gap: var(--space);
+  margin-bottom: var(--space);
+  flex-wrap: wrap;
+}
+
+/* Use same button style as Connected Devices List / Simulate Devices (devices-toolbar-btn is in global styles) */
+.attendee-access-button-row .devices-toolbar-btn {
+  /* inherits from global .devices-toolbar-btn */
+}
+
+.attendee-access-url-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  margin-bottom: var(--space);
+  width: 100%;
+  max-width: 100%;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text);
+  text-decoration: none;
+  word-break: break-all;
+}
+
+.attendee-access-url-row:hover {
+  text-decoration: underline;
+}
+
+.attendee-access-url-row .attendee-access-url-text {
+  display: inline;
+}
+
+.attendee-access-url-row .newtab-icon-wrap {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+}
+
+.attendee-access-url-row .newtab-icon-wrap svg {
+  width: 100%;
+  height: 100%;
+}
+
+/* QR code: size relative to viewport, left-aligned */
+.attendee-access-qr-wrap {
+  width: min(50vw, 55vh);
+  max-width: 400px;
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #fff;
+  border-radius: var(--radius);
+  padding: var(--space);
+  box-sizing: border-box;
+}
+
+.attendee-access-qr-wrap canvas {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto !important;
+  height: auto !important;
+}
+
+/* Not-live state: reuses global show-required-empty-state so it looks identical to "no show selected" */
+.attendee-access-not-live-wrap {
+  width: 100%;
+}
+
+.attendee-access-live-block[data-live="false"] .attendee-access-button-row,
+.attendee-access-live-block[data-live="false"] .attendee-access-url-row,
+.attendee-access-live-block[data-live="false"] .attendee-access-qr-wrap {
+  display: none;
+}
+
+.attendee-access-live-block[data-live="true"] .attendee-access-not-live-wrap {
+  display: none;
+}

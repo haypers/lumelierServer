@@ -490,15 +490,14 @@ function columnTitleWithInfoBubble(
 const CONNECTED_DEVICES_LIST_EMPTY_MESSAGE =
   "Please open or create a show to view the connected devices list.";
 
-export function render(container: HTMLElement, showId: string | null): void {
-  currentShowId = showId;
-  if (showId === null) {
-    container.innerHTML = `
-      <div class="show-required-empty-state">
-        <p class="show-required-empty-state-message">${CONNECTED_DEVICES_LIST_EMPTY_MESSAGE}</p>
-      </div>`;
-    return;
-  }
+const CONNECTED_DEVICES_LIST_NOT_LIVE_MESSAGE =
+  "Set this show live to view the List of Connected Client Devices";
+
+const LIVE_STATE_EVENT_NAME = "lumelier-live-state";
+let connectedDevicesListContainer: HTMLElement | null = null;
+let connectedDevicesLiveStateListener: ((e: Event) => void) | null = null;
+
+function cleanupConnectedDevicesList(): void {
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;
@@ -515,6 +514,19 @@ export function render(container: HTMLElement, showId: string | null): void {
     table.destroy();
     table = null;
   }
+  refreshEveryApi = null;
+  statsRefreshEveryApi = null;
+}
+
+function showConnectedDevicesNotLiveMessage(container: HTMLElement): void {
+  container.innerHTML = `
+    <div class="show-required-empty-state">
+      <p class="show-required-empty-state-message">${CONNECTED_DEVICES_LIST_NOT_LIVE_MESSAGE}</p>
+    </div>`;
+}
+
+function renderConnectedDevicesListFull(container: HTMLElement): void {
+  cleanupConnectedDevicesList();
 
   paginationPageSize = getStoredPageSize();
   paginationPage = 1;
@@ -758,4 +770,51 @@ export function render(container: HTMLElement, showId: string | null): void {
   if (statsMs > 0) statsRefreshTimer = setInterval(refreshStats, statsMs);
   if (devicesMs > 0) refreshTimer = setInterval(refresh, devicesMs);
   serverTimeRafId = requestAnimationFrame(updateServerTimeDisplay);
+}
+
+export function render(container: HTMLElement, showId: string | null): void {
+  currentShowId = showId;
+  if (showId === null) {
+    connectedDevicesListContainer = null;
+    if (connectedDevicesLiveStateListener) {
+      window.removeEventListener(LIVE_STATE_EVENT_NAME, connectedDevicesLiveStateListener);
+      connectedDevicesLiveStateListener = null;
+    }
+    cleanupConnectedDevicesList();
+    container.innerHTML = `
+      <div class="show-required-empty-state">
+        <p class="show-required-empty-state-message">${CONNECTED_DEVICES_LIST_EMPTY_MESSAGE}</p>
+      </div>`;
+    return;
+  }
+  connectedDevicesListContainer = container;
+  if (connectedDevicesLiveStateListener) {
+    window.removeEventListener(LIVE_STATE_EVENT_NAME, connectedDevicesLiveStateListener);
+  }
+  connectedDevicesLiveStateListener = (e: Event) => {
+    const ev = e as CustomEvent<{ showId: string; live: boolean }>;
+    if (ev.detail?.showId !== currentShowId || !connectedDevicesListContainer) return;
+    cleanupConnectedDevicesList();
+    if (ev.detail.live) {
+      renderConnectedDevicesListFull(connectedDevicesListContainer);
+    } else {
+      showConnectedDevicesNotLiveMessage(connectedDevicesListContainer);
+    }
+  };
+  window.addEventListener(LIVE_STATE_EVENT_NAME, connectedDevicesLiveStateListener);
+
+  fetch(`/api/admin/show-workspaces/${showId}/live-join-url`, { credentials: "include" })
+    .then((res) => (res.ok ? res.json() : { live: false }))
+    .then((data: { live?: boolean }) => {
+      if (currentShowId !== showId) return;
+      if (!data.live) {
+        showConnectedDevicesNotLiveMessage(container);
+        return;
+      }
+      renderConnectedDevicesListFull(container);
+    })
+    .catch(() => {
+      if (currentShowId !== showId) return;
+      showConnectedDevicesNotLiveMessage(container);
+    });
 }

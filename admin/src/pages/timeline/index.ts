@@ -49,6 +49,8 @@ let autosaveTimerId: ReturnType<typeof setTimeout> | null = null;
 let timelineAutosaveEl: HTMLElement | null = null;
 /** True when in Broadcasting mode; used to guard layer edit/remove and drive broadcast UI. */
 let isBroadcastMode = false;
+const LIVE_STATE_EVENT_NAME = "lumelier-live-state";
+let timelineLiveStateListenerRef: ((e: Event) => void) | null = null;
 /** Set in render(); used when loading a show to create timeline and show content. */
 let timelineWrapEl: HTMLElement | null = null;
 let timelineContentEl: HTMLElement | null = null;
@@ -385,28 +387,6 @@ function setRequestsGPS(value: boolean): void {
   }
 }
 
-async function uploadTimelineToServer(): Promise<boolean> {
-  if (!currentShowId) return false;
-  const state = getExportState();
-  try {
-    const res = await fetch(`/api/admin/shows/${currentShowId}/broadcast/timeline`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-      credentials: "include",
-    });
-    if (!res.ok) {
-      console.error("Failed to upload timeline:", res.status, await res.text());
-      return false;
-    }
-    console.log("timeline successfully uploaded to server");
-    return true;
-  } catch (e) {
-    console.error("Failed to upload timeline:", e);
-    return false;
-  }
-}
-
 function getReadheadSecClamped(): number {
   if (!timeline) return 0;
   const sec = dateToSecFloat(new Date(toMs(timeline.getCustomTime(readheadId))));
@@ -647,6 +627,18 @@ function loadShowState(state: TimelineStateJSON): void {
   );
   showTimelineContent();
   timeline?.fit();
+  /* Timeline is created while .timeline-content is hidden, so vis-timeline's first draw runs with
+   * zero-sized container and readhead/events/axis don't render. rAF and redraw() alone are not
+   * enough; vis-timeline only recalculates layout on resize. Trigger a resize so it redraws. */
+  setTimeout(() => {
+    window.dispatchEvent(new Event("resize"));
+  }, 0);
+  if (isBroadcastMode && timeline) {
+    timeline.setOptions({
+      editable: { add: false, remove: false, updateGroup: false, updateTime: false },
+    });
+    timelineContentEl?.classList.add("timeline-readhead-no-drag");
+  }
 }
 
 function setAutosaveUI(state: "saved" | "syncing"): void {
@@ -740,6 +732,10 @@ export function render(container: HTMLElement, showId: string | null): void {
   timelineAutosaveEl = null;
 
   if (showId === null) {
+    if (timelineLiveStateListenerRef) {
+      window.removeEventListener(LIVE_STATE_EVENT_NAME, timelineLiveStateListenerRef);
+      timelineLiveStateListenerRef = null;
+    }
     container.innerHTML = `
       <div class="show-required-empty-state">
         <p class="show-required-empty-state-message">Please open or create a show to view or play its timeline.</p>
@@ -747,43 +743,45 @@ export function render(container: HTMLElement, showId: string | null): void {
     return;
   }
 
+  const MESSAGE_NOT_LIVE = "Because the show is not live, you can edit this timeline.";
+  const MESSAGE_LIVE = "Because the show is live, you can NOT edit this show, but you can now broadcast it.";
+
   container.innerHTML = `
     <div class="timeline-page">
-      <div class="timeline-actions-row"></div>
+      <div class="timeline-actions-row">
+        <p class="timeline-live-status-message" id="timeline-live-status-message">${MESSAGE_NOT_LIVE}</p>
+      </div>
       <div class="timeline-page-body timeline-page-body--details-hidden">
         <div class="timeline">
           <div class="timeline-empty-state" id="timeline-empty-state">
             <p class="timeline-empty-state-message">Loading…</p>
           </div>
           <div class="timeline-content timeline-content--hidden">
-            <div class="timeline-toolbar">
+            <div class="timeline-toolbar timeline-toolbar-row2">
               <div class="timeline-toolbar-left">
-                <span class="timeline-autosave" id="timeline-autosave"><span class="timeline-autosave-icon">${circleCheckIcon}</span><span>Saved</span></span>
-                <span class="timeline-toolbar-gps">
-                  <span class="timeline-toolbar-gps-label">Request GPS:</span>
-                  <button type="button" class="mode-switch-toggle gps-toggle" id="timeline-request-gps-toggle" aria-pressed="false" aria-label="Request GPS">
-                    <span class="mode-switch-track">
-                      <span class="mode-switch-knob"></span>
-                    </span>
-                  </button>
-                </span>
+                <div class="timeline-toolbar-left-edit" id="timeline-toolbar-left-edit">
+                  <div class="timeline-save-status-wrap">
+                    <span class="timeline-autosave" id="timeline-autosave"><span class="timeline-autosave-icon">${circleCheckIcon}</span><span>Saved</span></span>
+                  </div>
+                  <span class="timeline-toolbar-gps">
+                    <span class="timeline-toolbar-gps-label">Request Client GPS:</span>
+                    <button type="button" class="mode-switch-toggle gps-toggle" id="timeline-request-gps-toggle" aria-pressed="false" aria-label="Request GPS">
+                      <span class="mode-switch-track">
+                        <span class="mode-switch-knob"></span>
+                      </span>
+                    </button>
+                  </span>
+                </div>
               </div>
-              <div class="timeline-toolbar-center"></div>
-              <div class="timeline-toolbar-right">
-                <button type="button" class="btn btn-primary hidden" data-action="add-clip" aria-hidden="true">Add clip</button>
-                <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
-                <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
-              </div>
-            </div>
-            <div class="timeline-toolbar-broadcast">
-              <div class="timeline-toolbar-left">
-                <span class="timeline-broadcast-show-name" id="timeline-broadcast-show-name">Untitled Show</span>
-              </div>
-              <div class="timeline-toolbar-center">
+              <div class="timeline-toolbar-spacer" id="timeline-toolbar-spacer"></div>
+              <div class="timeline-toolbar-center" id="timeline-toolbar-center" hidden>
                 <button type="button" class="btn btn-icon-only" data-action="play" aria-label="Play">${playIcon}</button>
                 <button type="button" class="btn btn-icon-only" data-action="pause" aria-label="Pause">${pauseIcon}</button>
               </div>
-              <div class="timeline-toolbar-right"></div>
+              <div class="timeline-toolbar-right" id="timeline-toolbar-right">
+                <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
+                <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
+              </div>
             </div>
             <div class="timeline-container-wrap">
               <div class="timeline-loading timeline-loading--hidden" id="timeline-loading" aria-hidden="true">
@@ -805,100 +803,88 @@ export function render(container: HTMLElement, showId: string | null): void {
 
   const timelineWrap = container.querySelector(".timeline") as HTMLElement | null;
   const pageBody = container.querySelector(".timeline-page-body") as HTMLElement | null;
-  const mount = document.getElementById("timeline-mount");
+  const mount = container.querySelector("#timeline-mount");
   const detailsPanel = container.querySelector(".timeline-details-panel");
-  const loadingEl = document.getElementById("timeline-loading");
+  const loadingEl = container.querySelector("#timeline-loading");
 
   timelineWrapEl = timelineWrap;
   timelinePageBodyEl = pageBody;
   timelineContentEl = container.querySelector(".timeline-content") as HTMLElement | null;
-  timelineMountEl = mount;
+  timelineMountEl = mount as HTMLElement | null;
   timelineDetailsPanelEl = detailsPanel as HTMLElement | null;
-  timelineLoadingEl = loadingEl;
+  timelineLoadingEl = loadingEl as HTMLElement | null;
 
-  const actionsRow = container.querySelector(".timeline-actions-row");
-  if (actionsRow) {
-    const modeSwitch = document.createElement("div");
-    modeSwitch.className = "mode-switch";
-    modeSwitch.setAttribute("role", "group");
-    modeSwitch.setAttribute("aria-label", "Mode");
-    modeSwitch.innerHTML = `
-      <span class="mode-switch-label mode-switch-label-edit active">Editing</span>
-      <button type="button" class="mode-switch-toggle" id="timeline-mode-toggle" aria-pressed="false" aria-label="Switch mode">
-        <span class="mode-switch-track">
-          <span class="mode-switch-knob"></span>
-        </span>
-      </button>
-      <span class="mode-switch-label mode-switch-label-broadcast">Broadcasting</span>
-    `;
-    const toggleBtn = modeSwitch.querySelector(".mode-switch-toggle");
-    const labelEdit = modeSwitch.querySelector(".mode-switch-label-edit");
-    const labelBroadcast = modeSwitch.querySelector(".mode-switch-label-broadcast");
+  const statusMessageEl = container.querySelector("#timeline-live-status-message") as HTMLElement | null;
+  const toolbarLeftEditEl = container.querySelector("#timeline-toolbar-left-edit") as HTMLElement | null;
+  const toolbarSpacerEl = container.querySelector("#timeline-toolbar-spacer") as HTMLElement | null;
+  const toolbarCenterEl = container.querySelector("#timeline-toolbar-center") as HTMLElement | null;
+  const toolbarRightEl = container.querySelector("#timeline-toolbar-right") as HTMLElement | null;
 
-    function applyBroadcastUI(): void {
-      isBroadcastMode = true;
-      modeSwitch.classList.add("mode-switch--broadcast");
-      toggleBtn?.setAttribute("aria-pressed", "true");
-      labelEdit?.classList.remove("active");
-      labelBroadcast?.classList.add("active");
-      timelineContentEl?.classList.add("timeline-content--broadcast");
-      timelineDetailsPanelEl?.classList.add("timeline-details-panel--readonly");
-      const broadcastShowName = document.getElementById("timeline-broadcast-show-name");
-      if (broadcastShowName) broadcastShowName.textContent = projectTitle;
-      ensureReadOnlyHeaderRow();
-      timeline?.setOptions({
-        editable: { add: false, remove: false, updateGroup: false, updateTime: false },
-      });
+  function updateLiveStatusMessage(liveOrPending: boolean): void {
+    if (statusMessageEl) {
+      statusMessageEl.textContent = liveOrPending ? MESSAGE_LIVE : MESSAGE_NOT_LIVE;
     }
-
-    function revertBroadcastUI(): void {
-      isBroadcastMode = false;
-      stopBroadcastReadheadTick();
-      timelineContentEl?.classList.remove("timeline-readhead-no-drag");
-      modeSwitch.classList.remove("mode-switch--broadcast");
-      toggleBtn?.setAttribute("aria-pressed", "false");
-      labelEdit?.classList.add("active");
-      labelBroadcast?.classList.remove("active");
-      timelineContentEl?.classList.remove("timeline-content--broadcast");
-      timelineDetailsPanelEl?.classList.remove("timeline-details-panel--readonly");
-      const wrapper = timelineDetailsPanelEl?.querySelector(".timeline-details-header-row");
-      if (wrapper && wrapper.parentNode) {
-        const h3 = wrapper.querySelector("h3");
-        if (h3) timelineDetailsPanelEl?.insertBefore(h3, wrapper);
-        wrapper.remove();
-      }
-      timeline?.setOptions({
-        editable: { add: false, remove: false, updateGroup: false, updateTime: true },
-      });
-    }
-
-    toggleBtn?.addEventListener("click", async () => {
-      const currentlyBroadcast = modeSwitch.classList.contains("mode-switch--broadcast");
-      if (currentlyBroadcast) {
-        revertBroadcastUI();
-        return;
-      }
-      const canEnterBroadcast =
-        hasLoadedShow && groups.length > 0 && items.length > 0;
-      if (!canEnterBroadcast) {
-        alert("To enter broadcasting mode, you must have a non empty timeline loaded.");
-        return;
-      }
-      applyBroadcastUI();
-      const ok = await uploadTimelineToServer();
-      if (!ok) {
-        revertBroadcastUI();
-        alert("Failed to upload timeline to server.");
-      }
-    });
-    actionsRow.appendChild(modeSwitch);
+    if (toolbarLeftEditEl) toolbarLeftEditEl.hidden = liveOrPending;
+    if (toolbarSpacerEl) toolbarSpacerEl.hidden = liveOrPending;
+    if (toolbarCenterEl) toolbarCenterEl.hidden = !liveOrPending;
+    if (toolbarRightEl) toolbarRightEl.hidden = liveOrPending;
   }
 
-  timelineAutosaveEl = document.getElementById("timeline-autosave");
+  function applyBroadcastUI(): void {
+    isBroadcastMode = true;
+    timelineContentEl?.classList.add("timeline-content--broadcast");
+    timelineDetailsPanelEl?.classList.add("timeline-details-panel--readonly");
+    ensureReadOnlyHeaderRow();
+    timeline?.setOptions({
+      editable: { add: false, remove: false, updateGroup: false, updateTime: false },
+    });
+    updateLiveStatusMessage(true);
+  }
+
+  function revertBroadcastUI(): void {
+    isBroadcastMode = false;
+    stopBroadcastReadheadTick();
+    timelineContentEl?.classList.remove("timeline-readhead-no-drag");
+    timelineContentEl?.classList.remove("timeline-content--broadcast");
+    timelineDetailsPanelEl?.classList.remove("timeline-details-panel--readonly");
+    const wrapper = timelineDetailsPanelEl?.querySelector(".timeline-details-header-row");
+    if (wrapper && wrapper.parentNode) {
+      const h3 = wrapper.querySelector("h3");
+      if (h3) timelineDetailsPanelEl?.insertBefore(h3, wrapper);
+      wrapper.remove();
+    }
+    timeline?.setOptions({
+      editable: { add: false, remove: false, updateGroup: false, updateTime: true },
+    });
+    updateLiveStatusMessage(false);
+  }
+
+  function applyLiveState(live: boolean, pending: boolean): void {
+    const liveOrPending = live || pending;
+    if (liveOrPending) {
+      applyBroadcastUI();
+    } else {
+      revertBroadcastUI();
+    }
+  }
+
+  if (timelineLiveStateListenerRef) {
+    window.removeEventListener(LIVE_STATE_EVENT_NAME, timelineLiveStateListenerRef);
+  }
+  timelineLiveStateListenerRef = (e: Event) => {
+    const ev = e as CustomEvent<{ showId: string; live: boolean; pending?: boolean }>;
+    if (ev.detail?.showId !== currentShowId) return;
+    const live = ev.detail.live === true;
+    const pending = ev.detail.pending === true;
+    applyLiveState(live, pending);
+  };
+  window.addEventListener(LIVE_STATE_EVENT_NAME, timelineLiveStateListenerRef);
+
+  timelineAutosaveEl = container.querySelector("#timeline-autosave");
 
   if (!mount || !detailsPanel) return;
 
-  document.getElementById("timeline-request-gps-toggle")?.addEventListener("click", () => {
+  container.querySelector("#timeline-request-gps-toggle")?.addEventListener("click", () => {
     setRequestsGPS(!requestsGPS);
     scheduleAutosave();
   });
@@ -992,5 +978,19 @@ export function render(container: HTMLElement, showId: string | null): void {
     });
   });
 
-  loadTimelineFromServer(showId);
+  // Load timeline first, then fetch live state and apply. This ensures the timeline is
+  // always created and shown before we apply broadcast UI (so opening the tab while live works).
+  loadTimelineFromServer(showId).then(() => {
+    if (currentShowId !== showId) return;
+    fetch(`/api/admin/show-workspaces/${showId}/live-join-url`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : { live: false }))
+      .then((data: { live?: boolean }) => {
+        if (currentShowId !== showId) return;
+        applyLiveState(data.live === true, false);
+      })
+      .catch(() => {
+        if (currentShowId !== showId) return;
+        applyLiveState(false, false);
+      });
+  });
 }

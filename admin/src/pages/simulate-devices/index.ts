@@ -1181,19 +1181,27 @@ function ensureDetailsRefreshTimer(): void {
 const SIMULATE_DEVICES_EMPTY_MESSAGE =
   "Please open or create a show to simulate extra devices.";
 
-export function render(container: HTMLElement, showId: string | null): void {
-  if (showId === null) {
-    currentShowId = null;
-    container.innerHTML = `
-      <div class="show-required-empty-state">
-        <p class="show-required-empty-state-message">${SIMULATE_DEVICES_EMPTY_MESSAGE}</p>
-      </div>`;
-    return;
-  }
-  currentShowId = showId;
+const SIMULATE_DEVICES_NOT_LIVE_MESSAGE =
+  "Set this show live to Simulate Extra Connected Devices";
+
+const LIVE_STATE_EVENT_NAME = "lumelier-live-state";
+let simulateDevicesContainer: HTMLElement | null = null;
+let simulateDevicesLiveStateListener: ((e: Event) => void) | null = null;
+
+function cleanupSimulateDevices(): void {
   if (clockRafId != null) {
     cancelAnimationFrame(clockRafId);
     clockRafId = null;
+  }
+  if (detailsRefreshTimer) {
+    clearInterval(detailsRefreshTimer);
+    detailsRefreshTimer = null;
+  }
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+  if (gridRefreshTimer != null) {
+    clearInterval(gridRefreshTimer);
+    gridRefreshTimer = null;
   }
   clients = [];
   selectedId = null;
@@ -1201,18 +1209,27 @@ export function render(container: HTMLElement, showId: string | null): void {
   lastRenderedDetailsSelectedId = undefined;
   lastRenderedDetailsClientFull = undefined;
   pageIndex = 0;
-  if (detailsRefreshTimer) {
-    clearInterval(detailsRefreshTimer);
-    detailsRefreshTimer = null;
-  }
+  gridContainer = null;
+  detailsContainer = null;
+  gridRefreshApi = null;
+  detailsRefreshApi = null;
+  secondaryToolbar = null;
+  btnDelete = null;
+  btnClone = null;
+  paginationInfoEl = null;
+  pagePrevBtn = null;
+  pageNextBtn = null;
+}
 
-  resizeObserver?.disconnect();
-  resizeObserver = null;
+function showSimulateDevicesNotLiveMessage(container: HTMLElement): void {
+  container.innerHTML = `
+    <div class="show-required-empty-state">
+      <p class="show-required-empty-state-message">${SIMULATE_DEVICES_NOT_LIVE_MESSAGE}</p>
+    </div>`;
+}
 
-  if (gridRefreshTimer != null) {
-    clearInterval(gridRefreshTimer);
-    gridRefreshTimer = null;
-  }
+function renderSimulateDevicesFull(container: HTMLElement): void {
+  cleanupSimulateDevices();
 
   container.innerHTML = `
     <div class="simulate-devices-page">
@@ -1442,4 +1459,51 @@ export function render(container: HTMLElement, showId: string | null): void {
     pageIndex++;
     refresh();
   });
+}
+
+export function render(container: HTMLElement, showId: string | null): void {
+  currentShowId = showId;
+  if (showId === null) {
+    simulateDevicesContainer = null;
+    if (simulateDevicesLiveStateListener) {
+      window.removeEventListener(LIVE_STATE_EVENT_NAME, simulateDevicesLiveStateListener);
+      simulateDevicesLiveStateListener = null;
+    }
+    cleanupSimulateDevices();
+    container.innerHTML = `
+      <div class="show-required-empty-state">
+        <p class="show-required-empty-state-message">${SIMULATE_DEVICES_EMPTY_MESSAGE}</p>
+      </div>`;
+    return;
+  }
+  simulateDevicesContainer = container;
+  if (simulateDevicesLiveStateListener) {
+    window.removeEventListener(LIVE_STATE_EVENT_NAME, simulateDevicesLiveStateListener);
+  }
+  simulateDevicesLiveStateListener = (e: Event) => {
+    const ev = e as CustomEvent<{ showId: string; live: boolean }>;
+    if (ev.detail?.showId !== currentShowId || !simulateDevicesContainer) return;
+    cleanupSimulateDevices();
+    if (ev.detail.live) {
+      renderSimulateDevicesFull(simulateDevicesContainer);
+    } else {
+      showSimulateDevicesNotLiveMessage(simulateDevicesContainer);
+    }
+  };
+  window.addEventListener(LIVE_STATE_EVENT_NAME, simulateDevicesLiveStateListener);
+
+  fetch(`/api/admin/show-workspaces/${showId}/live-join-url`, { credentials: "include" })
+    .then((res) => (res.ok ? res.json() : { live: false }))
+    .then((data: { live?: boolean }) => {
+      if (currentShowId !== showId) return;
+      if (!data.live) {
+        showSimulateDevicesNotLiveMessage(container);
+        return;
+      }
+      renderSimulateDevicesFull(container);
+    })
+    .catch(() => {
+      if (currentShowId !== showId) return;
+      showSimulateDevicesNotLiveMessage(container);
+    });
 }

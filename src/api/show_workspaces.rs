@@ -3,6 +3,8 @@
 //! Each show has a folder {show_id}/ with info.json, timeline.json, venueShape.json,
 //! and simulatedClientProfiles/. Creating a show updates the user's show_ids and the show's info.json.
 
+use std::sync::Arc;
+
 use axum::body::Bytes;
 use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
@@ -14,7 +16,9 @@ use tokio::fs;
 
 use crate::api::AdminAppState;
 use crate::auth;
+use crate::broadcast::BroadcastSnapshot;
 use crate::time;
+use crate::timeline_validator;
 
 const SHOW_ID_LEN: usize = 8;
 const SHOW_ID_CHARS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
@@ -547,7 +551,34 @@ pub async fn post_go_live(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     check_show_access(&state, &username, &show_id).await?;
-    let _ = state.live_shows.get_or_create(&show_id);
+    let bucket = state.live_shows.get_or_create(&show_id);
+
+    // Load saved timeline from show workspace into broadcast so clients get it when they poll.
+    let timeline_path = state.shows_path.join(&show_id).join("timeline.json");
+    if let Ok(bytes) = fs::read(&timeline_path).await {
+        if timeline_validator::validate_broadcast_timeline(&bytes).is_ok() {
+            if let Ok(json) = String::from_utf8(bytes.to_vec()) {
+                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json) {
+                    let readhead_sec = parsed
+                        .get("readheadSec")
+                        .and_then(|v| v.as_f64())
+                        .filter(|v| v.is_finite())
+                        .map(|v| v.max(0.0))
+                        .unwrap_or(0.0);
+                    let snapshot = BroadcastSnapshot {
+                        timeline_raw: Some(Arc::from(json.into_boxed_str())),
+                        timeline_parsed: Some(Arc::new(parsed)),
+                        readhead_sec,
+                        play_at_ms: None,
+                        pause_at_ms: None,
+                    };
+                    bucket.broadcast.store(Arc::new(snapshot));
+                }
+            }
+        }
+    } else {
+        // File missing or unreadable; leave broadcast empty (same as before go-live).
+    }
 
     // Notify simulated server in real time so it can create the bucket without waiting for the next 10s poll.
     let simulated_url = state.simulated_server_url.clone();

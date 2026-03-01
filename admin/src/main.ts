@@ -135,6 +135,7 @@ function scheduleNextLiveStatePoll(ms: number): void {
         if (liveStateChannel) {
           liveStateChannel.postMessage({ showId, live });
         }
+        dispatchLiveStateEvent(showId, live);
         scheduleNextLiveStatePoll(LIVE_STATE_VOICE_INTERVAL_MS);
       })
       .catch(() => {
@@ -143,8 +144,18 @@ function scheduleNextLiveStatePoll(ms: number): void {
   }, ms);
 }
 
+/** Dispatches a custom event so in-page listeners (e.g. timeline, Attendee Access Point) can re-render when live state changes.
+ *  detail: { showId, live, pending? }. When pending is true (e.g. "Requesting Server" after go-live click), live is false and timeline shows read-only message. */
+function dispatchLiveStateEvent(showId: string, live: boolean, pending?: boolean): void {
+  if (typeof window !== "undefined") {
+    const detail = pending === true ? { showId, live: false, pending: true } : { showId, live, pending: false };
+    window.dispatchEvent(new CustomEvent("lumelier-live-state", { detail }));
+  }
+}
+
 function broadcastLiveState(showId: string, live: boolean): void {
   if (liveStateChannel) liveStateChannel.postMessage({ showId, live });
+  dispatchLiveStateEvent(showId, live);
 }
 
 function setupLiveStateBroadcastListener(): void {
@@ -155,6 +166,7 @@ function setupLiveStateBroadcastListener(): void {
     if (currentShow?.id !== msg.showId) return;
     showLiveState = msg.live ? "live" : "not_live";
     syncShowStatusUIRef?.();
+    dispatchLiveStateEvent(msg.showId, msg.live);
     const backoffMs =
       LIVE_STATE_LISTENER_BACKOFF_MS +
       Math.random() * LIVE_STATE_LISTENER_BACKOFF_RANDOM_MS;
@@ -411,6 +423,7 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
       if (action === "go-live") {
         showLiveState = "requesting";
         syncShowStatusUI();
+        dispatchLiveStateEvent(showId, false, true);
         try {
           const res = await fetch(`/api/admin/show-workspaces/${showId}/go-live`, {
             method: "POST",
@@ -423,10 +436,12 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
           } else {
             showLiveState = "not_live";
             syncShowStatusUI();
+            dispatchLiveStateEvent(showId, false, false);
           }
         } catch {
           showLiveState = "not_live";
           syncShowStatusUI();
+          dispatchLiveStateEvent(showId, false, false);
         }
       } else if (action === "end-live") {
         try {
