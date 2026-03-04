@@ -4,9 +4,20 @@ import noSignalSvg from "../../icons/noSignal.svg?raw";
 const inLag = (c: ClientSummaryForGrid): boolean =>
   c.lagEndsInMs != null && c.lagEndsInMs > 0;
 
+/** Line break between track groups when "Group by track" is on; forces next group to start on a new row. */
+export interface GridBreak {
+  _gridBreak: true;
+}
+
+export type GridItem = ClientSummaryForGrid | GridBreak;
+
+function isGridBreak(item: GridItem): item is GridBreak {
+  return item != null && typeof item === "object" && "_gridBreak" in item && item._gridBreak === true;
+}
+
 export function renderClientGrid(
   container: HTMLElement,
-  clients: ClientSummaryForGrid[],
+  items: GridItem[],
   selectedId: string | null,
   onSelect: (id: string) => void,
   squareSizePx: number = 24,
@@ -18,7 +29,15 @@ export function renderClientGrid(
   const inner = document.createElement("div");
   inner.className = "simulate-devices-grid";
   const size = `${squareSizePx}px`;
-  for (const client of clients) {
+  for (const item of items) {
+    if (isGridBreak(item)) {
+      const br = document.createElement("span");
+      br.className = "simulate-devices-grid-break";
+      br.setAttribute("aria-hidden", "true");
+      inner.appendChild(br);
+      continue;
+    }
+    const client = item;
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "simulate-devices-grid-square";
@@ -55,7 +74,7 @@ export function renderClientGrid(
 
 export function updateClientGrid(
   container: HTMLElement,
-  clients: ClientSummaryForGrid[],
+  items: GridItem[],
   selectedId: string | null,
   onSelect: (id: string) => void,
   squareSizePx: number = 24,
@@ -63,7 +82,8 @@ export function updateClientGrid(
 ): void {
   const inner = container.querySelector(".simulate-devices-grid");
   const squares = inner?.querySelectorAll(".simulate-devices-grid-square");
-  if (inner && squares && squares.length === clients.length) {
+  const clients = items.filter((item): item is ClientSummaryForGrid => !isGridBreak(item));
+  if (inner && squares && squares.length === clients.length && items.length === clients.length) {
     const size = `${squareSizePx}px`;
     for (let i = 0; i < clients.length; i++) {
       const btn = squares[i] as HTMLButtonElement;
@@ -86,5 +106,5 @@ export function updateClientGrid(
     }
     return;
   }
-  renderClientGrid(container, clients, selectedId, onSelect, squareSizePx, showLagOverlay);
+  renderClientGrid(container, items, selectedId, onSelect, squareSizePx, showLagOverlay);
 }

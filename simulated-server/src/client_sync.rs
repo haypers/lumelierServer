@@ -42,9 +42,19 @@ pub struct PollBroadcast {
     pub pause_at_ms: Option<u64>,
 }
 
+/// Layer metadata from broadcast timeline; used for deserialization only (we only check presence/length of layers).
+#[allow(dead_code)]
+#[derive(Clone, Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BroadcastTimelineLayer {
+    pub id: String,
+    pub label: String,
+}
+
 #[derive(Clone, Debug, Deserialize)]
 pub struct BroadcastTimeline {
     pub items: Vec<BroadcastTimelineItem>,
+    pub layers: Option<Vec<BroadcastTimelineLayer>>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
@@ -53,6 +63,7 @@ pub struct BroadcastTimelineItem {
     pub start_sec: Option<f64>,
     pub effect_type: Option<String>,
     pub color: Option<String>,
+    pub layer_id: Option<String>,
 }
 
 /// Per-client sync state: clock offset samples, broadcast cache, play/pause, last colors. No DOM or timers.
@@ -120,10 +131,17 @@ pub(crate) fn get_broadcast_playback_sec(
 }
 
 /// Given a timeline and a position in seconds, return the color from the last Set Color Broadcast event at or before that position.
+/// If track_id is Some, only items with matching layer_id are used; if timeline has no layers we use all items.
 fn get_color_from_broadcast_timeline(
     timeline: &BroadcastTimeline,
     position_sec: f64,
+    track_id: Option<&str>,
 ) -> Option<String> {
+    let has_layers = timeline
+        .layers
+        .as_ref()
+        .map(|l| !l.is_empty())
+        .unwrap_or(false);
     let mut events: Vec<_> = timeline
         .items
         .iter()
@@ -134,6 +152,7 @@ fn get_color_from_broadcast_timeline(
                 .unwrap_or(false)
                 && it.color.as_ref().is_some_and(|c| !c.is_empty())
                 && it.start_sec.is_some_and(|s| s.is_finite())
+                && (track_id.is_none() || !has_layers || it.layer_id.as_deref() == track_id)
         })
         .collect();
     events.sort_by(|a, b| {
@@ -153,7 +172,16 @@ fn get_color_from_broadcast_timeline(
 }
 
 /// Return the timeline position (sec) of the next Set Color Broadcast event strictly after position_sec, or None if none.
-pub fn next_color_change_sec(timeline: &BroadcastTimeline, position_sec: f64) -> Option<f64> {
+pub fn next_color_change_sec(
+    timeline: &BroadcastTimeline,
+    position_sec: f64,
+    track_id: Option<&str>,
+) -> Option<f64> {
+    let has_layers = timeline
+        .layers
+        .as_ref()
+        .map(|l| !l.is_empty())
+        .unwrap_or(false);
     let mut events: Vec<_> = timeline
         .items
         .iter()
@@ -164,6 +192,7 @@ pub fn next_color_change_sec(timeline: &BroadcastTimeline, position_sec: f64) ->
                 .unwrap_or(false)
                 && it.color.as_ref().is_some_and(|c| !c.is_empty())
                 && it.start_sec.is_some_and(|s| s.is_finite())
+                && (track_id.is_none() || !has_layers || it.layer_id.as_deref() == track_id)
         })
         .collect();
     events.sort_by(|a, b| {
@@ -191,7 +220,12 @@ fn is_broadcast_timeline_valid(broadcast: &PollBroadcast) -> bool {
 
 /// Compute current display color from sync state and time. Read-only; does not mutate state.
 /// Used by the display tick to advance color at ~60 Hz between poll deliveries.
-pub fn get_display_color_at(state: &ClientSyncState, now_ms: u64) -> String {
+/// If track_id is Some, only events on that layer are used (when timeline has layers).
+pub fn get_display_color_at(
+    state: &ClientSyncState,
+    now_ms: u64,
+    track_id: Option<&str>,
+) -> String {
     if state.broadcast_cache.is_none() {
         return state
             .last_displayed_color
@@ -213,12 +247,13 @@ pub fn get_display_color_at(state: &ClientSyncState, now_ms: u64) -> String {
     } else {
         cache.readhead_sec
     };
-    get_color_from_broadcast_timeline(&cache.timeline, reference_sec)
+    get_color_from_broadcast_timeline(&cache.timeline, reference_sec, track_id)
         .unwrap_or_else(|| "#000000".to_string())
 }
 
 /// Apply a poll response: update clock sync, broadcast cache, and compute current display color.
 /// rtt_ms is the simulated RTT for this round (C2S + S2C). now_ms is current time when we "deliver" the response.
+/// If track_id is Some, only events on that layer are used for display color (when timeline has layers).
 /// Returns (display_color, server_time_estimate).
 pub fn apply_poll_response(
     state: &mut ClientSyncState,
@@ -226,6 +261,7 @@ pub fn apply_poll_response(
     t0_ms: u64,
     t3_recv_ms: u64,
     now_apply_ms: u64,
+    track_id: Option<&str>,
 ) -> (String, i64) {
     // NTP-style math using:
     // t0: client send (passed in)
@@ -315,6 +351,7 @@ pub fn apply_poll_response(
             get_color_from_broadcast_timeline(
                 &state.broadcast_cache.as_ref().unwrap().timeline,
                 pos,
+                track_id,
             )
         });
         let broadcast_color = if let Some(c) = broadcast_color {
@@ -330,7 +367,7 @@ pub fn apply_poll_response(
                 .unwrap_or(0)
                 .saturating_sub(cache.play_at_ms.unwrap_or(0));
             let paused_pos = cache.readhead_sec + paused_elapsed_ms as f64 / 1000.0;
-            get_color_from_broadcast_timeline(&cache.timeline, paused_pos)
+            get_color_from_broadcast_timeline(&cache.timeline, paused_pos, track_id)
         } else {
             None
         };

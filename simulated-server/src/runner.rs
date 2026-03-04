@@ -428,20 +428,22 @@ async fn client_poll_loop(
         if deliver_at <= state.lag_spike_block_until_ms {
             continue;
         }
+        let record = match bucket.store.get_full(&client_id) {
+            Some(r) => r,
+            None => continue,
+        };
+        let track_id = record.track_id.as_deref();
         let (display_color, server_time_est) = client_sync::apply_poll_response(
             &mut state.sync_state,
             &body,
             t0_ms,
             t3_recv_ms_ideal,
             deliver_at,
+            track_id,
         );
         state.last_network_rtt_ms = Some(network_rtt_ms);
         state.last_processing_ms = Some(processing_total_ms);
         state.last_effective_rtt_ms = Some(effective_rtt_ms);
-        let record = match bucket.store.get_full(&client_id) {
-            Some(r) => r,
-            None => continue,
-        };
         let anchors = curve_anchors(&record, "pingsEverySecDist");
         let next_poll_sec = record_sample_sec(
             &bucket.store,
@@ -503,6 +505,8 @@ async fn sync_and_schedule(
         None => return,
     };
     let now = now_ms();
+    let record = bucket.store.get_full(client_id);
+    let track_id = record.as_ref().and_then(|r| r.track_id.as_deref());
 
     if state.sync_state.broadcast_cache.is_none() {
         let color = state
@@ -517,7 +521,8 @@ async fn sync_and_schedule(
     }
 
     let position_sec = client_sync::get_broadcast_playback_sec(&state.sync_state, now);
-    let current_color = client_sync::get_display_color_at(&state.sync_state, now);
+    let current_color =
+        client_sync::get_display_color_at(&state.sync_state, now, track_id);
     if state.sync_state.last_displayed_color.as_deref() != Some(current_color.as_str()) {
         state.sync_state.last_displayed_color = Some(current_color.clone());
         let _ = bucket.store.update_display(client_id, None, Some(current_color), None, None);
@@ -530,7 +535,7 @@ async fn sync_and_schedule(
     }
     let position_sec = position_sec.unwrap();
     let timeline = &state.sync_state.broadcast_cache.as_ref().unwrap().timeline;
-    let next_sec = client_sync::next_color_change_sec(timeline, position_sec);
+    let next_sec = client_sync::next_color_change_sec(timeline, position_sec, track_id);
     drop(state);
 
     let bucket = match config.per_show.get(show_id) {
