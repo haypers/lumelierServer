@@ -68,6 +68,8 @@ pub struct SamplePoint {
 pub struct SimulatedClientRecord {
     pub id: String,
     pub device_id: String,
+    /// If set, only events on this layer are used for display color (when broadcast timeline has layers).
+    pub track_id: Option<String>,
     pub server_time_estimate: Option<f64>,
     /// Actual server time (same-machine clock) when the last estimate was recorded; for UI comparison.
     pub server_time_actual_ms: Option<u64>,
@@ -89,6 +91,7 @@ pub struct SimulatedClientRecord {
 pub struct MinimalClient {
     pub id: String,
     pub device_id: String,
+    pub track_id: Option<String>,
 }
 
 /// Summary for POST /clients/summaries: id, color, clock error, and lag (lag filled by routes).
@@ -110,6 +113,7 @@ pub struct ClientSummary {
 pub struct SimulatedClientInput {
     pub id: Option<String>,
     pub device_id: Option<String>,
+    pub track_id: Option<String>,
     pub server_time_estimate: Option<f64>,
     pub current_display_color: Option<String>,
     pub pings_every_sec_dist: Option<DistributionCurve>,
@@ -156,6 +160,11 @@ impl SimulatedStore {
             let record = SimulatedClientRecord {
                 id: id.clone(),
                 device_id,
+                track_id: c
+                    .track_id
+                    .as_deref()
+                    .filter(|s| !s.is_empty())
+                    .map(String::from),
                 server_time_estimate: c
                     .server_time_estimate
                     .filter(|&x| x.is_finite()),
@@ -182,13 +191,14 @@ impl SimulatedStore {
         created
     }
 
-    /// List all clients as minimal { id, device_id } for GET /clients.
+    /// List all clients as minimal { id, device_id, track_id } for GET /clients.
     pub fn get_minimal_list(&self) -> Vec<MinimalClient> {
         self.clients
             .iter()
             .map(|r| MinimalClient {
                 id: r.id.clone(),
                 device_id: r.device_id.clone(),
+                track_id: r.track_id.clone(),
             })
             .collect()
     }

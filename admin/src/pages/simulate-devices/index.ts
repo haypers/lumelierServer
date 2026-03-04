@@ -26,7 +26,7 @@ import {
 } from "./api";
 import { createClientWithRandomCurves } from "./client-store";
 import { generateClientFromProfile } from "./profile-generation";
-import { updateClientGrid } from "./client-grid";
+import { updateClientGrid, type GridItem } from "./client-grid";
 import {
   renderDetailsPane,
   DISTRIBUTION_CHART_PRESETS,
@@ -63,7 +63,14 @@ function hasZeroDestructionPointInAllCharts(curves: DistributionCurve[]): boolea
   );
 }
 
-function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => void): void {
+interface TimelineLayersResponse {
+  layers?: { id: string; label: string }[];
+}
+
+function showCreateClientsModal(
+  showId: string,
+  onCreate: (newClients: SimulatedClient[]) => void
+): void {
   let generateFromProfile = true;
   let editorApi: ReturnType<typeof renderDistributionTablesEditor> | null = null;
   const emptyCurves: DistributionCurve[] = DIST_KEYS_BY_PRESET_INDEX.map(() => ({ anchors: [] }));
@@ -97,6 +104,16 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
   countInput.value = "1";
   countRow.appendChild(countInput);
   content.appendChild(countRow);
+
+  const trackRow = document.createElement("div");
+  trackRow.className = "create-clients-row";
+  trackRow.innerHTML = `
+    <label for="create-modal-track">Track to sync to:</label>
+    <select id="create-modal-track" aria-label="Track to sync to">
+      <option value="">All layers</option>
+    </select>
+  `;
+  content.appendChild(trackRow);
 
   const modeRow = document.createElement("div");
   modeRow.className = "create-modal-mode-row";
@@ -379,6 +396,9 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
           console.log("generated client thrown out for having invalid chart of 0 points");
         }
       }
+      const trackSelect = content.querySelector("#create-modal-track") as HTMLSelectElement | null;
+      const trackVal = trackSelect?.value?.trim() ?? "";
+      for (const c of newClients) c.trackId = trackVal || null;
       close();
       onCreate(newClients);
     } else {
@@ -416,12 +436,38 @@ function showCreateClientsModal(onCreate: (newClients: SimulatedClient[]) => voi
         });
         newClients.push(createClientWithRandomCurves(bounds, pointCounts));
       }
+      const trackSelect = content.querySelector("#create-modal-track") as HTMLSelectElement | null;
+      const trackVal = trackSelect?.value?.trim() ?? "";
+      for (const c of newClients) c.trackId = trackVal || null;
       close();
       onCreate(newClients);
     }
   });
 
+  async function loadTimelineLayers(): Promise<void> {
+    const select = content.querySelector("#create-modal-track") as HTMLSelectElement | null;
+    if (!select) return;
+    try {
+      const res = await fetch(`/api/admin/show-workspaces/${encodeURIComponent(showId)}/timeline`, {
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as TimelineLayersResponse;
+      const layers = data?.layers ?? [];
+      select.innerHTML = '<option value="">All layers</option>';
+      for (const l of layers) {
+        const opt = document.createElement("option");
+        opt.value = l.id;
+        opt.textContent = l.label;
+        select.appendChild(opt);
+      }
+    } catch {
+      // leave as "All layers" only
+    }
+  }
+
   loadProfileList();
+  void loadTimelineLayers();
   setMode(true);
 
   document.body.appendChild(overlay);
@@ -440,7 +486,11 @@ function getCurveCopy(client: SimulatedClient, key: SimulatedClientDistKey): Dis
     : { anchors: [] };
 }
 
-function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClients: SimulatedClient[]) => void): void {
+function showCloneClientModal(
+  showId: string,
+  sourceClient: SimulatedClient,
+  onCreate: (newClients: SimulatedClient[]) => void
+): void {
   const initialCurves: DistributionCurve[] = DIST_KEYS_BY_PRESET_INDEX.map((key) =>
     getCurveCopy(sourceClient, key)
   );
@@ -461,6 +511,16 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
     <input type="number" id="clone-modal-count" min="1" value="1" />
   `;
   content.appendChild(countRow);
+
+  const trackRow = document.createElement("div");
+  trackRow.className = "clone-clients-row";
+  trackRow.innerHTML = `
+    <label for="clone-modal-track">Track to sync to:</label>
+    <select id="clone-modal-track" aria-label="Track to sync to">
+      <option value="">All layers</option>
+    </select>
+  `;
+  content.appendChild(trackRow);
 
   const distributionHeading = document.createElement("h4");
   distributionHeading.className = "modal-distribution-heading";
@@ -687,10 +747,39 @@ function showCloneClientModal(sourceClient: SimulatedClient, onCreate: (newClien
         console.log("generated client thrown out for having invalid chart of 0 points");
       }
     }
+    const trackSelect = content.querySelector("#clone-modal-track") as HTMLSelectElement | null;
+    const trackVal = trackSelect?.value?.trim() ?? "";
+    for (const c of newClients) c.trackId = trackVal || null;
     close();
     onCreate(newClients);
   });
 
+  async function loadCloneTimelineLayers(): Promise<void> {
+    const select = content.querySelector("#clone-modal-track") as HTMLSelectElement | null;
+    if (!select) return;
+    try {
+      const res = await fetch(`/api/admin/show-workspaces/${encodeURIComponent(showId)}/timeline`, {
+        credentials: "include",
+      });
+      if (!res.ok) return;
+      const data = (await res.json()) as TimelineLayersResponse;
+      const layers = data?.layers ?? [];
+      const currentVal = sourceClient.trackId ?? "";
+      select.innerHTML = '<option value="">All layers</option>';
+      for (const l of layers) {
+        const opt = document.createElement("option");
+        opt.value = l.id;
+        opt.textContent = l.label;
+        if (l.id === currentVal) opt.selected = true;
+        select.appendChild(opt);
+      }
+      if (!currentVal || !layers.some((l) => l.id === currentVal)) select.value = "";
+    } catch {
+      select.value = "";
+    }
+  }
+
+  void loadCloneTimelineLayers();
   document.body.appendChild(overlay);
 }
 
@@ -713,6 +802,7 @@ let btnClone: HTMLElement | null = null;
 
 let squareSizePx = SQUARE_SIZE_DEFAULT;
 let showLagOverlay = true;
+let groupByTrack = false;
 let pageIndex = 0;
 let resizeObserver: ResizeObserver | null = null;
 let lastContainerWidth = 0;
@@ -732,6 +822,29 @@ let gridRefreshFullPending = false;
 let suppressAutoSelect = false;
 /** Current show for simulated devices API; set in render(container, showId) when showId is non-null. */
 let currentShowId: string | null = null;
+
+/** Clients in display order (sorted by track when groupByTrack is true). */
+function getDisplayClients(): ClientSummaryForGrid[] {
+  if (!groupByTrack) return clients;
+  return [...clients].sort((a, b) => {
+    const ta = a.trackId ?? "";
+    const tb = b.trackId ?? "";
+    return ta.localeCompare(tb);
+  });
+}
+
+/** Insert line breaks before each new track group so each group starts on its own row. */
+function insertBreaksForGroups(pageClients: ClientSummaryForGrid[]): GridItem[] {
+  const items: GridItem[] = [];
+  let prevTrack: string | null | undefined = undefined;
+  for (const c of pageClients) {
+    const t = c.trackId ?? null;
+    if (prevTrack !== undefined && t !== prevTrack) items.push({ _gridBreak: true });
+    items.push(c);
+    prevTrack = t;
+  }
+  return items;
+}
 
 function computeGridLayout(
   containerWidth: number,
@@ -833,24 +946,27 @@ function getVisiblePageLayout(): {
   start: number;
   pageSize: number;
   totalPages: number;
+  displayClients: ClientSummaryForGrid[];
 } {
+  const displayClients = getDisplayClients();
   const { w, h } = getGridAvailableSize();
   const cellSize = squareSizePx + GRID_GAP_PX;
   const snappedH = Math.max(cellSize, Math.floor(h / cellSize) * cellSize);
-  const layout = computeGridLayout(w, snappedH, squareSizePx, GRID_GAP_PX, 0, clients.length);
+  const layout = computeGridLayout(w, snappedH, squareSizePx, GRID_GAP_PX, 0, displayClients.length);
   const { pageSize, totalPages } = layout;
   pageIndex = Math.min(pageIndex, Math.max(0, totalPages - 1));
   const start = pageIndex * pageSize;
-  return { layout, start, pageSize, totalPages };
+  return { layout, start, pageSize, totalPages, displayClients };
 }
 
 function updateGridLayoutAndRender(): void {
   if (!gridContainer) return;
   const visible = getVisiblePageLayout();
-  const { start, pageSize, totalPages } = visible;
-  const pageClients = clients.slice(start, start + pageSize);
+  const { start, pageSize, totalPages, displayClients } = visible;
+  const pageClients = displayClients.slice(start, start + pageSize);
+  const pageItems: GridItem[] = groupByTrack ? insertBreaksForGroups(pageClients) : pageClients;
   const showIdForGrid = currentShowId;
-  updateClientGrid(gridContainer, pageClients, selectedId, (id) => {
+  updateClientGrid(gridContainer, pageItems, selectedId, (id) => {
     selectedId = id;
     selectedClientFull = null;
     selectedAnchor = null;
@@ -913,27 +1029,13 @@ function updateClockErrorWidget(aveErrorMs: number | null, aveAbsErrorMs: number
   if (elAbs) elAbs.textContent = aveAbsErrorMs != null ? `${aveAbsErrorMs.toFixed(1)} ms` : "—";
 }
 
-/** Merge summaries (same order as requested ids) into clients at the given start index; optionally merge one extra for selectedId. */
-function mergeSummariesIntoClients(
-  summaries: ClientSummarySummary[],
-  visibleIds: string[],
-  start: number,
-  selectedIdExtra: boolean
-): void {
-  for (let i = 0; i < visibleIds.length; i++) {
-    const c = clients[start + i];
-    const s = summaries[i];
-    if (c && s) {
+/** Merge summaries into clients by id. */
+function mergeSummariesIntoClients(summaries: ClientSummarySummary[]): void {
+  for (const s of summaries) {
+    const c = clients.find((x) => x.id === s.id);
+    if (c) {
       c.currentDisplayColor = s.currentDisplayColor;
       c.lagEndsInMs = s.lagEndsInMs ?? null;
-    }
-  }
-  if (selectedIdExtra && visibleIds.length < summaries.length) {
-    const selSummary = summaries[visibleIds.length];
-    const selClient = clients.find((c) => c.id === selSummary.id);
-    if (selClient) {
-      selClient.currentDisplayColor = selSummary.currentDisplayColor;
-      selClient.lagEndsInMs = selSummary.lagEndsInMs ?? null;
     }
   }
 }
@@ -941,8 +1043,8 @@ function mergeSummariesIntoClients(
 /** Fetch summaries for currently visible page (and selected client if not on page), merge into clients, then refresh. */
 async function fetchVisibleSummariesAndRefresh(): Promise<boolean> {
   const visible = getVisiblePageLayout();
-  const { start, pageSize } = visible;
-  const visibleIds = clients.slice(start, start + pageSize).map((c) => c.id);
+  const { start, pageSize, displayClients } = visible;
+  const visibleIds = displayClients.slice(start, start + pageSize).map((c) => c.id);
   const includeSelected =
     selectedId != null && !visibleIds.includes(selectedId);
   const idsToFetch: string[] = [...visibleIds];
@@ -954,7 +1056,7 @@ async function fetchVisibleSummariesAndRefresh(): Promise<boolean> {
   }
   try {
     const summaries = await getSummaries(currentShowId, idsToFetch);
-    mergeSummariesIntoClients(summaries, visibleIds, start, includeSelected);
+    mergeSummariesIntoClients(summaries);
     const onScreenSummaries = summaries.slice(0, visibleIds.length);
     const errors = onScreenSummaries
       .map((s) => s.serverTimeEstimateErrorMs)
@@ -1244,6 +1346,10 @@ function renderSimulateDevicesFull(container: HTMLElement): void {
               <input type="range" id="simulate-devices-square-size" min="${SQUARE_SIZE_MIN}" max="${SQUARE_SIZE_MAX}" value="${squareSizePx}" />
               <span id="simulate-devices-square-size-value">${squareSizePx} px</span>
             </span>
+            <span class="simulate-devices-group-by-track-wrap">
+              <input type="checkbox" id="simulate-devices-group-by-track" ${groupByTrack ? "checked" : ""} aria-label="Group by track" />
+              <label for="simulate-devices-group-by-track" class="simulate-devices-toolbar-label">Group by track</label>
+            </span>
             <button type="button" class="devices-toolbar-btn" id="simulate-devices-lag-overlay-toggle"><span id="simulate-devices-lag-overlay-toggle-label">Hide </span><span class="simulate-devices-lag-overlay-toggle-icon">${noSignalIcon}</span></button>
           </div>
           <div class="simulate-devices-toolbar-secondary" id="simulate-devices-toolbar-secondary" hidden>
@@ -1363,7 +1469,7 @@ function renderSimulateDevicesFull(container: HTMLElement): void {
 
   document.getElementById("simulate-devices-create")?.addEventListener("click", () => {
     if (!currentShowId) return;
-    showCreateClientsModal((newClients) => {
+    showCreateClientsModal(currentShowId, (newClients) => {
       postClients(currentShowId!, newClients)
         .then(() => runGridRefreshFull())
         .then(() => {
@@ -1412,7 +1518,7 @@ function renderSimulateDevicesFull(container: HTMLElement): void {
   btnClone?.addEventListener("click", () => {
     const sel = selectedClientFull;
     if (sel == null || !currentShowId) return;
-    showCloneClientModal(sel, (newClients) => {
+    showCloneClientModal(currentShowId, sel, (newClients) => {
       postClients(currentShowId!, newClients)
         .then(() => runGridRefreshFull())
         .then(() => {
@@ -1443,6 +1549,13 @@ function renderSimulateDevicesFull(container: HTMLElement): void {
       updateGridLayoutAndRender();
     }
   });
+  const groupByTrackCheckbox = document.getElementById("simulate-devices-group-by-track") as HTMLInputElement | null;
+  groupByTrackCheckbox?.addEventListener("change", () => {
+    groupByTrack = groupByTrackCheckbox.checked;
+    pageIndex = 0;
+    refresh();
+  });
+
   const lagOverlayToggleBtn = document.getElementById("simulate-devices-lag-overlay-toggle");
   const lagOverlayToggleLabel = document.getElementById("simulate-devices-lag-overlay-toggle-label");
   lagOverlayToggleBtn?.addEventListener("click", () => {

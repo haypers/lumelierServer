@@ -24,6 +24,8 @@ export type SimulatedClientDistKey =
 export interface SimulatedClient {
   id: string;
   deviceId: string;
+  /** If set, only events on this layer are used for display color (when timeline has layers). */
+  trackId?: string | null;
   serverTimeEstimate: number | null;
   /** Actual server time (ms) when last estimate was recorded; for comparison. */
   serverTimeActualMs?: number | null;
@@ -61,6 +63,8 @@ export interface SimulatedClientWithSampleHistory extends SimulatedClient {
 export interface ClientSummaryForGrid {
   id: string;
   deviceId: string;
+  /** If set, client syncs to this layer only. */
+  trackId?: string | null;
   currentDisplayColor?: string | null;
   /** Time until current lag ends (ms); 0 when not in lag. */
   lagEndsInMs?: number | null;
