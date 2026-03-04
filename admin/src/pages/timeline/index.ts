@@ -6,6 +6,7 @@ import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
 import circleCheckIcon from "../../icons/circle-check.svg?raw";
 import pauseIcon from "../../icons/pause.svg?raw";
 import playIcon from "../../icons/play.svg?raw";
+import resetIcon from "../../icons/reset.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import {
   SEC,
@@ -414,6 +415,203 @@ function getDefaultNewShowState(): TimelineStateJSON {
   };
 }
 
+/** Rainbow Cycle: uses 3 layers with different rainbow progressions over 60 seconds */
+function getRainbowCycleTemplate(): TimelineStateJSON {
+  const layers = [
+    { id: "layer-1", label: "Primary Rainbow" },
+    { id: "layer-2", label: "Secondary Colors" },
+    { id: "layer-3", label: "Accent Colors" },
+  ];
+  
+  // Layer 1: Main rainbow sequence (every 5 seconds)
+  const layer1Colors = [
+    { hex: "#FF0000", name: "Red" },
+    { hex: "#FF7F00", name: "Orange" },
+    { hex: "#FFFF00", name: "Yellow" },
+    { hex: "#00FF00", name: "Green" },
+    { hex: "#0000FF", name: "Blue" },
+    { hex: "#8B00FF", name: "Violet" },
+  ];
+  
+  // Layer 2: Complementary colors (every 6 seconds, offset by 1s)
+  const layer2Colors = [
+    { hex: "#00FFFF", name: "Cyan" },
+    { hex: "#FF00FF", name: "Magenta" },
+    { hex: "#7FFF00", name: "Chartreuse" },
+    { hex: "#FF1493", name: "Deep Pink" },
+    { hex: "#00CED1", name: "Turquoise" },
+  ];
+  
+  // Layer 3: Accent colors (every 4 seconds, offset by 2s)
+  const layer3Colors = [
+    { hex: "#FFD700", name: "Gold" },
+    { hex: "#FF69B4", name: "Hot Pink" },
+    { hex: "#00FA9A", name: "Spring Green" },
+    { hex: "#BA55D3", name: "Orchid" },
+    { hex: "#FF4500", name: "Orange Red" },
+    { hex: "#1E90FF", name: "Dodger Blue" },
+  ];
+  
+  const items: TimelineStateJSON["items"] = [];
+  let itemId = 1;
+  
+  // Layer 1: Events every 5 seconds for full 60 seconds
+  for (let i = 0; i < 12; i++) {
+    const color = layer1Colors[i % layer1Colors.length];
+    items.push({
+      id: `rainbow-1-${itemId++}`,
+      layerId: "layer-1",
+      kind: "event",
+      startSec: i * 5,
+      label: color.name,
+      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
+      color: color.hex,
+      target: "All",
+    });
+  }
+  
+  // Layer 2: Events every 6 seconds, offset by 1 second
+  for (let i = 0; i < 10; i++) {
+    const color = layer2Colors[i % layer2Colors.length];
+    items.push({
+      id: `rainbow-2-${itemId++}`,
+      layerId: "layer-2",
+      kind: "event",
+      startSec: 1 + i * 6,
+      label: color.name,
+      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
+      color: color.hex,
+      target: "All",
+    });
+  }
+  
+  // Layer 3: Events every 4 seconds, offset by 2 seconds
+  for (let i = 0; i < 15; i++) {
+    const color = layer3Colors[i % layer3Colors.length];
+    items.push({
+      id: `rainbow-3-${itemId++}`,
+      layerId: "layer-3",
+      kind: "event",
+      startSec: 2 + i * 4,
+      label: color.name,
+      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
+      color: color.hex,
+      target: "All",
+    });
+  }
+  
+  return {
+    version: 1,
+    title: "Rainbow Cycle",
+    requestsGPS: false,
+    layers,
+    items,
+    readheadSec: 0,
+  };
+}
+
+/** Breathe: gentle pulse between blue shades for a full minute */
+function getBreatheTemplate(): TimelineStateJSON {
+  const items: TimelineStateJSON["items"] = [];
+  const colors = [
+    { hex: "#001f3f", name: "Navy" },
+    { hex: "#0047AB", name: "Cobalt" },
+    { hex: "#4169E1", name: "Royal Blue" },
+    { hex: "#87CEEB", name: "Sky Blue" },
+    { hex: "#ADD8E6", name: "Light Blue" },
+    { hex: "#87CEEB", name: "Sky Blue" },
+    { hex: "#4169E1", name: "Royal Blue" },
+    { hex: "#0047AB", name: "Cobalt" },
+  ];
+  
+  // Create 20 events over 60 seconds (every 3 seconds)
+  for (let i = 0; i < 20; i++) {
+    const color = colors[i % colors.length];
+    items.push({
+      id: `breathe-${i + 1}`,
+      layerId: "layer-1",
+      kind: "event",
+      startSec: i * 3,
+      label: color.name,
+      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
+      color: color.hex,
+      target: "All",
+    });
+  }
+  
+  return {
+    version: 1,
+    title: "Breathe",
+    requestsGPS: false,
+    layers: [{ id: "layer-1", label: "Layer 1" }],
+    items,
+    readheadSec: 0,
+  };
+}
+
+/** Party Mode: energetic rapid color changes between vibrant colors */
+function getPartyModeTemplate(): TimelineStateJSON {
+  const items: TimelineStateJSON["items"] = [];
+  const colors = [
+    { hex: "#FF0000", name: "Red" },
+    { hex: "#00FF00", name: "Green" },
+    { hex: "#0000FF", name: "Blue" },
+    { hex: "#FFFF00", name: "Yellow" },
+  ];
+  
+  // Create 20 events over 60 seconds (every 3 seconds)
+  for (let i = 0; i < 20; i++) {
+    const color = colors[i % colors.length];
+    items.push({
+      id: `party-${i + 1}`,
+      layerId: "layer-1",
+      kind: "event",
+      startSec: i * 3,
+      label: color.name,
+      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
+      color: color.hex,
+      target: "All",
+    });
+  }
+  
+  return {
+    version: 1,
+    title: "Party Mode",
+    requestsGPS: false,
+    layers: [{ id: "layer-1", label: "Layer 1" }],
+    items,
+    readheadSec: 0,
+  };
+}
+
+export type TemplateType = "blank" | "rainbow" | "breathe" | "party";
+
+/** Get a template show state by type */
+export function getTemplateState(templateType: TemplateType): TimelineStateJSON {
+  switch (templateType) {
+    case "rainbow":
+      return getRainbowCycleTemplate();
+    case "breathe":
+      return getBreatheTemplate();
+    case "party":
+      return getPartyModeTemplate();
+    case "blank":
+    default:
+      return getDefaultNewShowState();
+  }
+}
+
+/** Load a template into an existing show by showId */
+export async function applyTemplateToShow(showId: string, templateType: TemplateType): Promise<void> {
+  const state = getTemplateState(templateType);
+  await fetch(`/api/admin/shows/${showId}/timeline`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(state),
+  });
+}
+
 function refreshDetailsPanel(forceItemId?: IdType): void {
   if (!timelineDetailsPanelEl) return;
   const itemId = forceItemId ?? timeline?.getSelection()?.[0];
@@ -775,6 +973,7 @@ export function render(container: HTMLElement, showId: string | null): void {
               </div>
               <div class="timeline-toolbar-spacer" id="timeline-toolbar-spacer"></div>
               <div class="timeline-toolbar-center" id="timeline-toolbar-center" hidden>
+                <button type="button" class="btn btn-icon-only" data-action="restart" aria-label="Restart from beginning">${resetIcon}</button>
                 <button type="button" class="btn btn-icon-only" data-action="play" aria-label="Play">${playIcon}</button>
                 <button type="button" class="btn btn-icon-only" data-action="pause" aria-label="Pause">${pauseIcon}</button>
               </div>
@@ -894,6 +1093,40 @@ export function render(container: HTMLElement, showId: string | null): void {
     el.addEventListener("click", async () => {
       const action = (el as HTMLElement).getAttribute("data-action");
       switch (action) {
+        case "restart": {
+          // Set readhead to 0 and start playing
+          if (timeline) {
+            timeline.setCustomTime(timeToDate(0), readheadId);
+          }
+          console.log("User hit restart, playing from beginning.");
+          try {
+            if (!currentShowId) throw new Error("No show selected");
+            const res = await fetch(`/api/admin/shows/${currentShowId}/broadcast/play`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ readheadSec: 0 }),
+              credentials: "include",
+            });
+            if (!res.ok) throw new Error(String(res.status));
+            const data = (await res.json()) as { playAtMs?: number; serverTimeMs?: number };
+            const playAtMs = data.playAtMs ?? 0;
+            if (data.serverTimeMs != null) {
+              serverTimeOffsetMs = data.serverTimeMs - Date.now();
+            }
+            broadcastPlayAtMs = playAtMs;
+            broadcastReadheadSec = 0;
+            broadcastPauseAtMs = null;
+            startBroadcastReadheadTick();
+            timeline?.setOptions({
+              editable: { add: false, remove: false, updateGroup: false, updateTime: false },
+            });
+            timelineContentEl?.classList.add("timeline-readhead-no-drag");
+            console.log("Restarting timeline from beginning at", playAtMs);
+          } catch (e) {
+            console.error("Broadcast restart failed:", e);
+          }
+          break;
+        }
         case "play": {
           const readheadSec = getReadheadSecClamped();
           console.log("User hit play from", readheadSec, "(readhead sec).");

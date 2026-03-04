@@ -1,7 +1,16 @@
 import type { SimulatedClient, SimulatedClientDistKey, DistributionAnchor } from "./types";
 
 function uuid(): string {
-  return crypto.randomUUID();
+  // Use crypto.randomUUID if available, otherwise fallback to manual generation
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  // Fallback UUID v4 generator
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
 }
 
 const DIST_KEYS_ORDER: SimulatedClientDistKey[] = [
