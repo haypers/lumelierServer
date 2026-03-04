@@ -6,7 +6,6 @@ import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
 import circleCheckIcon from "../../icons/circle-check.svg?raw";
 import pauseIcon from "../../icons/pause.svg?raw";
 import playIcon from "../../icons/play.svg?raw";
-import resetIcon from "../../icons/reset.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import {
   SEC,
@@ -411,126 +410,6 @@ function getDefaultNewShowState(): TimelineStateJSON {
         effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
       },
     ],
-    readheadSec: 0,
-  };
-}
-
-/** Rainbow effect: cycles through spectrum colors as fast as polling allows (single layer). */
-function getRainbowShowState(): TimelineStateJSON {
-  const layers = [
-    { id: "layer-1", label: "Layer 1" },
-  ];
-  
-  // Rainbow colors changing every 2.5 seconds
-  const colors = [
-    "#FF0000", // Red
-    "#FF7F00", // Orange
-    "#FFFF00", // Yellow
-    "#00FF00", // Green
-    "#0000FF", // Blue
-    "#8B00FF", // Purple
-  ];
-  
-  const items: TimelineStateJSON["items"] = [];
-  
-  colors.forEach((color, idx) => {
-    const time = idx * 2.5;
-    if (time <= 20) {
-      items.push({
-        id: `rainbow-${idx + 1}`,
-        layerId: "layer-1",
-        kind: "event" as const,
-        startSec: time,
-        label: `Color ${idx + 1}`,
-        effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-        color: color,
-        target: "All",
-      });
-    }
-  });
-  
-  return {
-    version: 1,
-    title: "Rainbow",
-    requestsGPS: false,
-    layers,
-    items,
-    readheadSec: 0,
-  };
-}
-
-/** Purple Blue Rhythm: rhythmic pattern cycling through purple, black, and blue (single layer). */
-function getBreathingShowState(): TimelineStateJSON {
-  const layers = [
-    { id: "layer-1", label: "Layer 1" },
-  ];
-  
-  // Three colors in rhythm: Purple, Black, Blue
-  const colors = [
-    { color: "#8B00FF", name: "Purple" },
-    { color: "#000000", name: "Black" },
-    { color: "#0000FF", name: "Blue" },
-  ];
-  
-  const items: TimelineStateJSON["items"] = [];
-  let itemId = 1;
-  
-  // Cycle through colors every 2.5 seconds
-  for (let t = 0; t <= 20; t += 2.5) {
-    const colorIdx = Math.floor(t / 2.5) % 3;
-    const colorData = colors[colorIdx];
-    
-    items.push({
-      id: `rhythm-${itemId++}`,
-      layerId: "layer-1",
-      kind: "event" as const,
-      startSec: t,
-      label: colorData.name,
-      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-      color: colorData.color,
-      target: "All",
-    });
-  }
-  
-  return {
-    version: 1,
-    title: "Purple Blue Rhythm",
-    requestsGPS: false,
-    layers,
-    items,
-    readheadSec: 0,
-  };
-}
-
-/** BYU Alternating: alternates between blue and white as fast as polling allows (single layer). */
-function getCosmicJourneyShowState(): TimelineStateJSON {
-  const layers = [
-    { id: "layer-1", label: "Layer 1" },
-  ];
-  
-  // Alternate blue and white every 2.5 seconds
-  const items: TimelineStateJSON["items"] = [];
-  
-  for (let t = 0; t <= 20; t += 2.5) {
-    const isBlue = Math.floor((t / 2.5) % 2) === 0;
-    items.push({
-      id: `byu-alt-${t / 2.5 + 1}`,
-      layerId: "layer-1",
-      kind: "event" as const,
-      startSec: t,
-      label: isBlue ? "Blue" : "White",
-      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-      color: isBlue ? "#0047AB" : "#FFFFFF",
-      target: "All",
-    });
-  }
-  
-  return {
-    version: 1,
-    title: "BYU Alternating",
-    requestsGPS: false,
-    layers,
-    items,
     readheadSec: 0,
   };
 }
