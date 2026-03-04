@@ -35,11 +35,11 @@ function updateFullscreenButton(): void {
   btn.innerHTML = isFullscreen() ? ICON_EXIT_FULLSCREEN_SVG : ICON_FULLSCREEN_SVG;
 }
 
-export function bindUiHandlers(): void {
+export function bindUiHandlers(onInfoClick?: () => void): void {
   const infoBtn = document.getElementById("btn-info") as HTMLButtonElement | null;
   const fullscreenBtn = document.getElementById("btn-fullscreen") as HTMLButtonElement | null;
 
-  if (infoBtn) infoBtn.onclick = () => {};
+  if (infoBtn) infoBtn.onclick = () => onInfoClick?.();
   if (fullscreenBtn)
     fullscreenBtn.onclick = () => {
       void toggleFullscreen().finally(updateFullscreenButton);
@@ -56,6 +56,8 @@ export interface RenderParams {
   deviceId: string;
   serverTime: number;
   firstColor: string;
+  /** If set, called when the Info button is clicked (e.g. to open track panel). */
+  onInfoClick?: () => void;
 }
 
 /**
@@ -65,7 +67,7 @@ export interface RenderParams {
 export function render(params: RenderParams): void {
   const app = document.getElementById("app");
   if (!app) return;
-  const { deviceId, serverTime, firstColor } = params;
+  const { deviceId, serverTime, firstColor, onInfoClick } = params;
   applyDisplayedColor(firstColor);
 
   app.innerHTML = `
@@ -92,5 +94,5 @@ export function render(params: RenderParams): void {
       </div>
     </div>
   `;
-  bindUiHandlers();
+  bindUiHandlers(onInfoClick);
 }
