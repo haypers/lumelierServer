@@ -230,6 +230,7 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
       </div>
       <div class="admin-header-spacer"></div>
       <div class="admin-header-account-wrap">
+        <span class="admin-header-branding">Lumelier</span>
         <button type="button" class="admin-header-account-btn" id="account-btn" aria-expanded="false" aria-haspopup="true" aria-controls="${ACCOUNT_DROPDOWN_ID}"><span class="admin-header-account-icon">${userIcon}</span></button>
         <div id="${ACCOUNT_DROPDOWN_ID}" class="admin-header-account-dropdown" hidden role="menu" aria-label="Account">
           <div class="admin-header-account-username" role="none">${escapedUsername}</div>
