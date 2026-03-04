@@ -15,7 +15,7 @@ import closeIcon from "./icons/close.svg?raw";
 import shareIcon from "./icons/share.svg?raw";
 import trashIcon from "./icons/trash.svg?raw";
 import { render as renderDashboard } from "./pages/dashboard";
-import { render as renderTimeline } from "./pages/timeline";
+import { render as renderTimeline, type TemplateType, getTemplateState } from "./pages/timeline";
 import { render as renderConnectedDevicesList } from "./pages/connected-devices-list";
 import { render as renderVenueMap } from "./pages/venue-map";
 import { render as renderSimulateDevices } from "./pages/simulate-devices";
@@ -206,6 +206,10 @@ function renderSelectedShowBlock(): string {
       <div class="admin-header-selected-show-empty-actions">
         <button type="button" class="admin-header-selected-show-btn admin-header-selected-show-btn--open" id="open-saved-show-btn"><span class="admin-header-selected-show-btn-icon">${openIcon}</span>Open Saved Show</button>
         <button type="button" class="admin-header-selected-show-btn admin-header-selected-show-btn--new" id="new-show-btn"><span class="admin-header-selected-show-btn-icon">${newIcon}</span>New Show</button>
+        <div class="admin-header-default-shows-wrap">
+          <button type="button" class="admin-header-selected-show-btn admin-header-selected-show-btn--default" id="default-shows-btn" aria-expanded="false" aria-haspopup="true" aria-controls="default-shows-dropdown"><span class="admin-header-selected-show-btn-icon">${shareIcon}</span>Default Shows<span class="admin-header-default-shows-caret" aria-hidden="true">${carrotIcon}</span></button>
+          <div class="admin-header-default-shows-dropdown" id="default-shows-dropdown" hidden role="menu" aria-label="Default shows"></div>
+        </div>
       </div>
     </div>`;
 }
@@ -276,6 +280,10 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
         const statusB = document.getElementById("show-status-btn");
         if (statusD) statusD.hidden = true;
         if (statusB) statusB.setAttribute("aria-expanded", "false");
+        const defaultShowsD = document.getElementById("default-shows-dropdown");
+        const defaultShowsB = document.getElementById("default-shows-btn");
+        if (defaultShowsD) defaultShowsD.hidden = true;
+        if (defaultShowsB) defaultShowsB.setAttribute("aria-expanded", "false");
       });
     }
   }
@@ -326,6 +334,46 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
   const openShowBtn = document.getElementById("open-saved-show-btn");
   if (openShowBtn) {
     openShowBtn.addEventListener("click", () => openOpenShowModal());
+  }
+
+  const defaultShowsBtn = document.getElementById("default-shows-btn");
+  const defaultShowsDropdown = document.getElementById("default-shows-dropdown");
+  if (defaultShowsBtn && defaultShowsDropdown) {
+    // Populate dropdown
+    const templates: Array<{ type: TemplateType; label: string }> = [
+      { type: "rainbow", label: "Rainbow Cycle" },
+      { type: "breathe", label: "Breathe" },
+      { type: "party", label: "Party Mode" },
+    ];
+    defaultShowsDropdown.innerHTML = templates
+      .map(
+        (t) =>
+          `<button type="button" class="admin-header-show-name-menu-item" data-template="${t.type}" role="menuitem">${t.label}</button>`
+      )
+      .join("");
+
+    // Toggle dropdown
+    defaultShowsBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const open = defaultShowsDropdown.hidden;
+      defaultShowsDropdown.hidden = !open;
+      defaultShowsBtn.setAttribute("aria-expanded", String(!open));
+      if (!open) {
+        const ad = document.getElementById(ACCOUNT_DROPDOWN_ID) as HTMLElement | null;
+        if (ad) ad.hidden = true;
+      }
+    });
+
+    // Handle template selection
+    defaultShowsDropdown.querySelectorAll("[data-template]").forEach((btn) => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const template = (e.currentTarget as HTMLElement).dataset.template as TemplateType;
+        defaultShowsDropdown.hidden = true;
+        defaultShowsBtn.setAttribute("aria-expanded", "false");
+        await createAndOpenDefaultShow(template);
+      });
+    });
   }
 
   const showNameDropdownBtn = document.getElementById("show-name-dropdown-btn");
@@ -550,6 +598,84 @@ function openNewShowModal(): void {
   });
 
   input?.focus();
+}
+
+async function createAndOpenDefaultShow(templateType: TemplateType): Promise<void> {
+  const templateData = getTemplateState(templateType);
+  const showName = templateData.title;
+  
+  try {
+    // First, check if a show with this name already exists
+    const listRes = await fetch("/api/admin/show-workspaces", { credentials: "include" });
+    if (listRes.ok) {
+      const shows = (await listRes.json()) as ShowListItem[];
+      const existingShow = shows.find(s => s.name === showName);
+      
+      if (existingShow) {
+        // Show already exists, just open it
+        currentShow = { id: existingShow.show_id, name: existingShow.name };
+        showLiveState = "not_live";
+        navigateToPathWithShow("/timeline", currentShow);
+        renderApp(lastUsername);
+        
+        fetchLiveStateFromServer(currentShow.id)
+          .then((live) => {
+            showLiveState = live ? "live" : "not_live";
+            syncShowStatusUIRef?.();
+            scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
+          })
+          .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
+        return;
+      }
+    }
+    
+    // Show doesn't exist, create it
+    const res = await fetch("/api/admin/show-workspaces", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ name: showName }),
+    });
+    
+    const data = await res.json().catch(() => ({})) as { show_id?: string; name?: string };
+    if (!res.ok || !data.show_id || !data.name) {
+      alert("Failed to create show. Please try again.");
+      return;
+    }
+    
+    // Apply the template immediately
+    const putRes = await fetch(`/api/admin/show-workspaces/${data.show_id}/timeline`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(templateData),
+    });
+    
+    if (!putRes.ok) {
+      alert("Failed to apply template. The show was created but is empty.");
+    }
+    
+    // Small delay to ensure server has processed the save
+    await new Promise(resolve => setTimeout(resolve, 100));
+    
+    // Update current show and navigate
+    currentShow = { id: data.show_id, name: data.name };
+    showLiveState = "not_live";
+    navigateToPathWithShow("/timeline", currentShow);
+    renderApp(lastUsername);
+    
+    // Fetch live state
+    fetchLiveStateFromServer(currentShow.id)
+      .then((live) => {
+        showLiveState = live ? "live" : "not_live";
+        syncShowStatusUIRef?.();
+        scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
+      })
+      .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
+  } catch (err) {
+    alert("Network error. Please try again.");
+    console.error("Failed to create default show:", err);
+  }
 }
 
 type ShowListItem = {
