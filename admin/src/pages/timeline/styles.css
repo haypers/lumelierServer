@@ -20,6 +20,40 @@
   gap: var(--space);
   flex-shrink: 0;
 }
+.timeline-live-status-message {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+/* Save status only (e.g. "Saved" / "Syncing") in a small container */
+.timeline-save-status-wrap {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+}
+/* Left area when editing: save status + GPS toggle in a row */
+.timeline-toolbar-left-edit {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space);
+  flex-wrap: nowrap;
+}
+.timeline-toolbar-left-edit[hidden] {
+  display: none !important;
+}
+/* Spacer between left and right when editing so Add/Remove event stay right-aligned */
+.timeline-toolbar-spacer {
+  flex: 1;
+  min-width: 0;
+}
+.timeline-toolbar-spacer[hidden] {
+  display: none !important;
+}
 .mode-switch {
   display: inline-flex;
   align-items: center;
@@ -353,27 +387,32 @@
 }
 .timeline-toolbar {
   display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
   align-items: center;
   padding: var(--space) 0;
   width: 100%;
-  gap: 0;
+  gap: var(--space);
 }
 .timeline-toolbar-left {
   display: flex;
+  flex-direction: row;
   align-items: center;
-  gap: var(--space);
-  flex: 0;
+  flex: 0 0 auto;
   justify-content: flex-start;
 }
 .timeline-toolbar-gps {
   display: inline-flex;
+  flex-direction: row;
   align-items: center;
   gap: 8px;
+  flex-shrink: 0;
 }
 .timeline-toolbar-gps-label {
   font-size: 12px;
   color: var(--text-muted);
   white-space: nowrap;
+  flex-shrink: 0;
 }
 .gps-toggle:not(.gps-toggle--on) .mode-switch-knob {
   background: var(--text-muted);
@@ -388,70 +427,25 @@
   align-items: center;
   min-width: 0;
 }
-.timeline-toolbar-right {
-  display: flex;
-  align-items: center;
-  gap: var(--space);
-  flex: 0;
-  justify-content: flex-end;
-}
-
-/* Broadcast mode: hide editing toolbar, show broadcast toolbar */
-.timeline-toolbar-broadcast {
-  display: none;
-  align-items: center;
-  padding: var(--space) 0;
-  width: 100%;
-  gap: 0;
-  min-height: 28px;
-}
-.timeline-content--broadcast .timeline-toolbar {
+.timeline-toolbar-center[hidden] {
   display: none !important;
 }
-.timeline-content--broadcast .timeline-toolbar-broadcast {
+.timeline-toolbar-right {
   display: flex;
-}
-.timeline-toolbar-broadcast .timeline-toolbar-left {
-  flex: 0 0 220px;
-  min-width: 0;
-}
-.timeline-toolbar-broadcast .timeline-toolbar-center {
-  flex: 1;
-  display: flex;
-  justify-content: center;
+  flex-direction: row;
   align-items: center;
-  min-width: 0;
+  gap: var(--space);
+  flex: 0 0 auto;
+  justify-content: flex-end;
 }
-.timeline-toolbar-broadcast .timeline-toolbar-right {
-  flex: 0 0 80px;
-  min-width: 0;
+.timeline-toolbar-right[hidden] {
+  display: none !important;
 }
-.timeline-toolbar-broadcast .timeline-broadcast-show-name {
-  font-size: 12px;
-  font-weight: 500;
-  color: var(--text);
-  min-height: 28px;
-  display: inline-flex;
-  align-items: center;
-  padding: 0 8px;
-  box-sizing: border-box;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  width: 100%;
-  max-width: 100%;
-}
-.timeline-toolbar .btn-icon-only,
-.timeline-toolbar-broadcast .btn-icon-only {
+
+/* Row 2 toolbar: play/pause in center (broadcast mode) use icon-only style */
+.timeline-toolbar-row2 .timeline-toolbar-center .btn-icon-only {
   min-height: 28px;
   height: 28px;
-  flex: 0 0 auto;
-}
-.timeline-toolbar .btn-icon-only {
-  padding: 6px;
-  min-width: 28px;
-}
-.timeline-toolbar-broadcast .btn-icon-only {
   padding: 0;
   min-width: 28px;
   width: 28px;
@@ -465,23 +459,30 @@
   cursor: pointer;
   outline: none;
 }
-.timeline-toolbar-broadcast .btn-icon-only:hover {
+.timeline-toolbar-row2 .timeline-toolbar-center .btn-icon-only:hover {
   background: transparent;
 }
-.timeline-toolbar-broadcast .btn-icon-only:focus {
+.timeline-toolbar-row2 .timeline-toolbar-center .btn-icon-only:focus {
   outline: none;
 }
-.timeline-toolbar .btn-icon-only svg {
-  width: 16px;
-  height: 16px;
-  display: block;
-}
-.timeline-toolbar-broadcast .btn-icon-only svg {
+.timeline-toolbar-row2 .timeline-toolbar-center .btn-icon-only svg {
   width: auto;
   height: 100%;
   max-height: 28px;
   display: block;
   fill: #fff;
+}
+.timeline-toolbar .btn-icon-only {
+  min-height: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+  padding: 6px;
+  min-width: 28px;
+}
+.timeline-toolbar .btn-icon-only svg {
+  width: 16px;
+  height: 16px;
+  display: block;
 }
 
 .timeline-toolbar .btn.hidden {
@@ -560,6 +561,33 @@
 .timeline-loading-icon svg {
   width: 32px;
   height: 32px;
+}
+.timeline-autosave {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.timeline-autosave-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.timeline-autosave-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.timeline-autosave-icon--spin svg {
+  animation: timeline-autosave-spin 1s linear infinite;
+}
+@keyframes timeline-autosave-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
 }
 #timeline-mount {
   flex: 1;

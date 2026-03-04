@@ -8,14 +8,15 @@
 //! - serverTimeAtSend (t2)
 //! plus deviceId, events (empty), and broadcast if set.
 
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
+use serde::Deserialize;
 use serde::Serialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::api::{AdminAppState, MainAppState};
+use crate::api::{is_valid_show_id_format, AdminAppState, MainAppState};
 use crate::connections::{ConnectionRegistry, GeoUpdate};
 use crate::time;
 
@@ -103,18 +104,59 @@ fn geo_from_headers(headers: &HeaderMap) -> GeoUpdate {
     }
 }
 
+#[derive(Deserialize)]
+pub struct PollQuery {
+    pub show: Option<String>,
+}
+
+/// Extract show_id from query ?show= or header X-Show-Id. Returns None if both missing.
+fn show_id_from_request(query: &PollQuery, headers: &HeaderMap) -> Option<String> {
+    query
+        .show
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .or_else(|| {
+            headers
+                .get("x-show-id")
+                .and_then(|v| v.to_str().ok())
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+        })
+}
+
 pub async fn poll(
     State(state): State<MainAppState>,
+    Query(query): Query<PollQuery>,
     headers: HeaderMap,
 ) -> Result<Json<PollResponse>, StatusCode> {
-    poll_impl(state.registry.clone(), state.broadcast.clone(), headers).await
+    let show_id = show_id_from_request(&query, &headers)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    if !is_valid_show_id_format(&show_id) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let bucket = state
+        .live_shows
+        .get(&show_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    poll_impl(bucket.registry.clone(), bucket.broadcast.clone(), headers).await
 }
 
 pub async fn poll_admin(
     State(state): State<AdminAppState>,
+    Query(query): Query<PollQuery>,
     headers: HeaderMap,
 ) -> Result<Json<PollResponse>, StatusCode> {
-    poll_impl(state.registry.clone(), state.broadcast.clone(), headers).await
+    let show_id = show_id_from_request(&query, &headers)
+        .ok_or(StatusCode::BAD_REQUEST)?;
+    if !is_valid_show_id_format(&show_id) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let bucket = state
+        .live_shows
+        .get(&show_id)
+        .ok_or(StatusCode::NOT_FOUND)?;
+    poll_impl(bucket.registry.clone(), bucket.broadcast.clone(), headers).await
 }
 
 async fn poll_impl(

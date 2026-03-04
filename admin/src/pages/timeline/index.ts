@@ -3,11 +3,10 @@ import "./styles.css";
 import { DataSet } from "vis-data";
 import { Timeline, type DataItem, type DataGroup, type IdType } from "vis-timeline";
 import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
-import openIcon from "../../icons/open.svg?raw";
+import circleCheckIcon from "../../icons/circle-check.svg?raw";
 import pauseIcon from "../../icons/pause.svg?raw";
 import playIcon from "../../icons/play.svg?raw";
 import resetIcon from "../../icons/reset.svg?raw";
-import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import {
   SEC,
@@ -42,8 +41,17 @@ let requestsGPS = false;
 const EVENT_TYPE_SET_COLOR_BROADCAST = "Set Color Broadcast";
 /** True once the user has opened or created a show; timeline and toolbar are visible. */
 let hasLoadedShow = false;
+/** Show ID from URL when timeline is scoped to a show; used for load and autosave. */
+let currentShowId: string | null = null;
+const AUTOSAVE_DEBOUNCE_MS = 1000;
+/** Minimum time to show "Syncing" so the user sees the state change even when the request is very fast. */
+const MIN_SYNCING_DISPLAY_MS = 400;
+let autosaveTimerId: ReturnType<typeof setTimeout> | null = null;
+let timelineAutosaveEl: HTMLElement | null = null;
 /** True when in Broadcasting mode; used to guard layer edit/remove and drive broadcast UI. */
 let isBroadcastMode = false;
+const LIVE_STATE_EVENT_NAME = "lumelier-live-state";
+let timelineLiveStateListenerRef: ((e: Event) => void) | null = null;
 /** Set in render(); used when loading a show to create timeline and show content. */
 let timelineWrapEl: HTMLElement | null = null;
 let timelineContentEl: HTMLElement | null = null;
@@ -91,10 +99,12 @@ function postBroadcastReadheadDebounced(sec: number): void {
   const clamped = Math.max(0, sec);
   broadcastReadheadPostTimer = setTimeout(() => {
     broadcastReadheadPostTimer = null;
-    fetch("/api/admin/broadcast/readhead", {
+    if (!currentShowId) return;
+    fetch(`/api/admin/shows/${currentShowId}/broadcast/readhead`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ readheadSec: clamped }),
+      credentials: "include",
     }).catch(() => {});
   }, BROADCAST_READHEAD_POST_DEBOUNCE_MS);
 }
@@ -128,6 +138,7 @@ function addLayer(): string {
   groups.add({ id, content: label });
   updateOnlyLayerVisibility();
   refreshDetailsPanel();
+  scheduleAutosave();
   return id;
 }
 
@@ -142,6 +153,7 @@ function removeLayer(id: IdType): void {
   });
   updateOnlyLayerVisibility();
   refreshDetailsPanel();
+  scheduleAutosave();
 }
 
 function addClip(layerId?: IdType): string {
@@ -160,6 +172,7 @@ function addClip(layerId?: IdType): string {
     type: "range",
     payload,
   });
+  scheduleAutosave();
   return id;
 }
 
@@ -181,12 +194,14 @@ function addEvent(layerId?: IdType): string {
     type: "point",
     payload,
   });
+  scheduleAutosave();
   return id;
 }
 
 function removeSelected(): void {
   const sel = timeline?.getSelection() ?? [];
   sel.forEach((id) => items.remove(id));
+  scheduleAutosave();
 }
 
 function getLayers(): { id: string; label: string }[] {
@@ -242,6 +257,7 @@ function updateItemInTimeline(id: IdType, updates: DetailsPanelUpdates): void {
     ...(content != null && { content }),
     payload,
   });
+  scheduleAutosave();
 }
 
 function createGroupLabelElement(
@@ -350,20 +366,6 @@ function injectAddLayerButton(): void {
   corner.appendChild(wrap);
 }
 
-/** Sanitize project title to a safe filename (only [a-zA-Z0-9._-]); append .json. */
-function titleToFilename(title: string): string {
-  const t = title
-    .trim()
-    .replace(/[/\\]/g, "")
-    .replace(/[^a-zA-Z0-9._\s-]/g, "")
-    .replace(/\s+/g, "_")
-    .replace(/_+/g, "_")
-    .replace(/^_|_$/g, "")
-    .trim();
-  const base = t || "Untitled_Show";
-  return `${base}.json`;
-}
-
 function getExportState(): TimelineStateJSON {
   return exportState(
     groups,
@@ -383,26 +385,6 @@ function setRequestsGPS(value: boolean): void {
   if (btn) {
     btn.classList.toggle("gps-toggle--on", value);
     btn.setAttribute("aria-pressed", String(value));
-  }
-}
-
-async function uploadTimelineToServer(): Promise<boolean> {
-  const state = getExportState();
-  try {
-    const res = await fetch("/api/admin/broadcast/timeline", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(state),
-    });
-    if (!res.ok) {
-      console.error("Failed to upload timeline:", res.status, await res.text());
-      return false;
-    }
-    console.log("timeline successfully uploaded to server");
-    return true;
-  } catch (e) {
-    console.error("Failed to upload timeline:", e);
-    return false;
   }
 }
 
@@ -666,6 +648,7 @@ function ensureTimelineCreated(): void {
           (id, newContent) => {
             groups.update({ id, content: newContent });
             refreshDetailsPanel();
+            scheduleAutosave();
           }
         );
         groupLabelCache.set(key, wrap);
@@ -690,6 +673,7 @@ function ensureTimelineCreated(): void {
   );
   timeline.addCustomTime(defaultTimeZero, readheadId);
   timeline.setCustomTimeTitle("Readhead", readheadId);
+  items.on("update", () => scheduleAutosave());
   timeline.on("timechange", (props: { id?: string; time?: Date | number }) => {
     if (props.id !== readheadId || !timeline) return;
     const sec = dateToSecFloat(new Date(toMs(props.time ?? 0)));
@@ -727,6 +711,7 @@ function ensureTimelineCreated(): void {
       if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
       e.preventDefault();
       sel.forEach((id) => items.remove(id));
+      scheduleAutosave();
       updateDetailsPanel(
         timelineDetailsPanelEl as HTMLElement,
         null,
@@ -763,184 +748,161 @@ function loadShowState(state: TimelineStateJSON): void {
   );
   showTimelineContent();
   timeline?.fit();
-}
-
-function createNewShow(): void {
-  loadShowState(getDefaultNewShowState());
-}
-
-function showOverwriteConfirmModal(onConfirm: () => void): void {
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal">
-      <p>A show with this name already exists. Overwrite?</p>
-      <div class="modal-actions">
-        <button type="button" class="btn-cancel">Cancel</button>
-        <button type="button" class="btn-confirm">Overwrite</button>
-      </div>
-    </div>`;
-  const close = () => overlay.remove();
-  overlay.querySelector(".btn-cancel")?.addEventListener("click", close);
-  overlay.querySelector(".btn-confirm")?.addEventListener("click", () => {
-    onConfirm();
-    close();
-  });
-  document.body.appendChild(overlay);
-}
-
-async function saveShow(): Promise<void> {
-  if (!hasLoadedShow) {
-    alert("No show loaded. Open or create a show first.");
-    return;
-  }
-  const filename = titleToFilename(projectTitle);
-  let list: string[] = [];
-  try {
-    const res = await fetch("/api/admin/shows");
-    if (res.ok) list = (await res.json()) as string[];
-  } catch {
-    // ignore; will try save anyway
-  }
-  const exists = list.includes(filename);
-  const doPut = async () => {
-    try {
-      const res = await fetch(`/api/admin/shows/${encodeURIComponent(filename)}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(getExportState()),
-      });
-      if (res.ok) {
-        alert("Show saved successfully.");
-      } else {
-        const text = await res.text();
-        alert(`Save failed: ${res.status} ${text || res.statusText}`);
-      }
-    } catch (e) {
-      alert(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  };
-  if (exists) {
-    showOverwriteConfirmModal(doPut);
-  } else {
-    await doPut();
-  }
-}
-
-function showOpenShowModal(): void {
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal">
-      <p>Select a show to open:</p>
-      <ul class="modal-show-list" id="modal-show-list"></ul>
-      <div class="modal-actions">
-        <button type="button" class="btn-cancel">Cancel</button>
-      </div>
-    </div>`;
-  const listEl = overlay.querySelector("#modal-show-list") as HTMLElement;
-  const close = () => overlay.remove();
-
-  overlay.querySelector(".btn-cancel")?.addEventListener("click", close);
-
-  fetch("/api/admin/shows")
-    .then((res) => (res.ok ? res.json() : Promise.reject(new Error(`${res.status}`))))
-    .then((files: string[]) => {
-      if (!listEl) return;
-      listEl.innerHTML = files
-        .filter((f) => f.endsWith(".json"))
-        .map((f) => `<li><button type="button" class="modal-show-item" data-filename="${f.replace(/"/g, "&quot;")}">${f.replace(/</g, "&lt;")}</button></li>`)
-        .join("");
-      listEl.querySelectorAll(".modal-show-item").forEach((btn) => {
-        btn.addEventListener("click", async () => {
-          const name = (btn as HTMLElement).dataset.filename;
-          if (!name) return;
-          try {
-            const res = await fetch(`/api/admin/shows/${encodeURIComponent(name)}`);
-            if (!res.ok) throw new Error(`${res.status}`);
-            const state = (await res.json()) as TimelineStateJSON;
-            if (state.version !== 1 || !Array.isArray(state.layers) || !Array.isArray(state.items)) {
-              alert("Invalid timeline JSON.");
-              return;
-            }
-            close();
-            loadShowState(state);
-          } catch (e) {
-            alert(`Failed to load show: ${e instanceof Error ? e.message : String(e)}`);
-          }
-        });
-      });
-    })
-    .catch((e) => {
-      alert(`Failed to list shows: ${e instanceof Error ? e.message : String(e)}`);
+  /* Timeline is created while .timeline-content is hidden, so vis-timeline's first draw runs with
+   * zero-sized container and readhead/events/axis don't render. rAF and redraw() alone are not
+   * enough; vis-timeline only recalculates layout on resize. Trigger a resize so it redraws. */
+  setTimeout(() => {
+    window.dispatchEvent(new Event("resize"));
+  }, 0);
+  if (isBroadcastMode && timeline) {
+    timeline.setOptions({
+      editable: { add: false, remove: false, updateGroup: false, updateTime: false },
     });
-
-  document.body.appendChild(overlay);
+    timelineContentEl?.classList.add("timeline-readhead-no-drag");
+  }
 }
 
-export function render(container: HTMLElement): void {
+function setAutosaveUI(state: "saved" | "syncing"): void {
+  if (!timelineAutosaveEl) return;
+  if (state === "saved") {
+    timelineAutosaveEl.innerHTML = `<span class="timeline-autosave-icon">${circleCheckIcon}</span><span>Saved</span>`;
+    timelineAutosaveEl.classList.remove("timeline-autosave--syncing");
+  } else {
+    timelineAutosaveEl.innerHTML = `<span class="timeline-autosave-icon timeline-autosave-icon--spin">${animatedLoadingIcon}</span><span>Syncing</span>`;
+    timelineAutosaveEl.classList.add("timeline-autosave--syncing");
+  }
+}
+
+function scheduleAutosave(): void {
+  if (autosaveTimerId != null) {
+    clearTimeout(autosaveTimerId);
+    autosaveTimerId = null;
+  }
+  autosaveTimerId = setTimeout(() => {
+    autosaveTimerId = null;
+    runAutosave();
+  }, AUTOSAVE_DEBOUNCE_MS);
+}
+
+async function runAutosave(): Promise<void> {
+  if (!currentShowId || !hasLoadedShow) return;
+  const syncingStartedAt = Date.now();
+  setAutosaveUI("syncing");
+  try {
+    await fetch(`/api/admin/show-workspaces/${currentShowId}/timeline`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify(getExportState()),
+    });
+    const elapsed = Date.now() - syncingStartedAt;
+    const minDisplayRemaining = Math.max(0, MIN_SYNCING_DISPLAY_MS - elapsed);
+    if (minDisplayRemaining > 0) {
+      await new Promise((r) => setTimeout(r, minDisplayRemaining));
+    }
+    setAutosaveUI("saved");
+  } catch {
+    const elapsed = Date.now() - syncingStartedAt;
+    const minDisplayRemaining = Math.max(0, MIN_SYNCING_DISPLAY_MS - elapsed);
+    if (minDisplayRemaining > 0) {
+      await new Promise((r) => setTimeout(r, minDisplayRemaining));
+    }
+    setAutosaveUI("saved");
+  }
+}
+
+async function loadTimelineFromServer(showId: string): Promise<void> {
+  try {
+    const res = await fetch(`/api/admin/show-workspaces/${showId}/timeline`, { credentials: "include" });
+    if (res.status === 403) {
+      window.location.pathname = "/timeline";
+      return;
+    }
+    if (res.status === 404) {
+      loadShowState(getDefaultNewShowState());
+      hasLoadedShow = true;
+      setAutosaveUI("saved");
+      return;
+    }
+    if (!res.ok) {
+      return;
+    }
+    const state = (await res.json()) as TimelineStateJSON;
+    if (state.version !== 1 || !Array.isArray(state.layers) || !Array.isArray(state.items)) {
+      loadShowState(getDefaultNewShowState());
+    } else {
+      loadShowState(state);
+    }
+    hasLoadedShow = true;
+    setAutosaveUI("saved");
+  } catch {
+    loadShowState(getDefaultNewShowState());
+    hasLoadedShow = true;
+    setAutosaveUI("saved");
+  }
+}
+
+export function render(container: HTMLElement, showId: string | null): void {
   timeline = null;
   hasLoadedShow = false;
+  currentShowId = showId;
   isBroadcastMode = false;
   requestsGPS = false;
   groups = new DataSet<DataGroup>([]);
   items = new DataSet<DataItem & { payload?: TimelineItemPayload }>([]);
+  timelineAutosaveEl = null;
+
+  if (showId === null) {
+    if (timelineLiveStateListenerRef) {
+      window.removeEventListener(LIVE_STATE_EVENT_NAME, timelineLiveStateListenerRef);
+      timelineLiveStateListenerRef = null;
+    }
+    container.innerHTML = `
+      <div class="show-required-empty-state">
+        <p class="show-required-empty-state-message">Please open or create a show to view or play its timeline.</p>
+      </div>`;
+    return;
+  }
+
+  const MESSAGE_NOT_LIVE = "Because the show is not live, you can edit this timeline.";
+  const MESSAGE_LIVE = "Because the show is live, you can NOT edit this show, but you can now broadcast it.";
 
   container.innerHTML = `
     <div class="timeline-page">
-      <div class="timeline-actions-row"></div>
+      <div class="timeline-actions-row">
+        <p class="timeline-live-status-message" id="timeline-live-status-message">${MESSAGE_NOT_LIVE}</p>
+      </div>
       <div class="timeline-page-body timeline-page-body--details-hidden">
         <div class="timeline">
           <div class="timeline-empty-state" id="timeline-empty-state">
-            <p class="timeline-empty-state-message">Open or Create a Show File:</p>
-            <div class="timeline-empty-state-actions">
-              <button type="button" class="btn btn-primary" id="timeline-empty-open-show">Open Show</button>
-              <button type="button" class="btn btn-primary" id="timeline-empty-create-show">Create New Show</button>
-              <div class="timeline-default-show-dropdown">
-                <button type="button" class="btn btn-primary" id="timeline-use-default-show">Use Default Show ▼</button>
-                <div class="timeline-default-show-menu" id="timeline-default-show-menu" hidden>
-                  <button type="button" class="timeline-default-show-option" data-preset="byu-alt">BYU Alternating (20s)</button>
-                  <button type="button" class="timeline-default-show-option" data-preset="rainbow">Rainbow (20s)</button>
-                  <button type="button" class="timeline-default-show-option" data-preset="rhythm">Purple Blue Rhythm (20s)</button>
-                </div>
-              </div>
-            </div>
+            <p class="timeline-empty-state-message">Loading…</p>
           </div>
           <div class="timeline-content timeline-content--hidden">
-            <div class="timeline-toolbar">
+            <div class="timeline-toolbar timeline-toolbar-row2">
               <div class="timeline-toolbar-left">
-                <span class="timeline-project-title-wrap">
-                  <label for="timeline-project-title-input">Show:</label>
-                  <input type="text" id="timeline-project-title-input" value="Untitled Show" />
-                </span>
-                <button type="button" class="btn btn-icon-label" data-action="save-show">${saveIcon}<span>Save</span></button>
-                <button type="button" class="btn btn-icon-label" data-action="open-show">${openIcon}<span>Open</span></button>
-                <span class="timeline-toolbar-gps">
-                  <span class="timeline-toolbar-gps-label">Request GPS:</span>
-                  <button type="button" class="mode-switch-toggle gps-toggle" id="timeline-request-gps-toggle" aria-pressed="false" aria-label="Request GPS">
-                    <span class="mode-switch-track">
-                      <span class="mode-switch-knob"></span>
-                    </span>
-                  </button>
-                </span>
+                <div class="timeline-toolbar-left-edit" id="timeline-toolbar-left-edit">
+                  <div class="timeline-save-status-wrap">
+                    <span class="timeline-autosave" id="timeline-autosave"><span class="timeline-autosave-icon">${circleCheckIcon}</span><span>Saved</span></span>
+                  </div>
+                  <span class="timeline-toolbar-gps">
+                    <span class="timeline-toolbar-gps-label">Request Client GPS:</span>
+                    <button type="button" class="mode-switch-toggle gps-toggle" id="timeline-request-gps-toggle" aria-pressed="false" aria-label="Request GPS">
+                      <span class="mode-switch-track">
+                        <span class="mode-switch-knob"></span>
+                      </span>
+                    </button>
+                  </span>
+                </div>
               </div>
-              <div class="timeline-toolbar-center"></div>
-              <div class="timeline-toolbar-right">
-                <button type="button" class="btn btn-primary hidden" data-action="add-clip" aria-hidden="true">Add clip</button>
-                <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
-                <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
-              </div>
-            </div>
-            <div class="timeline-toolbar-broadcast">
-              <div class="timeline-toolbar-left">
-                <span class="timeline-broadcast-show-name" id="timeline-broadcast-show-name">Untitled Show</span>
-              </div>
-              <div class="timeline-toolbar-center">
-                <button type="button" class="btn btn-icon-only" data-action="restart" aria-label="Restart">${resetIcon}</button>
+              <div class="timeline-toolbar-spacer" id="timeline-toolbar-spacer"></div>
+              <div class="timeline-toolbar-center" id="timeline-toolbar-center" hidden>
                 <button type="button" class="btn btn-icon-only" data-action="play" aria-label="Play">${playIcon}</button>
                 <button type="button" class="btn btn-icon-only" data-action="pause" aria-label="Pause">${pauseIcon}</button>
               </div>
-              <div class="timeline-toolbar-right"></div>
+              <div class="timeline-toolbar-right" id="timeline-toolbar-right">
+                <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
+                <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
+              </div>
             </div>
             <div class="timeline-container-wrap">
               <div class="timeline-loading timeline-loading--hidden" id="timeline-loading" aria-hidden="true">
@@ -962,155 +924,90 @@ export function render(container: HTMLElement): void {
 
   const timelineWrap = container.querySelector(".timeline") as HTMLElement | null;
   const pageBody = container.querySelector(".timeline-page-body") as HTMLElement | null;
-  const mount = document.getElementById("timeline-mount");
+  const mount = container.querySelector("#timeline-mount");
   const detailsPanel = container.querySelector(".timeline-details-panel");
-  const loadingEl = document.getElementById("timeline-loading");
+  const loadingEl = container.querySelector("#timeline-loading");
 
   timelineWrapEl = timelineWrap;
   timelinePageBodyEl = pageBody;
   timelineContentEl = container.querySelector(".timeline-content") as HTMLElement | null;
-  timelineMountEl = mount;
+  timelineMountEl = mount as HTMLElement | null;
   timelineDetailsPanelEl = detailsPanel as HTMLElement | null;
-  timelineLoadingEl = loadingEl;
+  timelineLoadingEl = loadingEl as HTMLElement | null;
 
-  const actionsRow = container.querySelector(".timeline-actions-row");
-  if (actionsRow) {
-    const modeSwitch = document.createElement("div");
-    modeSwitch.className = "mode-switch";
-    modeSwitch.setAttribute("role", "group");
-    modeSwitch.setAttribute("aria-label", "Mode");
-    modeSwitch.innerHTML = `
-      <span class="mode-switch-label mode-switch-label-edit active">Editing</span>
-      <button type="button" class="mode-switch-toggle" id="timeline-mode-toggle" aria-pressed="false" aria-label="Switch mode">
-        <span class="mode-switch-track">
-          <span class="mode-switch-knob"></span>
-        </span>
-      </button>
-      <span class="mode-switch-label mode-switch-label-broadcast">Broadcasting</span>
-    `;
-    const toggleBtn = modeSwitch.querySelector(".mode-switch-toggle");
-    const labelEdit = modeSwitch.querySelector(".mode-switch-label-edit");
-    const labelBroadcast = modeSwitch.querySelector(".mode-switch-label-broadcast");
+  const statusMessageEl = container.querySelector("#timeline-live-status-message") as HTMLElement | null;
+  const toolbarLeftEditEl = container.querySelector("#timeline-toolbar-left-edit") as HTMLElement | null;
+  const toolbarSpacerEl = container.querySelector("#timeline-toolbar-spacer") as HTMLElement | null;
+  const toolbarCenterEl = container.querySelector("#timeline-toolbar-center") as HTMLElement | null;
+  const toolbarRightEl = container.querySelector("#timeline-toolbar-right") as HTMLElement | null;
 
-    function applyBroadcastUI(): void {
-      isBroadcastMode = true;
-      modeSwitch.classList.add("mode-switch--broadcast");
-      toggleBtn?.setAttribute("aria-pressed", "true");
-      labelEdit?.classList.remove("active");
-      labelBroadcast?.classList.add("active");
-      timelineContentEl?.classList.add("timeline-content--broadcast");
-      timelineDetailsPanelEl?.classList.add("timeline-details-panel--readonly");
-      const broadcastShowName = document.getElementById("timeline-broadcast-show-name");
-      if (broadcastShowName) broadcastShowName.textContent = projectTitle;
-      ensureReadOnlyHeaderRow();
-      timeline?.setOptions({
-        editable: { add: false, remove: false, updateGroup: false, updateTime: false },
-      });
+  function updateLiveStatusMessage(liveOrPending: boolean): void {
+    if (statusMessageEl) {
+      statusMessageEl.textContent = liveOrPending ? MESSAGE_LIVE : MESSAGE_NOT_LIVE;
     }
-
-    function revertBroadcastUI(): void {
-      isBroadcastMode = false;
-      stopBroadcastReadheadTick();
-      timelineContentEl?.classList.remove("timeline-readhead-no-drag");
-      modeSwitch.classList.remove("mode-switch--broadcast");
-      toggleBtn?.setAttribute("aria-pressed", "false");
-      labelEdit?.classList.add("active");
-      labelBroadcast?.classList.remove("active");
-      timelineContentEl?.classList.remove("timeline-content--broadcast");
-      timelineDetailsPanelEl?.classList.remove("timeline-details-panel--readonly");
-      const wrapper = timelineDetailsPanelEl?.querySelector(".timeline-details-header-row");
-      if (wrapper && wrapper.parentNode) {
-        const h3 = wrapper.querySelector("h3");
-        if (h3) timelineDetailsPanelEl?.insertBefore(h3, wrapper);
-        wrapper.remove();
-      }
-      timeline?.setOptions({
-        editable: { add: false, remove: false, updateGroup: false, updateTime: true },
-      });
-    }
-
-    toggleBtn?.addEventListener("click", async () => {
-      const currentlyBroadcast = modeSwitch.classList.contains("mode-switch--broadcast");
-      if (currentlyBroadcast) {
-        revertBroadcastUI();
-        return;
-      }
-      const canEnterBroadcast =
-        hasLoadedShow && groups.length > 0 && items.length > 0;
-      if (!canEnterBroadcast) {
-        alert("To enter broadcasting mode, you must have a non empty timeline loaded.");
-        return;
-      }
-      applyBroadcastUI();
-      const ok = await uploadTimelineToServer();
-      if (!ok) {
-        revertBroadcastUI();
-        alert("Failed to upload timeline to server.");
-      }
-    });
-    actionsRow.appendChild(modeSwitch);
+    if (toolbarLeftEditEl) toolbarLeftEditEl.hidden = liveOrPending;
+    if (toolbarSpacerEl) toolbarSpacerEl.hidden = liveOrPending;
+    if (toolbarCenterEl) toolbarCenterEl.hidden = !liveOrPending;
+    if (toolbarRightEl) toolbarRightEl.hidden = liveOrPending;
   }
 
-  document.getElementById("timeline-empty-open-show")?.addEventListener("click", () => showOpenShowModal());
-  document.getElementById("timeline-empty-create-show")?.addEventListener("click", () => createNewShow());
-
-  // Default show dropdown
-  const useDefaultShowBtn = document.getElementById("timeline-use-default-show");
-  const defaultShowMenu = document.getElementById("timeline-default-show-menu");
-  
-  useDefaultShowBtn?.addEventListener("click", (e) => {
-    e.stopPropagation();
-    if (defaultShowMenu) {
-      defaultShowMenu.hidden = !defaultShowMenu.hidden;
-    }
-  });
-
-  // Close dropdown when clicking outside
-  document.addEventListener("click", (e) => {
-    if (defaultShowMenu && !defaultShowMenu.hidden) {
-      const target = e.target as HTMLElement;
-      if (!target.closest(".timeline-default-show-dropdown")) {
-        defaultShowMenu.hidden = true;
-      }
-    }
-  });
-
-  // Handle preset selection
-  defaultShowMenu?.querySelectorAll(".timeline-default-show-option").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const preset = (btn as HTMLElement).getAttribute("data-preset");
-      if (defaultShowMenu) defaultShowMenu.hidden = true;
-      
-      let state: TimelineStateJSON;
-      switch (preset) {
-        case "byu-alt":
-          state = getCosmicJourneyShowState();
-          break;
-        case "rainbow":
-          state = getRainbowShowState();
-          break;
-        case "rhythm":
-          state = getBreathingShowState();
-          break;
-        default:
-          return;
-      }
-      loadShowState(state);
+  function applyBroadcastUI(): void {
+    isBroadcastMode = true;
+    timelineContentEl?.classList.add("timeline-content--broadcast");
+    timelineDetailsPanelEl?.classList.add("timeline-details-panel--readonly");
+    ensureReadOnlyHeaderRow();
+    timeline?.setOptions({
+      editable: { add: false, remove: false, updateGroup: false, updateTime: false },
     });
-  });
+    updateLiveStatusMessage(true);
+  }
+
+  function revertBroadcastUI(): void {
+    isBroadcastMode = false;
+    stopBroadcastReadheadTick();
+    timelineContentEl?.classList.remove("timeline-readhead-no-drag");
+    timelineContentEl?.classList.remove("timeline-content--broadcast");
+    timelineDetailsPanelEl?.classList.remove("timeline-details-panel--readonly");
+    const wrapper = timelineDetailsPanelEl?.querySelector(".timeline-details-header-row");
+    if (wrapper && wrapper.parentNode) {
+      const h3 = wrapper.querySelector("h3");
+      if (h3) timelineDetailsPanelEl?.insertBefore(h3, wrapper);
+      wrapper.remove();
+    }
+    timeline?.setOptions({
+      editable: { add: false, remove: false, updateGroup: false, updateTime: true },
+    });
+    updateLiveStatusMessage(false);
+  }
+
+  function applyLiveState(live: boolean, pending: boolean): void {
+    const liveOrPending = live || pending;
+    if (liveOrPending) {
+      applyBroadcastUI();
+    } else {
+      revertBroadcastUI();
+    }
+  }
+
+  if (timelineLiveStateListenerRef) {
+    window.removeEventListener(LIVE_STATE_EVENT_NAME, timelineLiveStateListenerRef);
+  }
+  timelineLiveStateListenerRef = (e: Event) => {
+    const ev = e as CustomEvent<{ showId: string; live: boolean; pending?: boolean }>;
+    if (ev.detail?.showId !== currentShowId) return;
+    const live = ev.detail.live === true;
+    const pending = ev.detail.pending === true;
+    applyLiveState(live, pending);
+  };
+  window.addEventListener(LIVE_STATE_EVENT_NAME, timelineLiveStateListenerRef);
+
+  timelineAutosaveEl = container.querySelector("#timeline-autosave");
 
   if (!mount || !detailsPanel) return;
 
-  const titleInput = document.getElementById("timeline-project-title-input");
-  if (titleInput instanceof HTMLInputElement) {
-    titleInput.value = projectTitle;
-    titleInput.addEventListener("input", () => {
-      projectTitle = titleInput.value.trim() || "Untitled Show";
-    });
-  }
-
-  document.getElementById("timeline-request-gps-toggle")?.addEventListener("click", () => {
+  container.querySelector("#timeline-request-gps-toggle")?.addEventListener("click", () => {
     setRequestsGPS(!requestsGPS);
+    scheduleAutosave();
   });
   setRequestsGPS(requestsGPS);
 
@@ -1118,12 +1015,6 @@ export function render(container: HTMLElement): void {
     el.addEventListener("click", async () => {
       const action = (el as HTMLElement).getAttribute("data-action");
       switch (action) {
-        case "save-show":
-          saveShow();
-          break;
-        case "open-show":
-          showOpenShowModal();
-          break;
         case "restart": {
           // Set readhead to 0 and start playing
           if (timeline) {
@@ -1160,10 +1051,12 @@ export function render(container: HTMLElement): void {
           const readheadSec = getReadheadSecClamped();
           console.log("User hit play from", readheadSec, "(readhead sec).");
           try {
-            const res = await fetch("/api/admin/broadcast/play", {
+            if (!currentShowId) throw new Error("No show selected");
+            const res = await fetch(`/api/admin/shows/${currentShowId}/broadcast/play`, {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({ readheadSec }),
+              credentials: "include",
             });
             if (!res.ok) throw new Error(String(res.status));
             const data = (await res.json()) as { playAtMs?: number; serverTimeMs?: number };
@@ -1192,7 +1085,8 @@ export function render(container: HTMLElement): void {
         }
         case "pause": {
           try {
-            const res = await fetch("/api/admin/broadcast/pause", { method: "POST" });
+            if (!currentShowId) throw new Error("No show selected");
+            const res = await fetch(`/api/admin/shows/${currentShowId}/broadcast/pause`, { method: "POST", credentials: "include" });
             if (!res.ok) throw new Error(String(res.status));
             const data = (await res.json()) as { pauseAtMs?: number; serverTimeMs?: number };
             const pauseAtMs = data.pauseAtMs ?? 0;
@@ -1235,5 +1129,21 @@ export function render(container: HTMLElement): void {
           break;
       }
     });
+  });
+
+  // Load timeline first, then fetch live state and apply. This ensures the timeline is
+  // always created and shown before we apply broadcast UI (so opening the tab while live works).
+  loadTimelineFromServer(showId).then(() => {
+    if (currentShowId !== showId) return;
+    fetch(`/api/admin/show-workspaces/${showId}/live-join-url`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : { live: false }))
+      .then((data: { live?: boolean }) => {
+        if (currentShowId !== showId) return;
+        applyLiveState(data.live === true, false);
+      })
+      .catch(() => {
+        if (currentShowId !== showId) return;
+        applyLiveState(false, false);
+      });
   });
 }

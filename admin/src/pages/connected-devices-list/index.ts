@@ -100,6 +100,8 @@ let refreshTimer: ReturnType<typeof setInterval> | null = null;
 let statsRefreshTimer: ReturnType<typeof setInterval> | null = null;
 let table: Tabulator | null = null;
 let connectedFilterActive = false;
+/** Current show ID from render(); used for show-scoped API paths. */
+let currentShowId: string | null = null;
 /** Offset (ms) from client time to server time: serverTimeMs ≈ Date.now() + serverTimeOffsetMs */
 let serverTimeOffsetMs = 0;
 let serverTimeRafId: number | null = null;
@@ -144,7 +146,8 @@ async function fetchPageIds(): Promise<PageIdsResponse> {
     sortField,
     sortDir,
   });
-  const res = await fetch(`/api/admin/connected-devices/page-ids?${params}`);
+  if (!currentShowId) throw new Error("No show selected");
+  const res = await fetch(`/api/admin/shows/${currentShowId}/connected-devices/page-ids?${params}`, { credentials: "include" });
   if (!res.ok) throw new Error(`Failed to fetch page-ids: ${res.status}`);
   return res.json() as Promise<PageIdsResponse>;
 }
@@ -153,17 +156,20 @@ async function fetchRowsByIds(ids: string[]): Promise<ByIdsResponse> {
   if (ids.length === 0) {
     return { serverTimeMs: Date.now(), devices: [] };
   }
-  const res = await fetch("/api/admin/connected-devices/by-ids", {
+  if (!currentShowId) throw new Error("No show selected");
+  const res = await fetch(`/api/admin/shows/${currentShowId}/connected-devices/by-ids`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ ids }),
+    credentials: "include",
   });
   if (!res.ok) throw new Error(`Failed to fetch by-ids: ${res.status}`);
   return res.json() as Promise<ByIdsResponse>;
 }
 
 async function fetchFullDeviceList(): Promise<DeviceRow[]> {
-  const res = await fetch("/api/admin/connected-devices");
+  if (!currentShowId) throw new Error("No show selected");
+  const res = await fetch(`/api/admin/shows/${currentShowId}/connected-devices`, { credentials: "include" });
   if (!res.ok) throw new Error(`Failed to fetch devices: ${res.status}`);
   const data = (await res.json()) as ConnectedDevicesFullResponse;
   return data.devices;
@@ -243,7 +249,8 @@ async function exportDeviceListCsv(): Promise<void> {
 }
 
 async function fetchStats(): Promise<StatsResponse> {
-  const res = await fetch("/api/admin/stats");
+  if (!currentShowId) throw new Error("No show selected");
+  const res = await fetch(`/api/admin/shows/${currentShowId}/stats`, { credentials: "include" });
   if (!res.ok) throw new Error(`Failed to fetch stats: ${res.status}`);
   return res.json() as Promise<StatsResponse>;
 }
@@ -447,8 +454,9 @@ async function refresh(): Promise<void> {
 }
 
 async function doReset(): Promise<void> {
+  if (!currentShowId) return;
   try {
-    const res = await fetch("/api/admin/connections/reset", { method: "POST" });
+    const res = await fetch(`/api/admin/shows/${currentShowId}/connections/reset`, { method: "POST", credentials: "include" });
     if (res.ok) await refresh();
   } catch (e) {
     console.error("Reset failed", e);
@@ -479,7 +487,17 @@ function columnTitleWithInfoBubble(
   return container;
 }
 
-export function render(container: HTMLElement): void {
+const CONNECTED_DEVICES_LIST_EMPTY_MESSAGE =
+  "Please open or create a show to view the connected devices list.";
+
+const CONNECTED_DEVICES_LIST_NOT_LIVE_MESSAGE =
+  "Set this show live to view the List of Connected Client Devices";
+
+const LIVE_STATE_EVENT_NAME = "lumelier-live-state";
+let connectedDevicesListContainer: HTMLElement | null = null;
+let connectedDevicesLiveStateListener: ((e: Event) => void) | null = null;
+
+function cleanupConnectedDevicesList(): void {
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;
@@ -496,6 +514,19 @@ export function render(container: HTMLElement): void {
     table.destroy();
     table = null;
   }
+  refreshEveryApi = null;
+  statsRefreshEveryApi = null;
+}
+
+function showConnectedDevicesNotLiveMessage(container: HTMLElement): void {
+  container.innerHTML = `
+    <div class="show-required-empty-state">
+      <p class="show-required-empty-state-message">${CONNECTED_DEVICES_LIST_NOT_LIVE_MESSAGE}</p>
+    </div>`;
+}
+
+function renderConnectedDevicesListFull(container: HTMLElement): void {
+  cleanupConnectedDevicesList();
 
   paginationPageSize = getStoredPageSize();
   paginationPage = 1;
@@ -739,4 +770,51 @@ export function render(container: HTMLElement): void {
   if (statsMs > 0) statsRefreshTimer = setInterval(refreshStats, statsMs);
   if (devicesMs > 0) refreshTimer = setInterval(refresh, devicesMs);
   serverTimeRafId = requestAnimationFrame(updateServerTimeDisplay);
+}
+
+export function render(container: HTMLElement, showId: string | null): void {
+  currentShowId = showId;
+  if (showId === null) {
+    connectedDevicesListContainer = null;
+    if (connectedDevicesLiveStateListener) {
+      window.removeEventListener(LIVE_STATE_EVENT_NAME, connectedDevicesLiveStateListener);
+      connectedDevicesLiveStateListener = null;
+    }
+    cleanupConnectedDevicesList();
+    container.innerHTML = `
+      <div class="show-required-empty-state">
+        <p class="show-required-empty-state-message">${CONNECTED_DEVICES_LIST_EMPTY_MESSAGE}</p>
+      </div>`;
+    return;
+  }
+  connectedDevicesListContainer = container;
+  if (connectedDevicesLiveStateListener) {
+    window.removeEventListener(LIVE_STATE_EVENT_NAME, connectedDevicesLiveStateListener);
+  }
+  connectedDevicesLiveStateListener = (e: Event) => {
+    const ev = e as CustomEvent<{ showId: string; live: boolean }>;
+    if (ev.detail?.showId !== currentShowId || !connectedDevicesListContainer) return;
+    cleanupConnectedDevicesList();
+    if (ev.detail.live) {
+      renderConnectedDevicesListFull(connectedDevicesListContainer);
+    } else {
+      showConnectedDevicesNotLiveMessage(connectedDevicesListContainer);
+    }
+  };
+  window.addEventListener(LIVE_STATE_EVENT_NAME, connectedDevicesLiveStateListener);
+
+  fetch(`/api/admin/show-workspaces/${showId}/live-join-url`, { credentials: "include" })
+    .then((res) => (res.ok ? res.json() : { live: false }))
+    .then((data: { live?: boolean }) => {
+      if (currentShowId !== showId) return;
+      if (!data.live) {
+        showConnectedDevicesNotLiveMessage(container);
+        return;
+      }
+      renderConnectedDevicesListFull(container);
+    })
+    .catch(() => {
+      if (currentShowId !== showId) return;
+      showConnectedDevicesNotLiveMessage(container);
+    });
 }

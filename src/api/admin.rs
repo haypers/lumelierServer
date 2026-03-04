@@ -1,20 +1,46 @@
 //! # Admin API — Connected Devices, Stats, Broadcast, Reset
 //!
-//! Handlers for admin panel: connected devices list, pagination by page IDs, fetch by IDs, stats,
-//! reset connections, and broadcast play/pause/timeline. All use AdminAppState (registry + paths + broadcast).
+//! Show-scoped handlers: resolve bucket from live_shows after check_show_access; 404 if show not live.
 
+use axum::extract::Path;
 use axum::extract::Query;
 use axum::extract::State;
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde::Serialize;
-
 use std::cmp::Ordering;
+use std::sync::Arc;
 
-use crate::api::AdminAppState;
+use crate::api::{check_show_access, is_valid_show_id_format, AdminAppState};
+use crate::auth;
 use crate::connections::DeviceRow;
+use crate::live_shows::LiveShowState;
 use crate::time;
+
+/// Resolve live show bucket: validate show_id, auth, check_show_access, then get bucket. Returns 404 if not live.
+pub async fn resolve_show_bucket(
+    state: &AdminAppState,
+    show_id: &str,
+    headers: &HeaderMap,
+) -> Result<Arc<LiveShowState>, StatusCode> {
+    if !is_valid_show_id_format(show_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let session_id = auth::parse_session_cookie(headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(state, &username, show_id).await?;
+    state
+        .live_shows
+        .get(show_id)
+        .ok_or(StatusCode::NOT_FOUND)
+}
 
 #[derive(Serialize)]
 pub struct Stats {
@@ -110,17 +136,17 @@ pub struct ByIdsResponse {
 
 pub async fn get_stats(
     State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<StatsResponse>, StatusCode> {
+    let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
     let now_ms = time::unix_now_ms();
-
-    state.registry.tick_disconnects(now_ms);
-    let (total_connected, average_ping_ms) = state.registry.list_stats_only(now_ms);
-
+    bucket.registry.tick_disconnects(now_ms);
+    let (total_connected, average_ping_ms) = bucket.registry.list_stats_only(now_ms);
     let stats = Stats {
         total_connected,
         average_ping_ms,
     };
-
     Ok(Json(StatsResponse {
         server_time_ms: now_ms,
         stats,
@@ -129,12 +155,13 @@ pub async fn get_stats(
 
 pub async fn get_connected_devices(
     State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<Json<ConnectedDevicesResponse>, StatusCode> {
+    let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
     let now_ms = time::unix_now_ms();
-
-    state.registry.tick_disconnects(now_ms);
-    let (total_connected, average_ping_ms, rows) = state.registry.list_with_stats(now_ms);
-
+    bucket.registry.tick_disconnects(now_ms);
+    let (total_connected, average_ping_ms, rows) = bucket.registry.list_with_stats(now_ms);
     let stats = Stats {
         total_connected,
         average_ping_ms,
@@ -169,10 +196,12 @@ pub async fn get_connected_devices(
 
 pub async fn post_reset_connections(
     State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
 ) -> Result<StatusCode, StatusCode> {
+    let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
     let now_ms = time::unix_now_ms();
-
-    state.registry.remove_disconnected(now_ms);
+    bucket.registry.remove_disconnected(now_ms);
     Ok(StatusCode::OK)
 }
 
@@ -232,11 +261,13 @@ fn compare_option_u32(a: Option<u32>, b: Option<u32>) -> Ordering {
 
 pub async fn get_page_ids(
     State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
     Query(q): Query<PageIdsQuery>,
 ) -> Result<Json<PageIdsResponse>, StatusCode> {
+    let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
     let now_ms = time::unix_now_ms();
-    state.registry.tick_disconnects(now_ms);
-
+    bucket.registry.tick_disconnects(now_ms);
     let page = q.page.unwrap_or(1).max(1);
     let page_size = q.page_size.unwrap_or(10);
     let connected_only = q.connected_only.map(|v| v == 1).unwrap_or(false);
@@ -245,8 +276,7 @@ pub async fn get_page_ids(
         .as_deref()
         .unwrap_or("timeSinceLastContactMs");
     let sort_asc = matches!(q.sort_dir.as_deref(), Some("asc") | None);
-
-    let mut rows = state.registry.list_rows_filtered(now_ms, connected_only);
+    let mut rows = bucket.registry.list_rows_filtered(now_ms, connected_only);
     sort_rows(&mut rows, sort_field, sort_asc);
 
     let total_count = rows.len() as u32;
@@ -272,12 +302,14 @@ pub async fn get_page_ids(
 
 pub async fn post_by_ids(
     State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
     Json(body): Json<ByIdsBody>,
 ) -> Result<Json<ByIdsResponse>, StatusCode> {
+    let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
     let now_ms = time::unix_now_ms();
-    state.registry.tick_disconnects(now_ms);
-
-    let rows = state.registry.rows_by_ids(now_ms, &body.ids);
+    bucket.registry.tick_disconnects(now_ms);
+    let rows = bucket.registry.rows_by_ids(now_ms, &body.ids);
     let devices = rows
         .into_iter()
         .map(|r| DeviceRowResponse {

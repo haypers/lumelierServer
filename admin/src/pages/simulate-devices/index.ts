@@ -730,6 +730,8 @@ let gridRefreshStatsInFlight = false;
 let gridRefreshFullPending = false;
 /** Prevent auto-selecting clients while we're intentionally clearing the list (e.g. delete-all). */
 let suppressAutoSelect = false;
+/** Current show for simulated devices API; set in render(container, showId) when showId is non-null. */
+let currentShowId: string | null = null;
 
 function computeGridLayout(
   containerWidth: number,
@@ -847,21 +849,23 @@ function updateGridLayoutAndRender(): void {
   const visible = getVisiblePageLayout();
   const { start, pageSize, totalPages } = visible;
   const pageClients = clients.slice(start, start + pageSize);
+  const showIdForGrid = currentShowId;
   updateClientGrid(gridContainer, pageClients, selectedId, (id) => {
     selectedId = id;
     selectedClientFull = null;
     selectedAnchor = null;
     refresh();
-    getClient(id)
-      .then((full) => {
-        if (selectedId === id) {
-          selectedClientFull = full;
-          refresh();
-        }
-      })
-      .catch(() => {
-        if (selectedId === id) refresh();
-      });
+    if (showIdForGrid)
+      getClient(showIdForGrid, id)
+        .then((full) => {
+          if (selectedId === id) {
+            selectedClientFull = full;
+            refresh();
+          }
+        })
+        .catch(() => {
+          if (selectedId === id) refresh();
+        });
   }, squareSizePx, showLagOverlay);
   updatePaginationUI(totalPages, pageIndex);
 }
@@ -943,13 +947,13 @@ async function fetchVisibleSummariesAndRefresh(): Promise<boolean> {
     selectedId != null && !visibleIds.includes(selectedId);
   const idsToFetch: string[] = [...visibleIds];
   if (includeSelected && selectedId != null) idsToFetch.push(selectedId);
-  if (idsToFetch.length === 0) {
+  if (idsToFetch.length === 0 || !currentShowId) {
     updateClockErrorWidget(null, null);
     refresh();
     return true;
   }
   try {
-    const summaries = await getSummaries(idsToFetch);
+    const summaries = await getSummaries(currentShowId, idsToFetch);
     mergeSummariesIntoClients(summaries, visibleIds, start, includeSelected);
     const onScreenSummaries = summaries.slice(0, visibleIds.length);
     const errors = onScreenSummaries
@@ -1004,8 +1008,8 @@ function refresh(): void {
       detailsContainer,
       client,
       (distKey: SimulatedClientDistKey, curve: DistributionCurve) => {
-        if (selectedId == null || !selectedClientFull) return;
-        patchClient(selectedId, { [distKey]: curve }).then(() => {
+        if (selectedId == null || !selectedClientFull || !currentShowId) return;
+        patchClient(currentShowId, selectedId, { [distKey]: curve }).then(() => {
           selectedClientFull = selectedClientFull
             ? { ...selectedClientFull, [distKey]: curve }
             : null;
@@ -1018,9 +1022,9 @@ function refresh(): void {
         refresh();
       },
       client ? (distKey) => selectedClientFull?.sampleHistory?.[distKey] ?? [] : undefined,
-      client && selectedId
+      client && selectedId && currentShowId
         ? (distKey) => {
-            postSample(selectedId!, distKey)
+            postSample(currentShowId!, selectedId!, distKey)
               .then((point) => {
                 if (selectedClientFull?.sampleHistory?.[distKey]) {
                   selectedClientFull.sampleHistory[distKey].push(point);
@@ -1061,6 +1065,7 @@ function refresh(): void {
 
 /** Full refresh: fetch client list then summaries. Use on load, manual refresh, and after Create/Destroy/Delete/Clone. */
 async function runGridRefreshFull(): Promise<void> {
+  if (!currentShowId) return;
   if (gridRefreshStatsInFlight) {
     gridRefreshFullPending = true;
     return;
@@ -1070,10 +1075,9 @@ async function runGridRefreshFull(): Promise<void> {
   gridRefreshApi?.recordRefresh();
   let success = false;
   try {
-    const list = await getClients();
+    const list = await getClients(currentShowId);
     clients.length = 0;
     clients.push(...list);
-    // Once we've pulled fresh state from the server, it's safe to auto-select again.
     suppressAutoSelect = false;
     if (selectedId != null && !clients.some((c) => c.id === selectedId)) {
       selectedId = null;
@@ -1081,8 +1085,14 @@ async function runGridRefreshFull(): Promise<void> {
     }
     if (!suppressAutoSelect && clients.length > 0 && selectedId == null) selectedId = clients[0].id;
     success = await fetchVisibleSummariesAndRefresh();
-  } catch {
-    // Leave clients as-is; disconnect indicator will show
+  } catch (e) {
+    if (e instanceof Error && (e.message.includes("not live") || e.message.includes("404"))) {
+      clients.length = 0;
+      selectedId = null;
+      selectedClientFull = null;
+      refresh();
+    }
+    // Otherwise leave clients as-is; disconnect indicator will show
   } finally {
     gridRefreshStatsInFlight = false;
     gridRefreshApi?.requestCompleted(success);
@@ -1125,12 +1135,13 @@ function ensureDetailsRefreshTimer(): void {
   }
   if (detailsRefreshTimer) return;
   detailsRefreshTimer = setInterval(() => {
-    if (selectedId == null || !detailsRefreshApi) return;
+    if (selectedId == null || !detailsRefreshApi || !currentShowId) return;
     const id = selectedId;
+    const showId = currentShowId;
     detailsRefreshApi.requestStarted();
     detailsRefreshApi.recordRefresh();
     let success = false;
-    getClient(id)
+    getClient(showId, id)
       .then((full) => {
         if (selectedId !== id) return;
         if (full == null) {
@@ -1167,10 +1178,30 @@ function ensureDetailsRefreshTimer(): void {
   }, ms);
 }
 
-export function render(container: HTMLElement): void {
+const SIMULATE_DEVICES_EMPTY_MESSAGE =
+  "Please open or create a show to simulate extra devices.";
+
+const SIMULATE_DEVICES_NOT_LIVE_MESSAGE =
+  "Set this show live to Simulate Extra Connected Devices";
+
+const LIVE_STATE_EVENT_NAME = "lumelier-live-state";
+let simulateDevicesContainer: HTMLElement | null = null;
+let simulateDevicesLiveStateListener: ((e: Event) => void) | null = null;
+
+function cleanupSimulateDevices(): void {
   if (clockRafId != null) {
     cancelAnimationFrame(clockRafId);
     clockRafId = null;
+  }
+  if (detailsRefreshTimer) {
+    clearInterval(detailsRefreshTimer);
+    detailsRefreshTimer = null;
+  }
+  resizeObserver?.disconnect();
+  resizeObserver = null;
+  if (gridRefreshTimer != null) {
+    clearInterval(gridRefreshTimer);
+    gridRefreshTimer = null;
   }
   clients = [];
   selectedId = null;
@@ -1178,18 +1209,27 @@ export function render(container: HTMLElement): void {
   lastRenderedDetailsSelectedId = undefined;
   lastRenderedDetailsClientFull = undefined;
   pageIndex = 0;
-  if (detailsRefreshTimer) {
-    clearInterval(detailsRefreshTimer);
-    detailsRefreshTimer = null;
-  }
+  gridContainer = null;
+  detailsContainer = null;
+  gridRefreshApi = null;
+  detailsRefreshApi = null;
+  secondaryToolbar = null;
+  btnDelete = null;
+  btnClone = null;
+  paginationInfoEl = null;
+  pagePrevBtn = null;
+  pageNextBtn = null;
+}
 
-  resizeObserver?.disconnect();
-  resizeObserver = null;
+function showSimulateDevicesNotLiveMessage(container: HTMLElement): void {
+  container.innerHTML = `
+    <div class="show-required-empty-state">
+      <p class="show-required-empty-state-message">${SIMULATE_DEVICES_NOT_LIVE_MESSAGE}</p>
+    </div>`;
+}
 
-  if (gridRefreshTimer != null) {
-    clearInterval(gridRefreshTimer);
-    gridRefreshTimer = null;
-  }
+function renderSimulateDevicesFull(container: HTMLElement): void {
+  cleanupSimulateDevices();
 
   container.innerHTML = `
     <div class="simulate-devices-page">
@@ -1306,13 +1346,13 @@ export function render(container: HTMLElement): void {
       return;
     if (selectedAnchor == null || selectedAnchor.indices.length === 0) return;
     const client = selectedClientFull;
-    if (client == null || selectedId == null) return;
+    if (client == null || selectedId == null || !currentShowId) return;
     const { distKey, indices } = selectedAnchor;
     const curve = client[distKey];
     const indexSet = new Set(indices);
     const anchors = curve.anchors.filter((_, i) => !indexSet.has(i));
     e.preventDefault();
-    patchClient(selectedId, { [distKey]: { anchors } }).then(() => {
+    patchClient(currentShowId, selectedId, { [distKey]: { anchors } }).then(() => {
       selectedClientFull = selectedClientFull
         ? { ...selectedClientFull, [distKey]: { anchors } }
         : null;
@@ -1322,12 +1362,13 @@ export function render(container: HTMLElement): void {
   });
 
   document.getElementById("simulate-devices-create")?.addEventListener("click", () => {
+    if (!currentShowId) return;
     showCreateClientsModal((newClients) => {
-      postClients(newClients)
+      postClients(currentShowId!, newClients)
         .then(() => runGridRefreshFull())
         .then(() => {
-          if (selectedId != null && selectedClientFull == null) {
-            getClient(selectedId).then((full) => {
+          if (selectedId != null && selectedClientFull == null && currentShowId) {
+            getClient(currentShowId, selectedId).then((full) => {
               if (selectedId != null) {
                 selectedClientFull = full;
                 refresh();
@@ -1350,15 +1391,16 @@ export function render(container: HTMLElement): void {
     refresh();
     ensureDetailsRefreshTimer();
 
-    deleteAllClients()
-      .then(() => runGridRefreshFull())
-      .catch(() => runGridRefreshFull());
+    if (currentShowId)
+      deleteAllClients(currentShowId)
+        .then(() => runGridRefreshFull())
+        .catch(() => runGridRefreshFull());
   });
 
   btnDelete?.addEventListener("click", () => {
-    if (selectedId == null) return;
+    if (selectedId == null || !currentShowId) return;
     const idToDelete = selectedId;
-    apiDeleteClient(idToDelete)
+    apiDeleteClient(currentShowId, idToDelete)
       .then(() => {
         selectedId = null;
         selectedClientFull = null;
@@ -1369,16 +1411,16 @@ export function render(container: HTMLElement): void {
 
   btnClone?.addEventListener("click", () => {
     const sel = selectedClientFull;
-    if (sel == null) return;
+    if (sel == null || !currentShowId) return;
     showCloneClientModal(sel, (newClients) => {
-      postClients(newClients)
+      postClients(currentShowId!, newClients)
         .then(() => runGridRefreshFull())
         .then(() => {
           const lastId = newClients[newClients.length - 1]?.id;
-          if (lastId && clients.some((c) => c.id === lastId)) {
+          if (lastId && clients.some((c) => c.id === lastId) && currentShowId) {
             selectedId = lastId;
             selectedClientFull = null;
-            getClient(lastId).then((full) => {
+            getClient(currentShowId, lastId).then((full) => {
               if (selectedId === lastId) {
                 selectedClientFull = full;
                 refresh();
@@ -1417,4 +1459,51 @@ export function render(container: HTMLElement): void {
     pageIndex++;
     refresh();
   });
+}
+
+export function render(container: HTMLElement, showId: string | null): void {
+  currentShowId = showId;
+  if (showId === null) {
+    simulateDevicesContainer = null;
+    if (simulateDevicesLiveStateListener) {
+      window.removeEventListener(LIVE_STATE_EVENT_NAME, simulateDevicesLiveStateListener);
+      simulateDevicesLiveStateListener = null;
+    }
+    cleanupSimulateDevices();
+    container.innerHTML = `
+      <div class="show-required-empty-state">
+        <p class="show-required-empty-state-message">${SIMULATE_DEVICES_EMPTY_MESSAGE}</p>
+      </div>`;
+    return;
+  }
+  simulateDevicesContainer = container;
+  if (simulateDevicesLiveStateListener) {
+    window.removeEventListener(LIVE_STATE_EVENT_NAME, simulateDevicesLiveStateListener);
+  }
+  simulateDevicesLiveStateListener = (e: Event) => {
+    const ev = e as CustomEvent<{ showId: string; live: boolean }>;
+    if (ev.detail?.showId !== currentShowId || !simulateDevicesContainer) return;
+    cleanupSimulateDevices();
+    if (ev.detail.live) {
+      renderSimulateDevicesFull(simulateDevicesContainer);
+    } else {
+      showSimulateDevicesNotLiveMessage(simulateDevicesContainer);
+    }
+  };
+  window.addEventListener(LIVE_STATE_EVENT_NAME, simulateDevicesLiveStateListener);
+
+  fetch(`/api/admin/show-workspaces/${showId}/live-join-url`, { credentials: "include" })
+    .then((res) => (res.ok ? res.json() : { live: false }))
+    .then((data: { live?: boolean }) => {
+      if (currentShowId !== showId) return;
+      if (!data.live) {
+        showSimulateDevicesNotLiveMessage(container);
+        return;
+      }
+      renderSimulateDevicesFull(container);
+    })
+    .catch(() => {
+      if (currentShowId !== showId) return;
+      showSimulateDevicesNotLiveMessage(container);
+    });
 }

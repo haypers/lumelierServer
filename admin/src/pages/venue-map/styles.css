@@ -8,13 +8,25 @@
   flex-direction: column;
 }
 
-/* Toolbar: same row as devices-toolbar (Connected Devices List / Simulate Devices) */
+
+/* Toolbar: search + Edit Venue Shape */
 .connected-devices-map-toolbar {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 6px 0;
   flex-shrink: 0;
+}
+
+/* Dedicated row for refresh interval and map clients */
+.connected-devices-map-options-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 0 6px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 4px;
 }
 
 /* Search: fixed-width input + icon button attached (no gap) */
@@ -120,6 +132,91 @@
 
 .connected-devices-map-search-results-item:hover {
   background: var(--border);
+}
+
+/* Refresh-every control in map toolbar */
+.connected-devices-map-refresh-wrap {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.refresh-every-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.refresh-every-label {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.refresh-every-select {
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-size: 13px;
+}
+.refresh-clock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  transition: color 0.08s ease;
+}
+.refresh-clock--hidden {
+  visibility: hidden;
+  pointer-events: none;
+  width: 0;
+  margin: 0;
+  overflow: hidden;
+}
+.refresh-clock-svg {
+  display: block;
+}
+.refresh-clock--flash {
+  color: var(--accent);
+  filter: drop-shadow(0 0 4px var(--accent));
+}
+.refresh-manual-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.refresh-manual-btn:hover {
+  color: var(--accent);
+  background: var(--border);
+  border-color: var(--accent);
+}
+.refresh-manual-btn .refresh-manual-icon-svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+.refresh-manual-btn--hidden {
+  visibility: hidden;
+  pointer-events: none;
+  width: 0;
+  height: 0;
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  border: none;
 }
 
 /* Map Clients dropdown */
@@ -280,6 +377,7 @@
 
 /* Grey out toolbar controls when in drawing mode */
 .connected-devices-map-toolbar--drawing .connected-devices-map-search-group,
+.connected-devices-map-toolbar--drawing .connected-devices-map-refresh-wrap,
 .connected-devices-map-toolbar--drawing .connected-devices-map-map-clients-wrap,
 .connected-devices-map-toolbar--drawing .connected-devices-map-load-wrap,
 .connected-devices-map-toolbar--drawing #connected-devices-map-save-btn {
