@@ -207,6 +207,48 @@ export function createOneButtonModal(options: OneButtonModalOptions): { dismiss:
   return { dismiss };
 }
 
+export interface CustomCardOptions {
+  type: string;
+  /** Card body; should include any buttons (e.g. Close) that call the returned dismiss(). */
+  content: HTMLElement;
+}
+
+/**
+ * Push a custom card to the popup stack. Same border/styling as other modals.
+ * Caller builds content (e.g. device id, track select, Close button) and wires Close to the returned dismiss().
+ */
+export function showCustomCard(options: CustomCardOptions): { dismiss: () => void } {
+  const { type, content } = options;
+  const stack = getStack();
+  const contrast = getContrastColor();
+
+  const card = document.createElement("div");
+  card.dataset.popupType = type;
+  card.style.cssText = [
+    "min-width:min(280px, 85vw);max-width:400px;",
+    "background:transparent;",
+    "font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;",
+    "overflow:hidden;",
+    "transition:opacity 0.2s ease-out, transform 0.2s ease-out;",
+    "border:4px solid " + contrast + ";",
+    "border-radius:12px;",
+    "color:" + contrast + ";",
+  ].join(" ");
+  card.appendChild(content);
+
+  let dismissed = false;
+  function dismiss(): void {
+    if (dismissed) return;
+    dismissed = true;
+    removePopup(entry);
+  }
+
+  const entry: PopupEntry = { type, element: card, dismiss };
+  popups.push(entry);
+  stack.appendChild(card);
+  return { dismiss };
+}
+
 /**
  * Dismiss all popups with the given type. Remaining popups reflow with a short transition.
  */

@@ -4,6 +4,7 @@ import * as timeline from "./timeline";
 import * as ui from "./ui";
 
 const DEVICE_ID_STORAGE_KEY = "lumelier_device_id";
+const TRACK_ID_STORAGE_KEY = "lumelier_track_id";
 
 const POLL_INTERVAL_MS = 2500;
 const SHOW_ID_LEN = 8;
@@ -35,6 +36,8 @@ let lastDisplayedColor: string | null = null;
 let lastEvents: timeline.PollEvent[] = [];
 let lastDeviceId = "";
 let broadcastColorEvents: { startSec: number; color: string }[] | null = null;
+/** Selected layer id to sync to; null = all layers. Persisted in localStorage. */
+let selectedTrackId: string | null = null;
 
 let clockOffset = 0;
 let nextColorChangeTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -83,15 +86,20 @@ function rebuildBroadcastColorEvents(): void {
     return;
   }
   const items = broadcastCache.timeline?.items ?? [];
-  broadcastColorEvents = items
-    .filter(
-      (it) =>
-        it.effectType === timeline.EVENT_TYPE_SET_COLOR_BROADCAST &&
-        typeof it.color === "string" &&
-        it.color.length > 0 &&
-        typeof it.startSec === "number" &&
-        Number.isFinite(it.startSec)
-    )
+  const layers = broadcastCache.timeline?.layers;
+  const hasLayers = Array.isArray(layers) && layers.length > 0;
+  let filtered = items.filter(
+    (it) =>
+      it.effectType === timeline.EVENT_TYPE_SET_COLOR_BROADCAST &&
+      typeof it.color === "string" &&
+      it.color.length > 0 &&
+      typeof it.startSec === "number" &&
+      Number.isFinite(it.startSec)
+  );
+  if (hasLayers && selectedTrackId != null) {
+    filtered = filtered.filter((it) => it.layerId === selectedTrackId);
+  }
+  broadcastColorEvents = filtered
     .map((it) => ({ startSec: it.startSec as number, color: it.color as string }))
     .sort((a, b) => a.startSec - b.startSec);
 }
@@ -256,6 +264,84 @@ function computeFirstColor(): string {
   return getColorAtPositionSec(refSec) ?? "#000000";
 }
 
+const INFO_PANEL_TYPE = "info-track-panel";
+
+function openInfoPanel(): void {
+  if (popup.hasPopupWithType(INFO_PANEL_TYPE)) return;
+  const content = document.createElement("div");
+  content.style.cssText =
+    "padding:16px 18px;line-height:1.45;display:flex;flex-direction:column;gap:12px;color:inherit;";
+
+  const deviceRow = document.createElement("div");
+  deviceRow.textContent = "Device: " + (lastDeviceId || "—");
+  content.appendChild(deviceRow);
+
+  const serverTimeRow = document.createElement("div");
+  serverTimeRow.textContent = "Server time: " + String(getServerTime());
+  content.appendChild(serverTimeRow);
+
+  const layers = broadcastCache?.timeline?.layers;
+  const hasLayers = Array.isArray(layers) && layers.length > 0;
+
+  const trackRow = document.createElement("div");
+  trackRow.style.display = "flex";
+  trackRow.style.flexDirection = "column";
+  trackRow.style.gap = "6px";
+  const trackLabel = document.createElement("label");
+  trackLabel.textContent = "Track:";
+  trackLabel.setAttribute("for", "info-track-select");
+  const select = document.createElement("select");
+  select.id = "info-track-select";
+  select.setAttribute("aria-label", "Track to sync to");
+  select.style.cssText =
+    "border:2px solid currentColor;background:transparent;color:inherit;padding:6px 8px;font:inherit;cursor:pointer;border-radius:6px;";
+  if (hasLayers) {
+    const allOption = document.createElement("option");
+    allOption.value = "";
+    allOption.textContent = "All layers";
+    select.appendChild(allOption);
+    for (const l of layers) {
+      const opt = document.createElement("option");
+      opt.value = l.id;
+      opt.textContent = l.label;
+      select.appendChild(opt);
+    }
+    select.value = selectedTrackId ?? "";
+  } else {
+    const noTrack = document.createElement("option");
+    noTrack.value = "";
+    noTrack.textContent = "No track list yet";
+    noTrack.disabled = true;
+    select.appendChild(noTrack);
+    select.value = "";
+  }
+  trackRow.appendChild(trackLabel);
+  trackRow.appendChild(select);
+  content.appendChild(trackRow);
+
+  const closeBtn = document.createElement("button");
+  closeBtn.type = "button";
+  closeBtn.textContent = "Close";
+  closeBtn.style.cssText =
+    "margin-top:4px;padding:12px 16px;border:2px solid currentColor;background:transparent;color:inherit;font:inherit;cursor:pointer;border-radius:8px;";
+  content.appendChild(closeBtn);
+
+  const { dismiss } = popup.showCustomCard({ type: INFO_PANEL_TYPE, content });
+  closeBtn.addEventListener("click", () => dismiss());
+
+  select.addEventListener("change", () => {
+    const val = select.value;
+    selectedTrackId = val.length > 0 ? val : null;
+    if (selectedTrackId != null) {
+      localStorage.setItem(TRACK_ID_STORAGE_KEY, selectedTrackId);
+    } else {
+      localStorage.removeItem(TRACK_ID_STORAGE_KEY);
+    }
+    rebuildBroadcastColorEvents();
+    syncDisplayOnce();
+  });
+}
+
 function doRender(): void {
   const firstColor = computeFirstColor();
   lastDisplayedColor = firstColor;
@@ -263,6 +349,7 @@ function doRender(): void {
     deviceId: lastDeviceId,
     serverTime: getServerTime(),
     firstColor,
+    onInfoClick: openInfoPanel,
   });
 }
 
@@ -307,6 +394,14 @@ async function pollLoop(showId: string): Promise<void> {
 
     if (data.broadcast && timeline.isBroadcastTimeline(data.broadcast.timeline)) {
       broadcastCache = data.broadcast;
+      const layers = data.broadcast.timeline?.layers;
+      if (selectedTrackId != null && Array.isArray(layers)) {
+        const found = layers.some((l: { id: string }) => l.id === selectedTrackId);
+        if (!found) {
+          selectedTrackId = null;
+          localStorage.removeItem(TRACK_ID_STORAGE_KEY);
+        }
+      }
       rebuildBroadcastColorEvents();
       lastAppliedBroadcastColor = null;
       const now = getServerTime();
@@ -352,10 +447,13 @@ if (showId == null) {
 } else {
   lastDisplayedColor = "#000000";
   lastDeviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY) || "—";
+  const storedTrack = localStorage.getItem(TRACK_ID_STORAGE_KEY);
+  selectedTrackId = storedTrack != null && storedTrack.length > 0 ? storedTrack : null;
   ui.render({
     deviceId: lastDeviceId,
     serverTime: getServerTime(),
     firstColor: "#000000",
+    onInfoClick: openInfoPanel,
   });
   pollLoop(showId);
 }
