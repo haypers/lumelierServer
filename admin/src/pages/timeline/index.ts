@@ -7,6 +7,7 @@ import circleCheckIcon from "../../icons/circle-check.svg?raw";
 import pauseIcon from "../../icons/pause.svg?raw";
 import playIcon from "../../icons/play.svg?raw";
 import resetIcon from "../../icons/reset.svg?raw";
+import treeIcon from "../../icons/tree.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import {
   SEC,
@@ -604,7 +605,7 @@ export function getTemplateState(templateType: TemplateType): TimelineStateJSON 
 /** Load a template into an existing show by showId */
 export async function applyTemplateToShow(showId: string, templateType: TemplateType): Promise<void> {
   const state = getTemplateState(templateType);
-  await fetch(`/api/admin/shows/${showId}/timeline`, {
+  await fetch(`/api/admin/show-workspaces/${showId}/timeline`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     credentials: "include",
@@ -978,6 +979,7 @@ export function render(container: HTMLElement, showId: string | null): void {
                 <button type="button" class="btn btn-icon-only" data-action="pause" aria-label="Pause">${pauseIcon}</button>
               </div>
               <div class="timeline-toolbar-right" id="timeline-toolbar-right">
+                <button type="button" class="btn btn-icon-label" data-action="split-users-tracks" aria-label="Split Users Into Tracks">${treeIcon}Split Users Into Tracks</button>
                 <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
                 <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
               </div>
@@ -1206,6 +1208,9 @@ export function render(container: HTMLElement, showId: string | null): void {
             () => {},
             () => []
           );
+          break;
+        case "split-users-tracks":
+          // TODO: open UI for admin to set % of users per track
           break;
       }
     });
