@@ -28,6 +28,14 @@ import {
   type NextIds,
 } from "./state-serialization";
 import type { TimelineStateJSON } from "./types";
+import {
+  closeTrackAssignmentsDropdown,
+  getTrackAssignmentsRoot,
+  openTrackAssignmentsDropdown,
+  setTrackAssignmentsRoot,
+  isTrackAssignmentsDropdownOpen,
+} from "./track-assignments";
+import { getDefaultTrackAssignments } from "./track-assignments";
 export type { TimelineItemPayload, TimelineStateJSON } from "./types";
 
 let timeline: Timeline | null = null;
@@ -368,7 +376,7 @@ function injectAddLayerButton(): void {
 }
 
 function getExportState(): TimelineStateJSON {
-  return exportState(
+  const base = exportState(
     groups,
     items,
     () =>
@@ -378,6 +386,10 @@ function getExportState(): TimelineStateJSON {
     () => projectTitle,
     () => requestsGPS
   );
+  return {
+    ...base,
+    trackAssignments: getTrackAssignmentsRoot(),
+  };
 }
 
 function setRequestsGPS(value: boolean): void {
@@ -806,6 +818,11 @@ function ensureTimelineCreated(): void {
 
 /** Load state into timeline and show toolbar + timeline. Call when opening a show or creating new. */
 function loadShowState(state: TimelineStateJSON): void {
+  setTrackAssignmentsRoot(
+    state.trackAssignments != null && state.trackAssignments.root != null
+      ? state.trackAssignments
+      : getDefaultTrackAssignments()
+  );
   groupLabelCache.clear();
   ensureTimelineCreated();
   importState(
@@ -1092,7 +1109,7 @@ export function render(container: HTMLElement, showId: string | null): void {
   setRequestsGPS(requestsGPS);
 
   container.querySelectorAll("[data-action]").forEach((el) => {
-    el.addEventListener("click", async () => {
+    el.addEventListener("click", async (e) => {
       const action = (el as HTMLElement).getAttribute("data-action");
       switch (action) {
         case "restart": {
@@ -1209,9 +1226,16 @@ export function render(container: HTMLElement, showId: string | null): void {
             () => []
           );
           break;
-        case "split-users-tracks":
-          // TODO: open UI for admin to set % of users per track
+        case "split-users-tracks": {
+          const btn = el as HTMLElement;
+          (e as MouseEvent).stopPropagation();
+          if (isTrackAssignmentsDropdownOpen()) {
+            closeTrackAssignmentsDropdown();
+          } else {
+            openTrackAssignmentsDropdown(btn);
+          }
           break;
+        }
       }
     });
   });

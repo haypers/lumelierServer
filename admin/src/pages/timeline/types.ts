@@ -41,6 +41,8 @@ export interface TimelineItemPayload {
   color?: string;
 }
 
+import type { TrackAssignmentsRoot } from "./track-assignments/types";
+
 /** Serializable timeline state for server. */
 export interface TimelineStateJSON {
   version: number;
@@ -62,4 +64,6 @@ export interface TimelineStateJSON {
   }[];
   /** Readhead position in seconds. */
   readheadSec: number;
+  /** How users are split into tracks when they join. Stored in timeline.json. */
+  trackAssignments?: TrackAssignmentsRoot;
 }
