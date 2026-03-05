@@ -29,6 +29,8 @@ import {
 } from "./state-serialization";
 import type { TimelineStateJSON } from "./types";
 export type { TimelineItemPayload, TimelineStateJSON } from "./types";
+import { openModal as openVideoImportModal } from "./video-import";
+import type { VideoImportEvent } from "./video-import";
 
 let timeline: Timeline | null = null;
 let groups: DataSet<DataGroup>;
@@ -210,6 +212,32 @@ function getLayers(): { id: string; label: string }[] {
     id: String(g.id),
     label: String(g.content),
   }));
+}
+
+/** Add multiple "Set Color Broadcast" events from video import; used by the video-import modal. */
+function addEventsFromVideo(events: VideoImportEvent[], layerId: string): void {
+  ensureGroups();
+  const gid = layerId || groups.getIds()[0];
+  events.forEach((ev) => {
+    const id = `video-${nextItemId++}`;
+    const payload: TimelineItemPayload = {
+      kind: "event",
+      label: id,
+      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
+      target: "All",
+      color: ev.color,
+    };
+    items.add({
+      id,
+      group: gid,
+      start: timeToDate(ev.startSec),
+      content: payload.label ?? id,
+      type: "point",
+      payload,
+    });
+  });
+  scheduleAutosave();
+  timeline?.fit();
 }
 
 function updateItemInTimeline(id: IdType, updates: DetailsPanelUpdates): void {
@@ -980,6 +1008,7 @@ export function render(container: HTMLElement, showId: string | null): void {
               </div>
               <div class="timeline-toolbar-right" id="timeline-toolbar-right">
                 <button type="button" class="btn btn-icon-label" data-action="split-users-tracks" aria-label="Split Users Into Tracks">${treeIcon}Split Users Into Tracks</button>
+                <button type="button" class="btn btn-primary" data-action="import-from-video">Import from video</button>
                 <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
                 <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
               </div>
@@ -1194,6 +1223,13 @@ export function render(container: HTMLElement, showId: string | null): void {
         case "add-clip":
           addClip();
           timeline?.fit();
+          break;
+        case "import-from-video":
+          openVideoImportModal({
+            getLayers,
+            addEventsFromVideo,
+            inBroadcastMode: () => isBroadcastMode,
+          });
           break;
         case "add-event":
           addEvent();
