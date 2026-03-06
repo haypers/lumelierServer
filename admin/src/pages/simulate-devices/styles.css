@@ -27,7 +27,7 @@
 .simulate-devices-clock-error-widget {
   display: flex;
   align-items: stretch;
-  padding: 9px 10px;
+  padding: 4px 8px;
   background: rgba(255, 255, 255, 0.03);
   border: 1px solid var(--border);
   border-radius: var(--radius);
@@ -45,34 +45,25 @@
 
 .simulate-devices-clock-error-row {
   display: flex;
-  align-items: baseline;
+  align-items: stretch;
   gap: 4px;
 }
 
 .simulate-devices-clock-error-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   color: var(--text-muted);
   white-space: nowrap;
 }
-
-.simulate-devices-clock-error-value {
-  font-variant-numeric: tabular-nums;
+.simulate-devices-clock-error-label .info-bubble {
+  margin: 0;
+  flex-shrink: 0;
 }
-
-.simulate-devices-clock-error-right {
+.simulate-devices-clock-error-value {
   display: flex;
   align-items: center;
-  justify-content: center;
-  width: 28px;
-  min-width: 28px;
-  height: 28px;
-  margin-left: 6px;
-  border-left: 1px solid var(--border);
-  flex-shrink: 0;
-  align-self: center;
-}
-
-.simulate-devices-clock-error-right .info-bubble {
-  margin: 0;
+  font-variant-numeric: tabular-nums;
 }
 .simulate-devices-toolbar-secondary {
   display: flex;
@@ -291,16 +282,35 @@
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: var(--space);
+  scrollbar-gutter: stable;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bg);
+}
+.simulate-devices-details-section::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.simulate-devices-details-section::-webkit-scrollbar-track {
+  background: var(--bg);
+  border-radius: var(--radius);
+}
+.simulate-devices-details-section::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+}
+.simulate-devices-details-section::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
 }
 .simulate-devices-details-section > .simulate-devices-details-refresh-wrap {
   margin-bottom: var(--space);
   flex-shrink: 0;
 }
 .simulate-devices-details-pane {
-  min-height: 0;
-  flex: 1;
+  flex: 0 0 auto;
+  min-height: min-content;
   display: flex;
   flex-direction: column;
+  overflow-anchor: none;
 }
 .simulate-devices-details-empty {
   color: var(--text-muted);
@@ -345,6 +355,7 @@
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
   gap: var(--space);
   margin-top: 0;
+  margin-bottom: var(--space);
 }
 .simulate-devices-chart-card {
   background: var(--bg);

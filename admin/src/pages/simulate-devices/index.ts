@@ -244,34 +244,46 @@ function getSelected(): ClientSummaryForGrid | null {
   return clients.find((c) => c.id === selectedId) ?? null;
 }
 
-const CLOCK_ERROR_WIDGET_TOOLTIP =
-  "Average Clock Error: The average difference between the client's estimated server clock and the actual server clock. This should approach 0 to indicate an accurate simulation. Average Absolute Clock Error: The average positive absolute values of the difference between the client's estimated server clock and the actual server clock. The lower this value, the more in sync the devices are." ;
+const CLOCK_ERROR_AVE_TOOLTIP =
+  "The average difference between the client's estimated server clock and the actual server clock. This should approach 0 to indicate an accurate simulation.";
+const CLOCK_ERROR_AVE_ABS_TOOLTIP =
+  "The average of the absolute values of the difference between the client's estimated server clock and the actual server clock. The lower this value, the more in sync the devices are.";
 
 function createClockErrorWidget(): HTMLElement {
   const root = document.createElement("div");
   root.className = "simulate-devices-clock-error-widget";
-  root.innerHTML = `
-    <div class="simulate-devices-clock-error-left">
-      <div class="simulate-devices-clock-error-row">
-        <span class="simulate-devices-clock-error-label">Ave Clock Error:</span>
-        <span id="simulate-devices-ave-clock-error-value" class="simulate-devices-clock-error-value">—</span>
-      </div>
-      <div class="simulate-devices-clock-error-row">
-        <span class="simulate-devices-clock-error-label">Ave Absolute Clock Error:</span>
-        <span id="simulate-devices-ave-abs-clock-error-value" class="simulate-devices-clock-error-value">—</span>
-      </div>
-    </div>
-    <div class="simulate-devices-clock-error-right">
-    </div>`;
-  const rightHalf = root.querySelector(".simulate-devices-clock-error-right");
-  if (rightHalf) {
-    rightHalf.appendChild(
-      createInfoBubble({
-        tooltipText: CLOCK_ERROR_WIDGET_TOOLTIP,
-        ariaLabel: "Info about clock error",
-      })
-    );
-  }
+  const row1 = document.createElement("div");
+  row1.className = "simulate-devices-clock-error-row";
+  const label1 = document.createElement("span");
+  label1.className = "simulate-devices-clock-error-label";
+  label1.append(
+    createInfoBubble({ tooltipText: CLOCK_ERROR_AVE_TOOLTIP, ariaLabel: "Info about average clock error" }),
+    document.createTextNode(" Ave Clock Error:")
+  );
+  const value1 = document.createElement("span");
+  value1.id = "simulate-devices-ave-clock-error-value";
+  value1.className = "simulate-devices-clock-error-value";
+  value1.textContent = "—";
+  row1.append(label1, value1);
+
+  const row2 = document.createElement("div");
+  row2.className = "simulate-devices-clock-error-row";
+  const label2 = document.createElement("span");
+  label2.className = "simulate-devices-clock-error-label";
+  label2.append(
+    createInfoBubble({ tooltipText: CLOCK_ERROR_AVE_ABS_TOOLTIP, ariaLabel: "Info about average absolute clock error" }),
+    document.createTextNode(" Ave Absolute Clock Error:")
+  );
+  const value2 = document.createElement("span");
+  value2.id = "simulate-devices-ave-abs-clock-error-value";
+  value2.className = "simulate-devices-clock-error-value";
+  value2.textContent = "—";
+  row2.append(label2, value2);
+
+  const left = document.createElement("div");
+  left.className = "simulate-devices-clock-error-left";
+  left.append(row1, row2);
+  root.appendChild(left);
   return root;
 }
 
@@ -331,10 +343,15 @@ async function fetchVisibleSummariesAndRefresh(): Promise<boolean> {
   return true;
 }
 
+function getDetailsScrollContainer(): HTMLElement | null {
+  return detailsContainer?.parentElement ?? null;
+}
+
 function refresh(): void {
   if (!gridContainer || !detailsContainer) return;
   if (!suppressAutoSelect && clients.length > 0 && getSelected() === null) selectedId = clients[0].id;
-  const savedScrollTop = detailsContainer.scrollTop;
+  const scrollContainer = getDetailsScrollContainer();
+  const savedScrollTop = scrollContainer ? scrollContainer.scrollTop : 0;
   updateGridLayoutAndRender();
   const client = selectedClientFull;
   const showDetailsLoading = selectedId != null && selectedClientFull == null;
@@ -398,15 +415,21 @@ function refresh(): void {
     lastRenderedDetailsSelectedId = selectedId;
     lastRenderedDetailsClientFull = selectedClientFull;
     const pane = detailsContainer;
+    const scrollEl = getDetailsScrollContainer();
     requestAnimationFrame(() => {
       if (!pane) return;
-      const maxScroll = pane.scrollHeight - pane.clientHeight;
-      pane.scrollTop = Math.min(savedScrollTop, Math.max(0, maxScroll));
       pane.style.visibility = "";
+      if (scrollEl) {
+        const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
+        scrollEl.scrollTop = Math.min(savedScrollTop, Math.max(0, maxScroll));
+      }
     });
   } else {
-    const maxScroll = detailsContainer.scrollHeight - detailsContainer.clientHeight;
-    detailsContainer.scrollTop = Math.min(savedScrollTop, Math.max(0, maxScroll));
+    const scrollEl = getDetailsScrollContainer();
+    if (scrollEl) {
+      const maxScroll = scrollEl.scrollHeight - scrollEl.clientHeight;
+      scrollEl.scrollTop = Math.min(savedScrollTop, Math.max(0, maxScroll));
+    }
   }
   ensureDetailsRefreshTimer();
 
@@ -516,10 +539,11 @@ function ensureDetailsRefreshTimer(): void {
             // Details pane isn't rendered yet (or is showing loading). Do a full refresh once.
             refresh();
           } else {
-            const st = detailsContainer.scrollTop;
+            const scrollEl = getDetailsScrollContainer();
+            const st = scrollEl ? scrollEl.scrollTop : 0;
             updateDetailsPaneReadOnly(detailsContainer, full);
             updateDetailsPaneChartsSamplePoints(detailsContainer, full);
-            detailsContainer.scrollTop = st;
+            if (scrollEl) scrollEl.scrollTop = st;
             // Keep "last rendered" pointers in sync so unrelated refreshes don't rebuild details DOM.
             lastRenderedDetailsSelectedId = selectedId;
             lastRenderedDetailsClientFull = selectedClientFull;
