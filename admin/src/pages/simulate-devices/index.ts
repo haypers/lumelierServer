@@ -542,6 +542,8 @@ const SIMULATE_DEVICES_NOT_LIVE_MESSAGE =
 const LIVE_STATE_EVENT_NAME = "lumelier-live-state";
 let simulateDevicesContainer: HTMLElement | null = null;
 let simulateDevicesLiveStateListener: ((e: Event) => void) | null = null;
+/** True when the full grid+details UI is shown; false when showing "not live" or empty state. Used to avoid re-running full teardown+render on every live-state event (poll/BroadcastChannel). */
+let simulateDevicesShowingFullUI = false;
 
 function cleanupSimulateDevices(): void {
   if (clockRafId != null) {
@@ -825,11 +827,14 @@ function renderSimulateDevicesFull(container: HTMLElement): void {
     pageIndex++;
     refresh();
   });
+
+  simulateDevicesShowingFullUI = true;
 }
 
 export function render(container: HTMLElement, showId: string | null): void {
   currentShowId = showId;
   if (showId === null) {
+    simulateDevicesShowingFullUI = false;
     simulateDevicesContainer = null;
     if (simulateDevicesLiveStateListener) {
       window.removeEventListener(LIVE_STATE_EVENT_NAME, simulateDevicesLiveStateListener);
@@ -849,10 +854,16 @@ export function render(container: HTMLElement, showId: string | null): void {
   simulateDevicesLiveStateListener = (e: Event) => {
     const ev = e as CustomEvent<{ showId: string; live: boolean }>;
     if (ev.detail?.showId !== currentShowId || !simulateDevicesContainer) return;
-    cleanupSimulateDevices();
     if (ev.detail.live) {
-      renderSimulateDevicesFull(simulateDevicesContainer);
+      // Only teardown and re-render when transitioning from not-live to live. If we're already
+      // showing the full UI, the poll/BroadcastChannel "show is live" event must not nuke the grid.
+      if (!simulateDevicesShowingFullUI) {
+        cleanupSimulateDevices();
+        renderSimulateDevicesFull(simulateDevicesContainer);
+      }
     } else {
+      simulateDevicesShowingFullUI = false;
+      cleanupSimulateDevices();
       showSimulateDevicesNotLiveMessage(simulateDevicesContainer);
     }
   };
