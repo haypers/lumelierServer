@@ -1,11 +1,10 @@
 import "./styles.css";
 import openIcon from "../../icons/open.svg?raw";
-import saveIcon from "../../icons/save.svg?raw";
 import trashIcon from "../../icons/trash.svg?raw";
 import noSignalIcon from "../../icons/noSignal.svg?raw";
+import { openModal as openGlobalModal } from "../../components/modal";
 import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
-import { attachTooltipWhen } from "../../components/popup-tooltip";
 import type {
   SimulatedClient,
   SimulatedClientDistKey,
@@ -75,24 +74,11 @@ function showCreateClientsModal(
   let editorApi: ReturnType<typeof renderDistributionTablesEditor> | null = null;
   const emptyCurves: DistributionCurve[] = DIST_KEYS_BY_PRESET_INDEX.map(() => ({ anchors: [] }));
 
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-
-  const modal = document.createElement("div");
-  modal.className = "modal create-clients-modal";
-
   const content = document.createElement("div");
   content.className = "clone-client-modal-content";
 
   const countRow = document.createElement("div");
   countRow.className = "create-modal-count-row";
-  countRow.appendChild(
-    createInfoBubble({
-      tooltipText:
-        "Normally you'll want to generate clients from a profile. Profiles define ranges that distribution table points can be placed in. Chaos clients are built by placing a random number of points in the distribution table at random.",
-      ariaLabel: "Info",
-    })
-  );
   const countLabel = document.createElement("label");
   countLabel.htmlFor = "create-modal-count";
   countLabel.textContent = "New Client Count: ";
@@ -175,57 +161,31 @@ function showCreateClientsModal(
   chaosBlock.innerHTML = chartBlocksHtml;
   content.appendChild(chaosBlock);
 
-  modal.appendChild(content);
-
-  const actions = document.createElement("div");
-  actions.className = "modal-actions";
-  actions.innerHTML = `
-    <button type="button" class="btn-save-profile create-modal-btn-save">${saveIcon}<span>Save Profile</span></button>
-    <button type="button" class="btn-cancel">Cancel</button>
-    <button type="button" class="btn-confirm">Create</button>
-  `;
-  modal.appendChild(actions);
-  overlay.appendChild(modal);
-
-  const createBtn = actions.querySelector(".btn-confirm") as HTMLButtonElement | null;
-  const saveProfileBtn = actions.querySelector(".create-modal-btn-save") as HTMLButtonElement | null;
-
-  function wrapButtonForTooltip(btn: HTMLButtonElement): HTMLElement {
-    const wrap = document.createElement("span");
-    wrap.className = "modal-btn-tooltip-wrap";
-    btn.parentNode?.insertBefore(wrap, btn);
-    wrap.appendChild(btn);
-    return wrap;
-  }
-  if (createBtn) {
-    const wrap = wrapButtonForTooltip(createBtn);
-    attachTooltipWhen(wrap, () =>
-      createBtn.disabled ? PROFILE_VALIDATION_TOOLTIP : ""
-    );
-  }
-  if (saveProfileBtn) {
-    const wrap = wrapButtonForTooltip(saveProfileBtn);
-    attachTooltipWhen(wrap, () =>
-      saveProfileBtn!.disabled ? PROFILE_VALIDATION_TOOLTIP : ""
-    );
+  function getFooterButtons(): [HTMLButtonElement | null, HTMLButtonElement | null] {
+    const panel = content.closest(".global-modal-panel");
+    const rightBtns = panel?.querySelectorAll(".global-modal-footer-right button");
+    if (!rightBtns || rightBtns.length < 2) return [null, null];
+    return [rightBtns[0] as HTMLButtonElement, rightBtns[1] as HTMLButtonElement];
   }
 
   function updateCreateButtonState(): void {
-    if (!createBtn) return;
+    const [, createBtn] = getFooterButtons();
+    const saveProfileBtn = getFooterButtons()[0];
+    if (!createBtn || !saveProfileBtn) return;
     if (!generateFromProfile) {
       createBtn.disabled = false;
-      if (saveProfileBtn) saveProfileBtn.disabled = false;
+      saveProfileBtn.disabled = false;
       return;
     }
     if (!editorApi) {
       createBtn.disabled = true;
-      if (saveProfileBtn) saveProfileBtn.disabled = true;
+      saveProfileBtn.disabled = true;
       return;
     }
     const curves = editorApi.getCurves();
     const valid = hasZeroDestructionPointInAllCharts(curves);
     createBtn.disabled = !valid;
-    if (saveProfileBtn) saveProfileBtn.disabled = !valid;
+    saveProfileBtn.disabled = !valid;
   }
 
   function setMode(useProfile: boolean): void {
@@ -237,8 +197,8 @@ function showCreateClientsModal(
     content.querySelector(".create-modal-mode-label-chaos")?.classList.toggle("active", !useProfile);
     profileBlock.hidden = !useProfile;
     chaosBlock.hidden = useProfile;
-    const saveBtn = actions.querySelector(".create-modal-btn-save");
-    if (saveBtn) (saveBtn as HTMLElement).hidden = !useProfile;
+    const saveProfileBtn = getFooterButtons()[0];
+    if (saveProfileBtn) saveProfileBtn.hidden = !useProfile;
     if (useProfile && !editorApi) {
       editorApi = renderDistributionTablesEditor(editorContainer, emptyCurves, {
         onCurvesChange: updateCreateButtonState,
@@ -263,7 +223,6 @@ function showCreateClientsModal(
     profileDropdownBtn.setAttribute("aria-expanded", String(!open));
   });
   function closeOnClickOutside(e: MouseEvent): void {
-    if (!overlay.contains(e.target as Node)) return;
     if (profileDropdownWrap.contains(e.target as Node)) return;
     closeProfileDropdown();
   }
@@ -322,18 +281,9 @@ function showCreateClientsModal(
     }
   });
 
-  const close = (): void => {
-    document.removeEventListener("click", closeOnClickOutside);
-    if (editorApi) {
-      editorApi.destroy();
-      editorApi = null;
-    }
-    overlay.remove();
-  };
+  const closeRef = { current: (): void => {} };
 
-  actions.querySelector(".btn-cancel")?.addEventListener("click", close);
-
-  actions.querySelector(".create-modal-btn-save")?.addEventListener("click", async () => {
+  async function handleSaveProfile(): Promise<void> {
     if (!editorApi) return;
     const name = prompt("What is the name of this client profile?");
     if (name == null || name.trim() === "") return;
@@ -372,9 +322,9 @@ function showCreateClientsModal(
     } else {
       alert("Failed to save profile.");
     }
-  });
+  }
 
-  actions.querySelector(".btn-confirm")?.addEventListener("click", () => {
+  function handleCreate(close: () => void): void {
     const countInput = content.querySelector("#create-modal-count") as HTMLInputElement | null;
     const count = countInput != null ? parseInt(countInput.value.trim(), 10) : NaN;
     if (!Number.isInteger(count) || count < 1) {
@@ -384,6 +334,10 @@ function showCreateClientsModal(
     if (generateFromProfile) {
       if (!editorApi) return;
       const curves = editorApi.getCurves();
+      if (!hasZeroDestructionPointInAllCharts(curves)) {
+        alert(PROFILE_VALIDATION_TOOLTIP);
+        return;
+      }
       const newClients: SimulatedClient[] = [];
       const maxAttempts = count * 20 + 100;
       let attempts = 0;
@@ -442,7 +396,28 @@ function showCreateClientsModal(
       close();
       onCreate(newClients);
     }
+  }
+
+  const modalApi = openGlobalModal({
+    size: "large",
+    clickOutsideToClose: false,
+    title: "Create Clients",
+    info: "Normally you'll want to generate clients from a profile. Profiles define ranges that distribution table points can be placed in. Chaos clients are built by placing a random number of points in the distribution table at random.",
+    content,
+    cancel: {},
+    actions: [
+      { preset: "secondary", label: "Save Profile", onClick: handleSaveProfile },
+      { preset: "primary", label: "Create", onClick: () => handleCreate(closeRef.current) },
+    ],
+    onClose: () => {
+      document.removeEventListener("click", closeOnClickOutside);
+      if (editorApi) {
+        editorApi.destroy();
+        editorApi = null;
+      }
+    },
   });
+  closeRef.current = modalApi.close;
 
   async function loadTimelineLayers(): Promise<void> {
     const select = content.querySelector("#create-modal-track") as HTMLSelectElement | null;
@@ -469,8 +444,6 @@ function showCreateClientsModal(
   loadProfileList();
   void loadTimelineLayers();
   setMode(true);
-
-  document.body.appendChild(overlay);
 }
 
 function escapeHtml(s: string): string {
@@ -494,12 +467,6 @@ function showCloneClientModal(
   const initialCurves: DistributionCurve[] = DIST_KEYS_BY_PRESET_INDEX.map((key) =>
     getCurveCopy(sourceClient, key)
   );
-
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-
-  const modal = document.createElement("div");
-  modal.className = "modal clone-client-modal";
 
   const content = document.createElement("div");
   content.className = "clone-client-modal-content";
@@ -548,47 +515,9 @@ function showCloneClientModal(
   const editorContainer = document.createElement("div");
   content.appendChild(editorContainer);
 
-  modal.appendChild(content);
-
-  const actions = document.createElement("div");
-  actions.className = "modal-actions";
-  actions.innerHTML = `
-    <button type="button" class="btn-save-profile">${saveIcon}<span>Save Profile</span></button>
-    <button type="button" class="btn-cancel">Cancel</button>
-    <button type="button" class="btn-confirm">Confirm Clone</button>
-  `;
-  modal.appendChild(actions);
-  overlay.appendChild(modal);
-
-  const cloneConfirmBtn = actions.querySelector(".btn-confirm") as HTMLButtonElement | null;
-  const cloneSaveBtn = actions.querySelector(".btn-save-profile") as HTMLButtonElement | null;
-
-  function wrapCloneButtonForTooltip(btn: HTMLButtonElement): HTMLElement {
-    const wrap = document.createElement("span");
-    wrap.className = "modal-btn-tooltip-wrap";
-    btn.parentNode?.insertBefore(wrap, btn);
-    wrap.appendChild(btn);
-    return wrap;
-  }
-  if (cloneConfirmBtn) {
-    const wrap = wrapCloneButtonForTooltip(cloneConfirmBtn);
-    attachTooltipWhen(wrap, () =>
-      cloneConfirmBtn.disabled ? PROFILE_VALIDATION_TOOLTIP : ""
-    );
-  }
-  if (cloneSaveBtn) {
-    const wrap = wrapCloneButtonForTooltip(cloneSaveBtn);
-    attachTooltipWhen(wrap, () =>
-      cloneSaveBtn!.disabled ? PROFILE_VALIDATION_TOOLTIP : ""
-    );
-  }
-
   let editorApi: ReturnType<typeof renderDistributionTablesEditor>;
   function updateCloneButtonsState(): void {
-    const curves = editorApi.getCurves();
-    const valid = hasZeroDestructionPointInAllCharts(curves);
-    if (cloneConfirmBtn) cloneConfirmBtn.disabled = !valid;
-    if (cloneSaveBtn) cloneSaveBtn.disabled = !valid;
+    /* Button state not applied; global modal footer buttons stay enabled. Validation on click. */
   }
 
   function closeCloneProfileDropdown(): void {
@@ -601,7 +530,6 @@ function showCloneClientModal(
     profileDropdownBtn.setAttribute("aria-expanded", String(!open));
   });
   function closeOnClickOutsideClone(e: MouseEvent): void {
-    if (!overlay.contains(e.target as Node)) return;
     if (profileDropdownWrap.contains(e.target as Node)) return;
     closeCloneProfileDropdown();
   }
@@ -664,12 +592,6 @@ function showCloneClientModal(
   updateCloneButtonsState();
   loadCloneProfileList();
 
-  const close = (): void => {
-    document.removeEventListener("click", closeOnClickOutsideClone);
-    editorApi.destroy();
-    overlay.remove();
-  };
-
   function buildProfilePayload(): Record<SimulatedClientDistKey, DistributionCurve> {
     const profile = {} as Record<SimulatedClientDistKey, DistributionCurve>;
     const curves = editorApi.getCurves();
@@ -705,7 +627,7 @@ function showCloneClientModal(
     return { success: true };
   }
 
-  actions.querySelector(".btn-save-profile")?.addEventListener("click", async () => {
+  async function handleSaveProfile(): Promise<void> {
     const name = prompt("What is the name of this client profile?");
     if (name == null || name.trim() === "") return;
     const profileName = name.trim();
@@ -723,11 +645,9 @@ function showCloneClientModal(
     } else {
       alert("Failed to save profile.");
     }
-  });
+  }
 
-  actions.querySelector(".btn-cancel")?.addEventListener("click", close);
-
-  actions.querySelector(".btn-confirm")?.addEventListener("click", () => {
+  function handleConfirmClone(modalClose: () => void): void {
     const countInput = content.querySelector("#clone-modal-count") as HTMLInputElement | null;
     const count = countInput != null ? parseInt(countInput.value.trim(), 10) : NaN;
     if (!Number.isInteger(count) || count < 1) {
@@ -735,6 +655,10 @@ function showCloneClientModal(
       return;
     }
     const curves = editorApi.getCurves();
+    if (!hasZeroDestructionPointInAllCharts(curves)) {
+      alert(PROFILE_VALIDATION_TOOLTIP);
+      return;
+    }
     const newClients: SimulatedClient[] = [];
     const maxAttempts = count * 20 + 100;
     let attempts = 0;
@@ -750,8 +674,24 @@ function showCloneClientModal(
     const trackSelect = content.querySelector("#clone-modal-track") as HTMLSelectElement | null;
     const trackVal = trackSelect?.value?.trim() ?? "";
     for (const c of newClients) c.trackId = trackVal || null;
-    close();
+    modalClose();
     onCreate(newClients);
+  }
+
+  const modalApi = openGlobalModal({
+    size: "large",
+    clickOutsideToClose: false,
+    title: "Clone Client",
+    content,
+    cancel: {},
+    actions: [
+      { preset: "secondary", label: "Save Profile", onClick: handleSaveProfile },
+      { preset: "primary", label: "Confirm Clone", onClick: () => handleConfirmClone(modalApi.close) },
+    ],
+    onClose: () => {
+      document.removeEventListener("click", closeOnClickOutsideClone);
+      editorApi.destroy();
+    },
   });
 
   async function loadCloneTimelineLayers(): Promise<void> {
@@ -780,7 +720,6 @@ function showCloneClientModal(
   }
 
   void loadCloneTimelineLayers();
-  document.body.appendChild(overlay);
 }
 
 let clients: ClientSummaryForGrid[] = [];

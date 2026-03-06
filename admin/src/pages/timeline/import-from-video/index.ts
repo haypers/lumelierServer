@@ -1,4 +1,5 @@
-import "./video-import.css";
+import "./styles.css";
+import { openModal as openGlobalModal } from "../../../components/modal";
 
 export interface LayerInfo {
   id: string;
@@ -61,7 +62,6 @@ function sampleImageDataToHex(data: ImageData): string {
   return rgbToHex(r / n, g / n, b / n);
 }
 
-let modalEl: HTMLElement | null = null;
 let videoObjectUrl: string | null = null;
 
 function revokeVideoUrl(): void {
@@ -69,14 +69,6 @@ function revokeVideoUrl(): void {
     URL.revokeObjectURL(videoObjectUrl);
     videoObjectUrl = null;
   }
-}
-
-function closeModal(): void {
-  if (modalEl && modalEl.parentNode) {
-    modalEl.parentNode.removeChild(modalEl);
-    modalEl = null;
-  }
-  revokeVideoUrl();
 }
 
 export function openModal(options: OpenModalOptions): void {
@@ -97,89 +89,81 @@ export function openModal(options: OpenModalOptions): void {
       `<option value="${opt.value}" ${opt.value === 0.5 ? "selected" : ""}>${escapeHtml(opt.label)}</option>`
   ).join("");
 
-  const modal = document.createElement("div");
-  modal.className = "video-import-modal-overlay";
-  modal.setAttribute("role", "dialog");
-  modal.setAttribute("aria-modal", "true");
-  modal.setAttribute("aria-labelledby", "video-import-title");
-
-  modal.innerHTML = `
-    <div class="video-import-modal">
-      <h2 id="video-import-title" class="video-import-title">Import from video</h2>
-      <div class="video-import-body">
-        <div class="video-import-file-row">
-          <label class="video-import-file-label">
-            <span class="btn btn-primary">Choose video file</span>
-            <input type="file" class="video-import-file-input" accept="video/mp4,video/webm" />
-          </label>
-          <span class="video-import-file-name">No file chosen</span>
-        </div>
-        <div class="video-import-preview-section" hidden>
-          <div class="video-import-video-wrap">
-            <video class="video-import-video" muted playsinline></video>
-            <canvas class="video-import-canvas" hidden></canvas>
-            <div class="video-import-picker-overlay" hidden></div>
-          </div>
-          <div class="video-import-scrubber-wrap" hidden>
-            <input type="range" class="video-import-scrubber" min="0" max="100" value="0" step="any" aria-label="Scrub through video" />
-            <span class="video-import-scrubber-time">0:00 / 0:00</span>
-          </div>
-          <p class="video-import-picker-hint">Scrub to a frame with the bar above, then click on the video to select a pixel or drag to select a region. The sampled color will drive one layer.</p>
-          <div class="video-import-current-row">
-            <span class="video-import-current-label">Current color:</span>
-            <div class="video-import-current-swatch" title="#000000"></div>
-            <span class="video-import-current-hex">#000000</span>
-          </div>
-          <div class="video-import-strip-wrap">
-            <span class="video-import-strip-label">Colors over time (preview):</span>
-            <div class="video-import-strip"></div>
-          </div>
-          <div class="video-import-settings">
-            <label class="video-import-setting">
-              <span>Target layer</span>
-              <select class="video-import-layer-select">${layerOptions}</select>
-            </label>
-            <label class="video-import-setting">
-              <span>Sample interval</span>
-              <select class="video-import-interval-select">${intervalOptions}</select>
-            </label>
-            <label class="video-import-setting">
-              <span>Timeline start (seconds)</span>
-              <input type="number" class="video-import-start-input" min="0" step="0.5" value="0" />
-            </label>
-          </div>
-          <div class="video-import-actions">
-            <button type="button" class="btn btn-primary video-import-generate-btn" disabled>Generate events</button>
-            <span class="video-import-generate-status"></span>
-          </div>
-        </div>
+  const content = document.createElement("div");
+  content.className = "video-import-body";
+  content.innerHTML = `
+    <div class="video-import-file-row">
+      <label class="video-import-file-label">
+        <span class="btn btn-primary">Choose video file</span>
+        <input type="file" class="video-import-file-input" accept="video/mp4,video/webm" />
+      </label>
+      <span class="video-import-file-name">No file chosen</span>
+    </div>
+    <div class="video-import-preview-section" hidden>
+      <div class="video-import-video-wrap">
+        <video class="video-import-video" muted playsinline></video>
+        <canvas class="video-import-canvas" hidden></canvas>
+        <div class="video-import-picker-overlay" hidden></div>
       </div>
-      <div class="video-import-footer">
-        <button type="button" class="btn video-import-cancel-btn">Cancel</button>
+      <div class="video-import-scrubber-wrap" hidden>
+        <input type="range" class="video-import-scrubber" min="0" max="100" value="0" step="any" aria-label="Scrub through video" />
+        <span class="video-import-scrubber-time">0:00 / 0:00</span>
+      </div>
+      <p class="video-import-picker-hint">Scrub to a frame with the bar above, then click on the video to select a pixel or drag to select a region. The sampled color will drive one layer.</p>
+      <div class="video-import-current-row">
+        <span class="video-import-current-label">Current color:</span>
+        <div class="video-import-current-swatch" title="#000000"></div>
+        <span class="video-import-current-hex">#000000</span>
+      </div>
+      <div class="video-import-strip-wrap">
+        <span class="video-import-strip-label">Colors over time (preview):</span>
+        <div class="video-import-strip"></div>
+      </div>
+      <div class="video-import-settings">
+        <label class="video-import-setting">
+          <span>Target layer</span>
+          <select class="video-import-layer-select">${layerOptions}</select>
+        </label>
+        <label class="video-import-setting">
+          <span>Sample interval</span>
+          <select class="video-import-interval-select">${intervalOptions}</select>
+        </label>
+        <label class="video-import-setting">
+          <span>Timeline start (seconds)</span>
+          <input type="number" class="video-import-start-input" min="0" step="0.5" value="0" />
+        </label>
+      </div>
+      <div class="video-import-actions">
+        <span class="video-import-generate-status"></span>
       </div>
     </div>
   `;
 
-  document.body.appendChild(modal);
-  modalEl = modal;
+  const fileInput = content.querySelector(".video-import-file-input") as HTMLInputElement;
+  const fileNameEl = content.querySelector(".video-import-file-name") as HTMLElement;
+  const previewSection = content.querySelector(".video-import-preview-section") as HTMLElement;
+  const videoEl = content.querySelector(".video-import-video") as HTMLVideoElement;
+  const canvasEl = content.querySelector(".video-import-canvas") as HTMLCanvasElement;
+  const pickerOverlay = content.querySelector(".video-import-picker-overlay") as HTMLElement;
+  const currentSwatch = content.querySelector(".video-import-current-swatch") as HTMLElement;
+  const currentHex = content.querySelector(".video-import-current-hex") as HTMLElement;
+  const stripEl = content.querySelector(".video-import-strip") as HTMLElement;
+  const layerSelect = content.querySelector(".video-import-layer-select") as HTMLSelectElement;
+  const intervalSelect = content.querySelector(".video-import-interval-select") as HTMLSelectElement;
+  const startInput = content.querySelector(".video-import-start-input") as HTMLInputElement;
+  const generateStatus = content.querySelector(".video-import-generate-status") as HTMLElement;
+  const scrubberWrap = content.querySelector(".video-import-scrubber-wrap") as HTMLElement;
+  const scrubberInput = content.querySelector(".video-import-scrubber") as HTMLInputElement;
+  const scrubberTimeEl = content.querySelector(".video-import-scrubber-time") as HTMLElement;
 
-  const fileInput = modal.querySelector(".video-import-file-input") as HTMLInputElement;
-  const fileNameEl = modal.querySelector(".video-import-file-name") as HTMLElement;
-  const previewSection = modal.querySelector(".video-import-preview-section") as HTMLElement;
-  const videoEl = modal.querySelector(".video-import-video") as HTMLVideoElement;
-  const canvasEl = modal.querySelector(".video-import-canvas") as HTMLCanvasElement;
-  const pickerOverlay = modal.querySelector(".video-import-picker-overlay") as HTMLElement;
-  const currentSwatch = modal.querySelector(".video-import-current-swatch") as HTMLElement;
-  const currentHex = modal.querySelector(".video-import-current-hex") as HTMLElement;
-  const stripEl = modal.querySelector(".video-import-strip") as HTMLElement;
-  const layerSelect = modal.querySelector(".video-import-layer-select") as HTMLSelectElement;
-  const intervalSelect = modal.querySelector(".video-import-interval-select") as HTMLSelectElement;
-  const startInput = modal.querySelector(".video-import-start-input") as HTMLInputElement;
-  const generateBtn = modal.querySelector(".video-import-generate-btn") as HTMLButtonElement;
-  const generateStatus = modal.querySelector(".video-import-generate-status") as HTMLElement;
-  const scrubberWrap = modal.querySelector(".video-import-scrubber-wrap") as HTMLElement;
-  const scrubberInput = modal.querySelector(".video-import-scrubber") as HTMLInputElement;
-  const scrubberTimeEl = modal.querySelector(".video-import-scrubber-time") as HTMLElement;
+  const ctx = canvasEl.getContext("2d");
+  if (!ctx) return;
+  const canvasCtx = ctx;
+
+  let generateBtnDisabled = false;
+  function setGenerateEnabled(enabled: boolean): void {
+    generateBtnDisabled = !enabled;
+  }
 
   function formatTime(sec: number): string {
     const m = Math.floor(sec / 60);
@@ -200,13 +184,6 @@ export function openModal(options: OpenModalOptions): void {
   type Selection = { x: number; y: number; w: number; h: number };
   let selection: Selection | null = null;
   let dragStart: { x: number; y: number } | null = null;
-
-  const ctx = canvasEl.getContext("2d");
-  if (!ctx) {
-    closeModal();
-    return;
-  }
-  const canvasCtx = ctx;
 
   function drawFrame(): void {
     if (videoEl.readyState < 2 || !videoEl.videoWidth) return;
@@ -332,7 +309,7 @@ export function openModal(options: OpenModalOptions): void {
     if (!selection) return;
     updateCurrentColor();
     scheduleStripBuild();
-    generateBtn.disabled = false;
+    setGenerateEnabled(true);
   }
 
   pickerOverlay.addEventListener("mousedown", (e) => {
@@ -404,7 +381,7 @@ export function openModal(options: OpenModalOptions): void {
     videoEl.load();
     selection = null;
     renderPickerOverlay();
-    generateBtn.disabled = true;
+    setGenerateEnabled(false);
     stripEl.innerHTML = "";
     currentSwatch.style.backgroundColor = "#000";
     currentHex.textContent = "#000000";
@@ -429,28 +406,17 @@ export function openModal(options: OpenModalOptions): void {
     updateScrubberUI();
   });
 
-  modal.querySelector(".video-import-cancel-btn")?.addEventListener("click", () => {
-    closeModal();
-  });
-
-  modal.addEventListener("click", (e) => {
-    if (e.target === modal) closeModal();
-  });
-  modal.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") closeModal();
-  });
-
-  generateBtn.addEventListener("click", async () => {
+  async function runGenerate(closeFn: () => void): Promise<void> {
     const sel = getSelectionInCanvasCoords();
     if (!sel || !videoEl.videoWidth || videoEl.duration <= 0 || !Number.isFinite(videoEl.duration)) return;
+    if (generateBtnDisabled) return;
+    generateBtnDisabled = true;
+    generateStatus.textContent = "Generating…";
     const interval = Number(intervalSelect.value) || 0.5;
     const timelineStart = Number(startInput.value) || 0;
     const layerId = layerSelect.value || layers[0].id;
     const duration = videoEl.duration;
     const events: VideoImportEvent[] = [];
-    generateBtn.disabled = true;
-    generateStatus.textContent = "Generating…";
-
     const sampleTimes: number[] = [];
     for (let t = 0; t < duration; t += interval) {
       sampleTimes.push(t);
@@ -458,7 +424,6 @@ export function openModal(options: OpenModalOptions): void {
     if (duration > 0 && (sampleTimes.length === 0 || sampleTimes[sampleTimes.length - 1] < duration - 0.001)) {
       sampleTimes.push(duration);
     }
-
     const processNext = (i: number): Promise<void> => {
       if (i >= sampleTimes.length) {
         addEventsFromVideo(
@@ -466,10 +431,8 @@ export function openModal(options: OpenModalOptions): void {
           layerId
         );
         generateStatus.textContent = `Added ${events.length} events.`;
-        generateBtn.disabled = false;
-        setTimeout(() => {
-          closeModal();
-        }, 800);
+        generateBtnDisabled = false;
+        setTimeout(closeFn, 800);
         return Promise.resolve();
       }
       const t = sampleTimes[i];
@@ -489,8 +452,22 @@ export function openModal(options: OpenModalOptions): void {
         videoEl.addEventListener("seeked", onSeeked);
       });
     };
-
     await processNext(0);
+  }
+
+  const { close } = openGlobalModal({
+    size: "large",
+    clickOutsideToClose: true,
+    title: "Import from video",
+    content,
+    cancel: {},
+    actions: [
+      {
+        preset: "primary",
+        label: "Generate events",
+        onClick: () => runGenerate(close),
+      },
+    ],
+    onClose: revokeVideoUrl,
   });
 }
-

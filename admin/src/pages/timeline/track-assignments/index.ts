@@ -1,6 +1,5 @@
 import "./styles.css";
-import { createInfoBubble } from "../../../components/info-bubble";
-import saveIcon from "../../../icons/save.svg?raw";
+import { openModal } from "../../../components/modal";
 import trashIcon from "../../../icons/trash.svg?raw";
 import type { TrackAssignmentNode, TrackAssignmentsRoot } from "./types";
 import { deepCloneTrackAssignmentsRoot, getDefaultTrackAssignments } from "./types";
@@ -11,9 +10,7 @@ export { getDefaultTrackAssignments } from "./types";
 let trackAssignmentsRoot: TrackAssignmentsRoot | null = null;
 /** Working copy used only while the modal is open; cleared on close. Save commits this to trackAssignmentsRoot. */
 let trackAssignmentsWorkingRoot: TrackAssignmentsRoot | null = null;
-let trackAssignmentsModalBackdropEl: HTMLElement | null = null;
-let trackAssignmentsDropdownEl: HTMLElement | null = null;
-let trackAssignmentsOutsideClickRef: ((e: MouseEvent) => void) | null = null;
+let trackAssignmentsModalClose: (() => void) | null = null;
 
 export function getTrackAssignmentsRoot(): TrackAssignmentsRoot {
   return trackAssignmentsRoot ?? getDefaultTrackAssignments();
@@ -24,27 +21,21 @@ export function setTrackAssignmentsRoot(root: TrackAssignmentsRoot | null): void
 }
 
 export function isTrackAssignmentsDropdownOpen(): boolean {
-  return trackAssignmentsDropdownEl != null && !trackAssignmentsDropdownEl.hidden;
+  return trackAssignmentsModalClose != null;
 }
 
 export function closeTrackAssignmentsDropdown(): void {
-  trackAssignmentsWorkingRoot = null;
-  if (trackAssignmentsOutsideClickRef) {
-    document.removeEventListener("click", trackAssignmentsOutsideClickRef);
-    trackAssignmentsOutsideClickRef = null;
+  if (trackAssignmentsModalClose) {
+    trackAssignmentsModalClose();
   }
-  if (trackAssignmentsModalBackdropEl) {
-    trackAssignmentsModalBackdropEl.hidden = true;
-    trackAssignmentsModalBackdropEl.setAttribute("aria-hidden", "true");
-  }
-  if (trackAssignmentsDropdownEl) trackAssignmentsDropdownEl.hidden = true;
 }
 
 function saveTrackAssignmentsAndClose(): void {
   if (trackAssignmentsWorkingRoot) {
     setTrackAssignmentsRoot(trackAssignmentsWorkingRoot);
   }
-  closeTrackAssignmentsDropdown();
+  trackAssignmentsWorkingRoot = null;
+  trackAssignmentsModalClose?.();
 }
 
 /** Path into track assignment tree: [] = root, [0] = first random child, ["compatible"] = gps compatible. */
@@ -454,79 +445,25 @@ function renderTrackAssignmentsHierarchy(container: HTMLElement): void {
   container.appendChild(viewerContent);
 }
 
-function ensureTrackAssignmentsDropdownCreated(): HTMLElement {
-  if (trackAssignmentsDropdownEl) return trackAssignmentsDropdownEl;
-  const backdrop = document.createElement("div");
-  backdrop.className = "track-assignments-modal-backdrop";
-  backdrop.setAttribute("hidden", "");
-  backdrop.setAttribute("aria-hidden", "true");
-  backdrop.addEventListener("click", () => closeTrackAssignmentsDropdown());
-  const panel = document.createElement("div");
-  panel.className = "track-assignments-dropdown";
-  panel.setAttribute("hidden", "");
-  panel.setAttribute("role", "dialog");
-  panel.setAttribute("aria-modal", "true");
-  panel.setAttribute("aria-labelledby", "track-assignments-modal-title");
-  const header = document.createElement("div");
-  header.className = "track-assignments-dropdown-header";
-  const h2 = document.createElement("h2");
-  h2.id = "track-assignments-modal-title";
-  h2.textContent = "How users are split into tracks: ";
-  const infoBubble = createInfoBubble({
-    tooltipText:
-      "This hierarchy will be used by the server to assign tracks to clients when they join the show.",
-  });
-  header.appendChild(h2);
-  header.appendChild(infoBubble);
-  panel.appendChild(header);
-  const viewer = document.createElement("div");
-  viewer.className = "track-assignments-hierarchy-viewer";
-  panel.appendChild(viewer);
-  const footer = document.createElement("div");
-  footer.className = "track-assignments-dropdown-footer";
-  const cancelBtn = document.createElement("button");
-  cancelBtn.type = "button";
-  cancelBtn.className = "track-assignments-cancel-btn";
-  cancelBtn.textContent = "Cancel";
-  cancelBtn.addEventListener("click", () => closeTrackAssignmentsDropdown());
-  const saveBtn = document.createElement("button");
-  saveBtn.type = "button";
-  saveBtn.className = "track-assignments-save-btn";
-  saveBtn.innerHTML = `${saveIcon}<span>Save</span>`;
-  saveBtn.addEventListener("click", () => saveTrackAssignmentsAndClose());
-  footer.appendChild(cancelBtn);
-  footer.appendChild(saveBtn);
-  panel.appendChild(footer);
-  panel.addEventListener("click", (e) => e.stopPropagation());
-  document.body.appendChild(backdrop);
-  document.body.appendChild(panel);
-  trackAssignmentsModalBackdropEl = backdrop;
-  trackAssignmentsDropdownEl = panel;
-  return panel;
-}
-
 export function openTrackAssignmentsDropdown(_anchorBtn: HTMLElement): void {
   trackAssignmentsWorkingRoot = deepCloneTrackAssignmentsRoot(
     trackAssignmentsRoot ?? getDefaultTrackAssignments()
   );
-  const panel = ensureTrackAssignmentsDropdownCreated();
-  const viewer = panel.querySelector(".track-assignments-hierarchy-viewer") as HTMLElement;
-  if (viewer) renderTrackAssignmentsHierarchy(viewer);
-  if (trackAssignmentsModalBackdropEl) {
-    trackAssignmentsModalBackdropEl.removeAttribute("hidden");
-    trackAssignmentsModalBackdropEl.setAttribute("aria-hidden", "false");
-  }
-  panel.removeAttribute("hidden");
-  if (trackAssignmentsOutsideClickRef) {
-    document.removeEventListener("click", trackAssignmentsOutsideClickRef);
-    trackAssignmentsOutsideClickRef = null;
-  }
-  const closeOnClickOutside = (e: MouseEvent): void => {
-    const target = e.target as Node;
-    if (panel.contains(target)) return;
-    closeTrackAssignmentsDropdown();
-    document.removeEventListener("click", closeOnClickOutside);
-  };
-  trackAssignmentsOutsideClickRef = closeOnClickOutside;
-  setTimeout(() => document.addEventListener("click", closeOnClickOutside), 0);
+  const container = document.createElement("div");
+  container.className = "track-assignments-hierarchy-viewer";
+  renderTrackAssignmentsHierarchy(container);
+  const { close } = openModal({
+    size: "large",
+    clickOutsideToClose: true,
+    title: "How users are split into tracks: ",
+    info: "This hierarchy will be used by the server to assign tracks to clients when they join the show.",
+    content: container,
+    cancel: {},
+    actions: [{ preset: "save", label: "Save", onClick: saveTrackAssignmentsAndClose }],
+    onClose: () => {
+      trackAssignmentsModalClose = null;
+      trackAssignmentsWorkingRoot = null;
+    },
+  });
+  trackAssignmentsModalClose = close;
 }

@@ -237,6 +237,12 @@
   margin-bottom: var(--space);
   padding-right: 8px;
 }
+/* When inside global modal, use modal's content scroll instead of inner scroll */
+.global-modal-content .clone-client-modal-content {
+  overflow: visible;
+  max-height: none;
+  margin-bottom: 0;
+}
 .clone-clients-row {
   margin-bottom: var(--space);
 }
@@ -362,37 +368,6 @@
   width: 16px;
   height: 16px;
   flex-shrink: 0;
-}
-
-.create-clients-modal .modal-actions {
-  flex-shrink: 0;
-  margin-top: var(--space);
-  padding-top: var(--space);
-  border-top: 1px solid var(--border);
-}
-.create-clients-modal .modal-actions .modal-btn-tooltip-wrap:first-child,
-.create-clients-modal .modal-actions .btn-save-profile {
-  margin-right: auto;
-}
-.create-clients-modal .modal-actions .btn-save-profile {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  border: none;
-  border-radius: var(--radius);
-  cursor: pointer;
-  background: var(--border);
-  color: var(--text);
-}
-.create-clients-modal .modal-actions .btn-save-profile svg {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
-}
-.create-clients-modal .modal-actions .create-modal-btn-save[hidden] {
-  display: none !important;
 }
 
 /* Simulate Extra Devices page */

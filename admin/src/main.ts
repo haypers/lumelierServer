@@ -23,6 +23,7 @@ import { render as renderSessionManager } from "./pages/session-manager";
 import { render as renderLogin } from "./pages/login";
 import { render as renderRegister } from "./pages/register";
 import { createInfoBubble } from "./components/info-bubble";
+import { openModal } from "./components/modal";
 
 type RoutePath =
   | "/dashboard"
@@ -526,76 +527,61 @@ function renderHeader(container: HTMLElement, currentPath: RoutePath, username: 
 }
 
 function openNewShowModal(): void {
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
   const nameId = "new-show-name-input";
-  overlay.innerHTML = `
-    <div class="modal" role="dialog" aria-labelledby="new-show-modal-title" aria-modal="true">
-      <p id="new-show-modal-title" class="modal-title">New Show</p>
-      <label for="${nameId}" style="display:block;margin-bottom:4px;font-size:12px;color:var(--text-muted);">Show name</label>
-      <input type="text" id="${nameId}" class="modal-input" placeholder="e.g. My Show" style="width:100%;margin-bottom:12px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);box-sizing:border-box;" />
-      <div id="new-show-error" style="font-size:12px;color:#e87a7a;margin-bottom:8px;" hidden></div>
-      <div class="modal-actions">
-        <button type="button" class="btn-cancel" id="new-show-cancel">Cancel</button>
-        <button type="button" class="btn-confirm" id="new-show-confirm">Create</button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
+  const content = document.createElement("div");
+  content.innerHTML = `
+    <label for="${nameId}" style="display:block;margin-bottom:4px;font-size:12px;color:var(--text-muted);">Show name</label>
+    <input type="text" id="${nameId}" class="modal-input" placeholder="e.g. My Show" style="width:100%;margin-bottom:12px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);box-sizing:border-box;" />
+    <div id="new-show-error" style="font-size:12px;color:#e87a7a;margin-bottom:8px;" hidden></div>`;
+  const input = content.querySelector(`#${nameId}`) as HTMLInputElement;
+  const errorEl = content.querySelector("#new-show-error") as HTMLElement;
 
-  const input = document.getElementById(nameId) as HTMLInputElement;
-  const errorEl = document.getElementById("new-show-error") as HTMLElement;
-  const cancelBtn = document.getElementById("new-show-cancel");
-  const confirmBtn = document.getElementById("new-show-confirm");
-
-  function closeModal(): void {
-    overlay.remove();
-  }
-
-  cancelBtn?.addEventListener("click", closeModal);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) closeModal();
-  });
-
-  confirmBtn?.addEventListener("click", async () => {
-    const name = input?.value?.trim() ?? "";
-    if (!name) {
-      errorEl.textContent = "Enter a show name.";
-      errorEl.hidden = false;
-      return;
-    }
-    errorEl.hidden = true;
-    (confirmBtn as HTMLButtonElement).disabled = true;
-    try {
-      const res = await fetch("/api/admin/show-workspaces", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ name }),
-      });
-      const data = await res.json().catch(() => ({})) as { show_id?: string; name?: string };
-      if (res.ok && data.show_id != null && data.name != null) {
-        currentShow = { id: data.show_id, name: data.name };
-        showLiveState = "not_live";
-        closeModal();
-        navigateToPathWithShow(getPath(), currentShow);
-        renderApp(lastUsername);
-        fetchLiveStateFromServer(currentShow.id)
-          .then((live) => {
-            showLiveState = live ? "live" : "not_live";
-            syncShowStatusUIRef?.();
-            scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
-          })
-          .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
+  const { close } = openModal({
+    size: "small",
+    clickOutsideToClose: true,
+    title: "New Show",
+    content,
+    cancel: {},
+    actions: [{ preset: "primary", label: "Create", onClick: async () => {
+      const name = input?.value?.trim() ?? "";
+      if (!name) {
+        errorEl.textContent = "Enter a show name.";
+        errorEl.hidden = false;
         return;
       }
-      errorEl.textContent = res.status === 400 ? "Invalid show name." : "Failed to create show.";
-      errorEl.hidden = false;
-    } catch {
-      errorEl.textContent = "Network error.";
-      errorEl.hidden = false;
-    } finally {
-      (confirmBtn as HTMLButtonElement).disabled = false;
-    }
+      errorEl.hidden = true;
+      try {
+        const res = await fetch("/api/admin/show-workspaces", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ name }),
+        });
+        const data = await res.json().catch(() => ({})) as { show_id?: string; name?: string };
+        if (res.ok && data.show_id != null && data.name != null) {
+          currentShow = { id: data.show_id, name: data.name };
+          showLiveState = "not_live";
+          close();
+          navigateToPathWithShow(getPath(), currentShow);
+          renderApp(lastUsername);
+          fetchLiveStateFromServer(currentShow.id)
+            .then((live) => {
+              showLiveState = live ? "live" : "not_live";
+              syncShowStatusUIRef?.();
+              scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
+            })
+            .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
+          return;
+        }
+        errorEl.textContent = res.status === 400 ? "Invalid show name." : "Failed to create show.";
+        errorEl.hidden = false;
+      } catch {
+        errorEl.textContent = "Network error.";
+        errorEl.hidden = false;
+      } finally {
+        /* button stays enabled */
+      }
+    } }],
   });
 
   input?.focus();
@@ -695,31 +681,51 @@ function formatShowDate(ms: number): string {
 }
 
 function openOpenShowModal(): void {
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay open-show-modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal open-show-modal" role="dialog" aria-labelledby="open-show-modal-title" aria-modal="true">
-      <p id="open-show-modal-title" class="open-show-modal-title">Select a Show to load:</p>
-      <div class="open-show-modal-grid" id="open-show-grid"></div>
-      <div id="open-show-error" class="open-show-modal-error" hidden></div>
-      <div class="open-show-modal-actions">
-        <button type="button" class="btn-cancel" id="open-show-cancel-btn">Cancel</button>
-        <button type="button" class="btn-confirm" id="open-show-open-btn" disabled>Open</button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  const grid = document.getElementById("open-show-grid") as HTMLElement;
-  const errorEl = document.getElementById("open-show-error") as HTMLElement;
-  const openBtn = document.getElementById("open-show-open-btn") as HTMLButtonElement;
-  const cancelBtn = document.getElementById("open-show-cancel-btn");
+  const content = document.createElement("div");
+  content.className = "open-show-modal-content";
+  content.innerHTML = `
+    <div class="open-show-modal-grid" id="open-show-grid"></div>
+    <div id="open-show-error" class="open-show-modal-error" hidden></div>`;
+  const grid = content.querySelector("#open-show-grid") as HTMLElement;
+  const errorEl = content.querySelector("#open-show-error") as HTMLElement;
 
   let shows: ShowListItem[] = [];
   let selectedShowId: string | null = null;
 
-  function closeModal(): void {
-    overlay.remove();
-  }
+  const { close } = openModal({
+    size: "medium",
+    clickOutsideToClose: true,
+    title: "Select a Show to load:",
+    content,
+    cancel: {},
+    actions: [
+      {
+        preset: "primary",
+        label: "Open",
+        onClick: () => {
+          if (!selectedShowId) return;
+          const show = shows.find((s) => s.show_id === selectedShowId);
+          if (show) {
+            currentShow = { id: show.show_id, name: show.name };
+            showLiveState = "not_live";
+            close();
+            navigateToPathWithShow(getPath(), currentShow);
+            renderApp(lastUsername);
+            fetchLiveStateFromServer(currentShow.id)
+              .then((live) => {
+                showLiveState = live ? "live" : "not_live";
+                syncShowStatusUIRef?.();
+                scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
+              })
+              .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
+          }
+        },
+      },
+    ],
+  });
+
+  const openBtn = content.closest(".global-modal-panel")?.querySelector(".global-modal-footer-right button") as HTMLButtonElement | null;
+  if (openBtn) openBtn.disabled = true;
 
   function renderTiles(): void {
     grid.innerHTML = "";
@@ -737,35 +743,12 @@ function openOpenShowModal(): void {
         selectedShowId = show.show_id;
         grid.querySelectorAll(".open-show-tile").forEach((t) => t.classList.remove("open-show-tile--selected"));
         tile.classList.add("open-show-tile--selected");
-        openBtn.disabled = false;
+        const btn = content.closest(".global-modal-panel")?.querySelector(".global-modal-footer-right button") as HTMLButtonElement | null;
+        if (btn) btn.disabled = false;
       });
       grid.appendChild(tile);
     }
   }
-
-  cancelBtn?.addEventListener("click", closeModal);
-  overlay.addEventListener("click", (e) => {
-    if (e.target === overlay) closeModal();
-  });
-
-  openBtn.addEventListener("click", () => {
-    if (!selectedShowId) return;
-    const show = shows.find((s) => s.show_id === selectedShowId);
-    if (show) {
-      currentShow = { id: show.show_id, name: show.name };
-      showLiveState = "not_live";
-      closeModal();
-      navigateToPathWithShow(getPath(), currentShow);
-      renderApp(lastUsername);
-      fetchLiveStateFromServer(currentShow.id)
-        .then((live) => {
-          showLiveState = live ? "live" : "not_live";
-          syncShowStatusUIRef?.();
-          scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
-        })
-        .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
-    }
-  });
 
   (async () => {
     try {
@@ -799,26 +782,14 @@ function closeCurrentShow(): void {
 function openShareShowModal(): void {
   if (!currentShow) return;
   const showId = currentShow.id;
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
   const inputId = "share-show-username-input";
-  overlay.innerHTML = `
-    <div class="modal" role="dialog" aria-labelledby="share-show-modal-title" aria-modal="true">
-      <p id="share-show-modal-title" class="modal-title">Add Another Admin To This Show</p>
-      <label for="${inputId}" style="display:block;margin-bottom:4px;font-size:12px;color:var(--text-muted);">Username</label>
-      <input type="text" id="${inputId}" class="modal-input" placeholder="Enter username" autocomplete="username" style="width:100%;margin-bottom:6px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);box-sizing:border-box;" />
-      <div id="share-show-hint" style="font-size:12px;margin-bottom:12px;min-height:18px;"></div>
-      <div class="modal-actions">
-        <button type="button" class="btn-cancel" id="share-show-cancel">Cancel</button>
-        <button type="button" class="btn-confirm" id="share-show-confirm" disabled>Share</button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  const input = document.getElementById(inputId) as HTMLInputElement;
-  const hintEl = document.getElementById("share-show-hint") as HTMLElement;
-  const confirmBtn = document.getElementById("share-show-confirm") as HTMLButtonElement;
-  const cancelBtn = document.getElementById("share-show-cancel");
+  const content = document.createElement("div");
+  content.innerHTML = `
+    <label for="${inputId}" style="display:block;margin-bottom:4px;font-size:12px;color:var(--text-muted);">Username</label>
+    <input type="text" id="${inputId}" class="modal-input" placeholder="Enter username" autocomplete="username" style="width:100%;margin-bottom:6px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);box-sizing:border-box;" />
+    <div id="share-show-hint" style="font-size:12px;margin-bottom:12px;min-height:18px;"></div>`;
+  const input = content.querySelector(`#${inputId}`) as HTMLInputElement;
+  const hintEl = content.querySelector("#share-show-hint") as HTMLElement;
 
   let checkAbort = 0;
   async function checkUsername(): Promise<void> {
@@ -826,7 +797,6 @@ function openShareShowModal(): void {
     if (!q) {
       hintEl.textContent = "";
       hintEl.style.color = "";
-      confirmBtn.disabled = true;
       return;
     }
     const gen = ++checkAbort;
@@ -837,17 +807,14 @@ function openShareShowModal(): void {
       if (data.exists) {
         hintEl.textContent = "User found.";
         hintEl.style.color = "var(--text-muted)";
-        confirmBtn.disabled = false;
       } else {
         hintEl.textContent = "Username incorrect.";
         hintEl.style.color = "#e87a7a";
-        confirmBtn.disabled = true;
       }
     } catch {
       if (gen !== checkAbort) return;
       hintEl.textContent = "Could not check username.";
       hintEl.style.color = "#e87a7a";
-      confirmBtn.disabled = true;
     }
   }
 
@@ -858,41 +825,43 @@ function openShareShowModal(): void {
   });
   input?.addEventListener("blur", () => { if (inputDebounce) clearTimeout(inputDebounce); inputDebounce = null; checkUsername(); });
 
-  function closeModal(): void {
-    overlay.remove();
-  }
-
-  cancelBtn?.addEventListener("click", closeModal);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
-
-  confirmBtn.addEventListener("click", async () => {
-    const username = (input?.value ?? "").trim();
-    if (!username) return;
-    confirmBtn.disabled = true;
-    try {
-      const res = await fetch(`/api/admin/show-workspaces/${showId}/members`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ username }),
-      });
-      if (res.ok) {
-        closeModal();
-        return;
-      }
-      if (res.status === 409) {
-        hintEl.textContent = "That user already has access.";
-        hintEl.style.color = "#e87a7a";
-      } else {
-        hintEl.textContent = "Failed to add user.";
-        hintEl.style.color = "#e87a7a";
-      }
-    } catch {
-      hintEl.textContent = "Network error.";
-      hintEl.style.color = "#e87a7a";
-    } finally {
-      confirmBtn.disabled = false;
-    }
+  const { close } = openModal({
+    size: "small",
+    clickOutsideToClose: true,
+    title: "Add Another Admin To This Show",
+    content,
+    cancel: {},
+    actions: [
+      {
+        preset: "share",
+        onClick: async () => {
+          const username = (input?.value ?? "").trim();
+          if (!username) return;
+          try {
+            const res = await fetch(`/api/admin/show-workspaces/${showId}/members`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ username }),
+            });
+            if (res.ok) {
+              close();
+              return;
+            }
+            if (res.status === 409) {
+              hintEl.textContent = "That user already has access.";
+              hintEl.style.color = "#e87a7a";
+            } else {
+              hintEl.textContent = "Failed to add user.";
+              hintEl.style.color = "#e87a7a";
+            }
+          } catch {
+            hintEl.textContent = "Network error.";
+            hintEl.style.color = "#e87a7a";
+          }
+        },
+      },
+    ],
   });
 
   input?.focus();
@@ -902,29 +871,17 @@ function openDeleteShowModal(): void {
   if (!currentShow) return;
   const showId = currentShow.id;
   const showName = currentShow.name;
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
   const confirmInputId = "delete-show-confirm-input";
-  overlay.innerHTML = `
-    <div class="modal" role="dialog" aria-labelledby="delete-show-modal-title" aria-modal="true">
-      <p id="delete-show-modal-title" class="modal-title">Delete This Show</p>
-      <p style="font-size:13px;color:var(--text-muted);margin:0 0 8px;">Everyone with access will lose access. People with access:</p>
-      <ul id="delete-show-members-list" style="margin:0 0 12px;padding-left:20px;font-size:13px;color:var(--text);"></ul>
-      <p style="font-size:13px;color:var(--text-muted);margin:0 0 4px;">Type the show name below to confirm:</p>
-      <input type="text" id="${confirmInputId}" class="modal-input" placeholder="Show name" style="width:100%;margin-bottom:12px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);box-sizing:border-box;" />
-      <div id="delete-show-error" style="font-size:12px;color:#e87a7a;margin-bottom:8px;" hidden></div>
-      <div class="modal-actions">
-        <button type="button" class="btn-cancel" id="delete-show-cancel">Cancel</button>
-        <button type="button" class="btn-confirm btn-confirm--danger" id="delete-show-confirm" disabled>Delete</button>
-      </div>
-    </div>`;
-  document.body.appendChild(overlay);
-
-  const membersList = document.getElementById("delete-show-members-list") as HTMLElement;
-  const confirmInput = document.getElementById(confirmInputId) as HTMLInputElement;
-  const errorEl = document.getElementById("delete-show-error") as HTMLElement;
-  const confirmBtn = document.getElementById("delete-show-confirm") as HTMLButtonElement;
-  const cancelBtn = document.getElementById("delete-show-cancel");
+  const content = document.createElement("div");
+  content.innerHTML = `
+    <p style="font-size:13px;color:var(--text-muted);margin:0 0 8px;">Everyone with access will lose access. People with access:</p>
+    <ul id="delete-show-members-list" style="margin:0 0 12px;padding-left:20px;font-size:13px;color:var(--text);"></ul>
+    <p style="font-size:13px;color:var(--text-muted);margin:0 0 4px;">Type the show name below to confirm:</p>
+    <input type="text" id="${confirmInputId}" class="modal-input" placeholder="Show name" style="width:100%;margin-bottom:12px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);box-sizing:border-box;" />
+    <div id="delete-show-error" style="font-size:12px;color:#e87a7a;margin-bottom:8px;" hidden></div>`;
+  const membersList = content.querySelector("#delete-show-members-list") as HTMLElement;
+  const confirmInput = content.querySelector(`#${confirmInputId}`) as HTMLInputElement;
+  const errorEl = content.querySelector("#delete-show-error") as HTMLElement;
 
   (async () => {
     try {
@@ -938,40 +895,45 @@ function openDeleteShowModal(): void {
     }
   })();
 
-  function closeModal(): void {
-    overlay.remove();
-  }
+  const { close } = openModal({
+    size: "small",
+    clickOutsideToClose: true,
+    title: "Delete This Show",
+    content,
+    cancel: {},
+    actions: [
+      {
+        preset: "delete",
+        label: "Delete",
+        onClick: async () => {
+          if ((confirmInput?.value ?? "").trim() !== showName) return;
+          errorEl.hidden = true;
+          try {
+            const res = await fetch(`/api/admin/show-workspaces/${showId}`, { method: "DELETE", credentials: "include" });
+            if (res.ok || res.status === 204) {
+              close();
+              closeCurrentShow();
+              renderApp(lastUsername);
+              return;
+            }
+            errorEl.textContent = "Failed to delete show.";
+            errorEl.hidden = false;
+          } catch {
+            errorEl.textContent = "Network error.";
+            errorEl.hidden = false;
+          }
+        },
+      },
+    ],
+  });
 
+  const deleteBtn = content.closest(".global-modal-panel")?.querySelector(".global-modal-footer-right button") as HTMLButtonElement | null;
   function updateDeleteButton(): void {
     const typed = (confirmInput?.value ?? "").trim();
-    confirmBtn.disabled = typed !== showName;
+    if (deleteBtn) deleteBtn.disabled = typed !== showName;
   }
+  if (deleteBtn) deleteBtn.disabled = true;
   confirmInput?.addEventListener("input", updateDeleteButton);
-
-  cancelBtn?.addEventListener("click", closeModal);
-  overlay.addEventListener("click", (e) => { if (e.target === overlay) closeModal(); });
-
-  confirmBtn.addEventListener("click", async () => {
-    if ((confirmInput?.value ?? "").trim() !== showName) return;
-    confirmBtn.disabled = true;
-    errorEl.hidden = true;
-    try {
-      const res = await fetch(`/api/admin/show-workspaces/${showId}`, { method: "DELETE", credentials: "include" });
-      if (res.ok || res.status === 204) {
-        closeModal();
-        closeCurrentShow();
-        renderApp(lastUsername);
-        return;
-      }
-      errorEl.textContent = "Failed to delete show.";
-      errorEl.hidden = false;
-    } catch {
-      errorEl.textContent = "Network error.";
-      errorEl.hidden = false;
-    } finally {
-      confirmBtn.disabled = false;
-    }
-  });
 
   confirmInput?.focus();
 }

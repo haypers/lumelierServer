@@ -1,50 +1,6 @@
-/* Track assignments modal: backdrop + centered panel at 1/3 viewport */
-.track-assignments-modal-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 199;
-  background: rgba(0, 0, 0, 0.4);
-}
-.track-assignments-modal-backdrop[hidden] {
-  display: none !important;
-}
-.track-assignments-dropdown {
-  position: fixed;
-  left: 50%;
-  top: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 200;
-  width: 50vw;
-  height: 50vh;
-  display: flex;
-  flex-direction: column;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.25);
-}
-.track-assignments-dropdown[hidden] {
-  display: none !important;
-}
-.track-assignments-dropdown-header {
-  flex-shrink: 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--border);
-}
-.track-assignments-dropdown-header h2 {
-  margin: 0;
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-  white-space: nowrap;
-}
+/* Track assignments: hierarchy content only (modal chrome from global component) */
 .track-assignments-hierarchy-viewer {
-  flex: 1;
-  min-height: 0;
-  overflow: auto;
+  min-height: min-content;
   padding: 10px 14px;
   white-space: nowrap;
 }
@@ -160,44 +116,4 @@
 .track-assignments-add-branch:hover {
   color: var(--text);
   border-color: var(--accent);
-}
-.track-assignments-dropdown-footer {
-  flex-shrink: 0;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 10px 14px;
-  border-top: 1px solid var(--border);
-}
-.track-assignments-cancel-btn {
-  padding: 6px 12px;
-  font-size: 12px;
-  border: none;
-  border-radius: var(--radius);
-  background: var(--border);
-  color: var(--text);
-  cursor: pointer;
-}
-.track-assignments-cancel-btn:hover {
-  filter: brightness(1.1);
-}
-.track-assignments-save-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  font-size: 12px;
-  border: none;
-  border-radius: var(--radius);
-  cursor: pointer;
-  background: var(--border);
-  color: var(--text);
-}
-.track-assignments-save-btn:hover {
-  filter: brightness(1.1);
-}
-.track-assignments-save-btn svg {
-  width: 16px;
-  height: 16px;
-  flex-shrink: 0;
 }

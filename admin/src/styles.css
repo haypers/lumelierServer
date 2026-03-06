@@ -694,59 +694,38 @@ body {
   opacity: 1;
 }
 
-/* Modal */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-.modal {
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: var(--space);
-  min-width: 280px;
-}
-.modal p {
-  margin: 0 0 var(--space);
-  color: var(--text);
-  font-size: 13px;
-}
+/* Shared button/action classes (used inside modal content and elsewhere) */
 .modal-actions {
   display: flex;
   justify-content: flex-end;
   gap: var(--space);
 }
-.modal .btn-cancel,
-.modal .btn-confirm {
+.btn-cancel,
+.btn-confirm {
   padding: 6px 12px;
   font-size: 12px;
   border: none;
   border-radius: var(--radius);
   cursor: pointer;
 }
-.modal .btn-cancel {
+.btn-cancel {
   background: var(--border);
   color: var(--text);
 }
-.modal .btn-confirm {
+.btn-confirm {
   background: var(--accent);
   color: #fff;
 }
-.modal .btn-cancel:hover,
-.modal .btn-confirm:hover {
+.btn-cancel:hover,
+.btn-confirm:hover {
   filter: brightness(1.1);
 }
-.modal .btn-confirm--danger {
+.btn-confirm--danger {
   background: #b54a4a;
   color: #fff;
   border-color: #b54a4a;
 }
-.modal .btn-confirm--danger:hover:not(:disabled) {
+.btn-confirm--danger:hover:not(:disabled) {
   filter: brightness(1.1);
 }
 .modal-actions button:disabled {
@@ -760,21 +739,8 @@ body {
   display: inline-flex;
 }
 
-/* Open Show modal (larger) */
-.open-show-modal-overlay .modal.open-show-modal {
-  min-width: 560px;
-  max-width: 92vw;
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-}
-.open-show-modal-title {
-  margin: 0 0 var(--space);
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text);
-}
-.open-show-modal-grid {
+/* Open Show modal content (inside global modal) */
+.open-show-modal-content .open-show-modal-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
   gap: var(--space);

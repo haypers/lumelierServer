@@ -5,6 +5,7 @@ import downloadIcon from "../../icons/download.svg?raw";
 import resetIcon from "../../icons/reset.svg?raw";
 import { createRefreshEvery, DEFAULT_RESPONSE_TIMEOUT_MS } from "../../components/refresh-every";
 import { createInfoBubble } from "../../components/info-bubble";
+import { openModal } from "../../components/modal";
 
 const DEFAULT_REFRESH_MS = 2000;
 
@@ -256,23 +257,15 @@ async function fetchStats(): Promise<StatsResponse> {
 }
 
 function showResetConfirmModal(onConfirm: () => void): void {
-  const overlay = document.createElement("div");
-  overlay.className = "modal-overlay";
-  overlay.innerHTML = `
-    <div class="modal">
-      <p>Remove all disconnected devices from the list?</p>
-      <div class="modal-actions">
-        <button type="button" class="btn-cancel">Cancel</button>
-        <button type="button" class="btn-confirm">Confirm</button>
-      </div>
-    </div>`;
-  const close = () => overlay.remove();
-  overlay.querySelector(".btn-cancel")?.addEventListener("click", close);
-  overlay.querySelector(".btn-confirm")?.addEventListener("click", () => {
-    onConfirm();
-    close();
+  const content = document.createElement("p");
+  content.textContent = "Remove all disconnected devices from the list?";
+  const { close } = openModal({
+    size: "small",
+    clickOutsideToClose: true,
+    content,
+    cancel: {},
+    actions: [{ preset: "primary", label: "Confirm", onClick: () => { onConfirm(); close(); } }],
   });
-  document.body.appendChild(overlay);
 }
 
 function updateServerTimeDisplay(): void {

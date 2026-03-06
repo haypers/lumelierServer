@@ -1,36 +1,8 @@
-.video-import-modal-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.video-import-modal {
-  background: var(--bg-panel, #1e1e1e);
-  border-radius: 8px;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
-  width: min(90vw, 720px);
-  max-width: min(90vw, 720px);
-  max-height: 90vh;
+/* Video import: body content only (modal chrome from global component) */
+.video-import-body {
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-}
-
-.video-import-title {
-  margin: 0;
-  padding: 1rem 1.25rem;
-  font-size: 1.25rem;
-  border-bottom: 1px solid var(--border, #333);
-}
-
-.video-import-body {
-  padding: 1rem 1.25rem;
-  overflow-y: auto;
-  overflow-x: hidden;
+  gap: 0.75rem;
   min-width: 0;
 }
 
@@ -226,19 +198,4 @@
 .video-import-generate-status {
   font-size: 0.9rem;
   color: var(--text-muted, #888);
-}
-
-.video-import-footer {
-  padding: 0.75rem 1.25rem;
-  border-top: 1px solid var(--border, #333);
-}
-
-.video-import-cancel-btn {
-  background: transparent;
-  border: 1px solid var(--border, #333);
-  color: var(--text, #eee);
-}
-
-.video-import-cancel-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
 }

@@ -37,8 +37,8 @@ import {
 } from "./track-assignments";
 import { getDefaultTrackAssignments } from "./track-assignments";
 export type { TimelineItemPayload, TimelineStateJSON } from "./types";
-import { openModal as openVideoImportModal } from "./video-import";
-import type { VideoImportEvent } from "./video-import";
+import { openModal as openVideoImportModal } from "./import-from-video";
+import type { VideoImportEvent } from "./import-from-video";
 
 let timeline: Timeline | null = null;
 let groups: DataSet<DataGroup>;
