@@ -739,48 +739,80 @@ body {
   display: inline-flex;
 }
 
-/* Open Show modal content (inside global modal) */
+/* Open Show modal content (inside global modal) — table-like list */
 .open-show-modal-content .open-show-modal-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: var(--space);
-  margin-bottom: var(--space);
-  min-height: 280px;
-  max-height: 70vh;
-  overflow: auto;
-  padding: 2px 0;
-}
-.open-show-tile {
   display: flex;
   flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  padding: 10px 12px;
-  text-align: left;
-  font-size: 12px;
-  color: var(--text);
-  background: var(--bg);
+  gap: 0;
+  margin-bottom: var(--space);
+  min-height: 120px;
+  max-height: 70vh;
+  overflow: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius);
+}
+
+.open-show-modal-list-header,
+.open-show-tile {
+  display: grid;
+  grid-template-columns: 1fr minmax(80px, 100px) minmax(100px, 110px) minmax(100px, 110px);
+  gap: 0  var(--space);
+  align-items: center;
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.open-show-modal-list-header {
+  color: var(--text-muted);
+  font-weight: 600;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  min-height: 32px;
+}
+
+.open-show-tile {
+  min-height: 40px;
+  color: var(--text);
+  background: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
   cursor: pointer;
 }
+
+.open-show-tile:last-child {
+  border-bottom: none;
+}
+
 .open-show-tile:hover {
   background: var(--border);
 }
+
 .open-show-tile--selected {
-  border-color: var(--accent);
+  background: var(--accent-current);
+  border-left: 3px solid var(--accent);
+  padding-left: 9px;
+}
+
+.open-show-tile--selected:hover {
   background: var(--accent-current);
 }
-.open-show-tile-name {
+
+.open-show-tile-cell-name {
   font-weight: 600;
-  font-size: 13px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.open-show-tile-meta {
-  color: var(--text-muted);
-}
-.open-show-tile-date {
+
+.open-show-tile-cell-muted {
   color: var(--text-muted);
   font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .open-show-modal-error {
   font-size: 12px;

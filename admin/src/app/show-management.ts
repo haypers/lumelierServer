@@ -163,10 +163,10 @@ function renderSelectedShowBlock(): string {
     <div class="admin-header-selected-show-empty" id="selected-show-empty">
       <div class="admin-header-selected-show-empty-actions">
         <button type="button" class="admin-header-selected-show-btn admin-header-selected-show-btn--open" id="open-saved-show-btn"><span class="admin-header-selected-show-btn-icon">${openIcon}</span>Open Saved Show</button>
-        <button type="button" class="admin-header-selected-show-btn admin-header-selected-show-btn--new" id="new-show-btn"><span class="admin-header-selected-show-btn-icon">${newIcon}</span>New Show</button>
+        <button type="button" class="admin-header-selected-show-btn admin-header-selected-show-btn--new" id="new-show-btn"><span class="admin-header-selected-show-btn-icon">${newIcon}</span>Create New Show</button>
         <div class="admin-header-default-shows-wrap">
-          <button type="button" class="admin-header-selected-show-btn admin-header-selected-show-btn--default" id="default-shows-btn" aria-expanded="false" aria-haspopup="true" aria-controls="default-shows-dropdown"><span class="admin-header-selected-show-btn-icon">${shareIcon}</span>Default Shows<span class="admin-header-default-shows-caret" aria-hidden="true">${carrotIcon}</span></button>
-          <div class="admin-header-default-shows-dropdown" id="default-shows-dropdown" hidden role="menu" aria-label="Default shows"></div>
+          <button type="button" class="admin-header-selected-show-btn admin-header-selected-show-btn--default" id="default-shows-btn" aria-expanded="false" aria-haspopup="true" aria-controls="default-shows-dropdown">Create From Show Template<span class="admin-header-default-shows-caret" aria-hidden="true">${carrotIcon}</span></button>
+          <div class="admin-header-default-shows-dropdown" id="default-shows-dropdown" hidden role="menu" aria-label="Show templates"></div>
         </div>
       </div>
     </div>`;
@@ -646,6 +646,28 @@ function openOpenShowModal(): void {
   let shows: ShowListItem[] = [];
   let selectedShowId: string | null = null;
 
+  const DOUBLE_CLICK_MS = 500;
+  let lastRowClickTime = 0;
+  let lastRowClickShowId: string | null = null;
+
+  function openSelectedShow(): void {
+    if (!selectedShowId) return;
+    const show = shows.find((s) => s.show_id === selectedShowId);
+    if (!show) return;
+    currentShow = { id: show.show_id, name: show.name };
+    showLiveState = "not_live";
+    close();
+    cb.navigateToPathWithShow(cb.getPath(), currentShow);
+    cb.renderApp(lastUsername);
+    fetchLiveStateFromServer(currentShow.id)
+      .then((live) => {
+        showLiveState = live ? "live" : "not_live";
+        syncShowStatusUIRef?.();
+        scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
+      })
+      .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
+  }
+
   const { close } = openModal({
     size: "medium",
     clickOutsideToClose: true,
@@ -656,24 +678,7 @@ function openOpenShowModal(): void {
       {
         preset: "primary",
         label: "Open",
-        onClick: () => {
-          if (!selectedShowId) return;
-          const show = shows.find((s) => s.show_id === selectedShowId);
-          if (show) {
-            currentShow = { id: show.show_id, name: show.name };
-            showLiveState = "not_live";
-            close();
-            cb.navigateToPathWithShow(cb.getPath(), currentShow);
-            cb.renderApp(lastUsername);
-            fetchLiveStateFromServer(currentShow.id)
-              .then((live) => {
-                showLiveState = live ? "live" : "not_live";
-                syncShowStatusUIRef?.();
-                scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
-              })
-              .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
-          }
-        },
+        onClick: openSelectedShow,
       },
     ],
   });
@@ -683,22 +688,37 @@ function openOpenShowModal(): void {
 
   function renderTiles(): void {
     grid.innerHTML = "";
+    const header = document.createElement("div");
+    header.className = "open-show-modal-list-header";
+    header.setAttribute("role", "presentation");
+    header.innerHTML = `<span>Name</span><span>Created By</span><span>Created</span><span>Modified</span>`;
+    grid.appendChild(header);
+
     for (const show of shows) {
       const tile = document.createElement("button");
       tile.type = "button";
       tile.className = "open-show-tile" + (selectedShowId === show.show_id ? " open-show-tile--selected" : "");
       tile.dataset.showId = show.show_id;
       tile.innerHTML = `
-        <span class="open-show-tile-name">${escapeHtml(show.name)}</span>
-        <span class="open-show-tile-meta">Created By: ${escapeHtml(show.created_by)}</span>
-        <span class="open-show-tile-date">${formatShowDate(show.created_at_ms)}</span>
-        <span class="open-show-tile-date">Modified: ${formatShowDate(show.last_modified_ms)}</span>`;
+        <span class="open-show-tile-cell-name">${escapeHtml(show.name)}</span>
+        <span class="open-show-tile-cell-muted">${escapeHtml(show.created_by)}</span>
+        <span class="open-show-tile-cell-muted">${formatShowDate(show.created_at_ms)}</span>
+        <span class="open-show-tile-cell-muted">${formatShowDate(show.last_modified_ms)}</span>`;
       tile.addEventListener("click", () => {
+        const now = Date.now();
+        const isDoubleClick = show.show_id === lastRowClickShowId && now - lastRowClickTime < DOUBLE_CLICK_MS;
+        lastRowClickShowId = show.show_id;
+        lastRowClickTime = now;
+
         selectedShowId = show.show_id;
         grid.querySelectorAll(".open-show-tile").forEach((t) => t.classList.remove("open-show-tile--selected"));
         tile.classList.add("open-show-tile--selected");
         const btn = content.closest(".global-modal-panel")?.querySelector(".global-modal-footer-right button") as HTMLButtonElement | null;
         if (btn) btn.disabled = false;
+
+        if (isDoubleClick) {
+          openSelectedShow();
+        }
       });
       grid.appendChild(tile);
     }

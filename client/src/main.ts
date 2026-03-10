@@ -245,6 +245,11 @@ async function fetchPoll(showId: string): Promise<{ data: timeline.PollResponse;
   const t0 = nowEpochMs();
   (headers as Record<string, string>)["X-Client-Send-Ms"] = String(Math.round(t0));
   gps.addGeoHeaders(headers as Record<string, string>);
+  if (broadcastCache?.timeline?.layers && selectedTrackId) {
+    const layers = broadcastCache.timeline.layers as { id: string }[];
+    const idx = layers.findIndex((l) => l.id === selectedTrackId);
+    if (idx >= 0) (headers as Record<string, string>)["X-Request-Track-Id"] = String(idx + 1);
+  }
   const url = `/api/poll?show=${encodeURIComponent(showId)}`;
   const res = await fetch(url, { headers });
   const t3 = nowEpochMs();
@@ -280,13 +285,46 @@ function openInfoPanel(): void {
   serverTimeRow.textContent = "Server time: " + String(getServerTime());
   content.appendChild(serverTimeRow);
 
-  // Track selection will be restored later; the server sends X-Track-Id in the poll response header for future use.
-  // const layers = broadcastCache?.timeline?.layers;
-  // const hasLayers = Array.isArray(layers) && layers.length > 0;
-  // const trackRow = document.createElement("div");
-  // ... Track: label and <select> with layer options ...
-  // content.appendChild(trackRow);
-  // select.addEventListener("change", () => { ... selectedTrackId, localStorage, rebuildBroadcastColorEvents, syncDisplayOnce ... });
+  const layers = broadcastCache?.timeline?.layers;
+  const hasLayers = Array.isArray(layers) && layers.length > 0;
+  if (hasLayers) {
+    const trackRow = document.createElement("div");
+    trackRow.style.display = "flex";
+    trackRow.style.flexDirection = "column";
+    trackRow.style.gap = "4px";
+    const trackLabel = document.createElement("label");
+    trackLabel.textContent = "Track (sync to layer):";
+    trackLabel.htmlFor = "info-panel-track-select";
+    trackRow.appendChild(trackLabel);
+    const select = document.createElement("select");
+    select.id = "info-panel-track-select";
+    select.style.width = "100%";
+    const noneOption = document.createElement("option");
+    noneOption.value = "";
+    noneOption.textContent = "Server-assigned (default)";
+    noneOption.selected = selectedTrackId === null;
+    select.appendChild(noneOption);
+    for (const layer of layers as { id: string; content?: string }[]) {
+      const opt = document.createElement("option");
+      opt.value = layer.id;
+      opt.textContent = layer.content ?? layer.id;
+      opt.selected = selectedTrackId === layer.id;
+      select.appendChild(opt);
+    }
+    select.addEventListener("change", () => {
+      const val = (select as HTMLSelectElement).value;
+      selectedTrackId = val.length > 0 ? val : null;
+      if (selectedTrackId != null) {
+        localStorage.setItem(TRACK_ID_STORAGE_KEY, selectedTrackId);
+      } else {
+        localStorage.removeItem(TRACK_ID_STORAGE_KEY);
+      }
+      rebuildBroadcastColorEvents();
+      syncDisplayOnce();
+    });
+    trackRow.appendChild(select);
+    content.appendChild(trackRow);
+  }
 
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";

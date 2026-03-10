@@ -166,6 +166,12 @@ function getGridAvailableSize(): { w: number; h: number } {
 }
 
 /**
+ * TODO: Add a "Sort by" feature later (e.g. dropdown: Device ID, Track ID, Effective RTT, Time Estimate Offset).
+ * Display order is currently the order returned by the simulated server (getClients). Sorting could be
+ * client-side or server-side with a paged/sorted API.
+ */
+
+/**
  * Single source of truth for "what is the current visible page". Uses the same snapped
  * height as the grid render so fetch and display never disagree (e.g. after resize).
  * Updates pageIndex (clamps to valid range). Call whenever layout might have changed.

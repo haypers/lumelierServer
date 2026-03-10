@@ -97,6 +97,18 @@ fn parse_geo_header(headers: &HeaderMap, name: &str) -> Option<f64> {
     s.parse().ok()
 }
 
+/// Parse X-Request-Track-Id header: client-requested 1-based track index. Returns None if missing or invalid.
+fn request_track_id_from_headers(headers: &HeaderMap) -> Option<u32> {
+    let v = headers.get("x-request-track-id")?;
+    let s = v.to_str().ok()?.trim();
+    let n: u32 = s.parse().ok()?;
+    if n >= 1 && n <= 256 {
+        Some(n)
+    } else {
+        None
+    }
+}
+
 /// Build GeoUpdate from X-Geo-* headers (case-insensitive).
 fn geo_from_headers(headers: &HeaderMap) -> GeoUpdate {
     GeoUpdate {
@@ -240,17 +252,23 @@ async fn poll_impl(
         &geo,
     );
 
-    let should_assign = is_new || (had_gps_before != Some(has_gps_now));
-    if should_assign {
-        let tree_opt = bucket.track_splitter_tree.load_full();
-        let track = if let Some(tree) = tree_opt.as_ref().as_ref() {
-            let mut rng = rand::rngs::OsRng;
-            track_splitter_tree::evaluate(tree, has_gps_now, &mut rng)
+    let track = if let Some(requested) = request_track_id_from_headers(&headers) {
+        requested
+    } else {
+        let should_assign = is_new || (had_gps_before != Some(has_gps_now));
+        if should_assign {
+            let tree_opt = bucket.track_splitter_tree.load_full();
+            if let Some(tree) = tree_opt.as_ref().as_ref() {
+                let mut rng = rand::rngs::OsRng;
+                track_splitter_tree::evaluate(tree, has_gps_now, &mut rng)
+            } else {
+                1
+            }
         } else {
-            1
-        };
-        registry.set_track_index(&device_id, track);
-    }
+            registry.get_track_index(&device_id)
+        }
+    };
+    registry.set_track_index(&device_id, track);
 
     // Device state (including track) comes from the same ConnectionRegistry used by the admin API—single source of truth.
     let track_index = registry.get_track_index(&device_id);
