@@ -1,3 +1,8 @@
+/**
+ * Color helpers for the admin frontend. Same contrasting-color algorithm as the client
+ * (e.g. for lag overlay icons on simulated client squares).
+ */
+
 export function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
@@ -93,10 +98,6 @@ export function hslToRgb(h: number, s: number, l: number): { r: number; g: numbe
   };
 }
 
-/**
- * Brightness from 0..100 where 0=black, 100=white.
- * Uses a perceptual weighted sum so "super bright" colors tend toward ~90+.
- */
 export function getBrightness0to100(hexColor: string): number {
   const rgb = hexToRgb(hexColor);
   if (!rgb) return 0;
@@ -114,19 +115,21 @@ export function adjustHexLightness(hexColor: string, deltaLightness: number): st
   return rgbToHex(nextRgb.r, nextRgb.g, nextRgb.b);
 }
 
-/** Contrast delta used for popups (higher = more contrasting). Set on --popup-contrast when display color changes. */
-export const POPUP_CONTRAST_DELTA = 30;
+/** Same as client frontend popup contrast (e.g. lag overlay icons). */
+export const LAG_OVERLAY_CONTRAST_DELTA = 30;
 
 /**
- * Given a displayed hex color, returns a contrasting UI color with similar hue,
- * shifted in lightness for readability.
- * @param hexColor - Background color (e.g. current display color).
- * @param contrastDelta - Lightness steps to shift (default 20). Use POPUP_CONTRAST_DELTA for popups.
+ * Returns a contrasting color for the given background (same algorithm as client frontend).
+ * @param hexBackground - Background color (e.g. client's currentDisplayColor).
+ * @param contrastDelta - Lightness steps to shift (default 30, same as client popups).
  */
-export function getFaintUiTextColor(hexColor: string, contrastDelta: number = 20): string {
-  const delta = contrastDelta;
-  const brightness = getBrightness0to100(hexColor);
+export function getContrastingColor(
+  hexBackground: string,
+  contrastDelta: number = LAG_OVERLAY_CONTRAST_DELTA
+): string {
+  const hex = normalizeHex(hexBackground) ?? "#333333";
+  const brightness = getBrightness0to100(hex);
   return brightness >= 40
-    ? adjustHexLightness(hexColor, -delta)
-    : adjustHexLightness(hexColor, delta);
+    ? adjustHexLightness(hex, -contrastDelta)
+    : adjustHexLightness(hex, contrastDelta);
 }

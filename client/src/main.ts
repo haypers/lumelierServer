@@ -270,7 +270,7 @@ function openInfoPanel(): void {
   if (popup.hasPopupWithType(INFO_PANEL_TYPE)) return;
   const content = document.createElement("div");
   content.style.cssText =
-    "padding:16px 18px;line-height:1.45;display:flex;flex-direction:column;gap:12px;color:inherit;";
+    "line-height:1.45;display:flex;flex-direction:column;gap:12px;color:inherit;";
 
   const deviceRow = document.createElement("div");
   deviceRow.textContent = "Device: " + (lastDeviceId || "—");
@@ -291,11 +291,12 @@ function openInfoPanel(): void {
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
   closeBtn.textContent = "Close";
-  closeBtn.style.cssText =
-    "margin-top:4px;padding:12px 16px;border:2px solid currentColor;background:transparent;color:inherit;font:inherit;cursor:pointer;border-radius:8px;";
-  content.appendChild(closeBtn);
 
-  const { dismiss } = popup.showCustomCard({ type: INFO_PANEL_TYPE, content });
+  const { dismiss } = popup.showCustomCard({
+    type: INFO_PANEL_TYPE,
+    content,
+    primaryButton: closeBtn,
+  });
   closeBtn.addEventListener("click", () => dismiss());
 }
 

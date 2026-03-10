@@ -6,10 +6,20 @@ import {
 } from "./icons";
 let didInitFullscreenHandlers = false;
 
+/** Last hex color applied to the display (used by popups for contrasting color). */
+let lastAppliedColor = "#000000";
+
+export function getDisplayedColor(): string {
+  return lastAppliedColor;
+}
+
 export function applyDisplayedColor(hexColor: string): void {
   const c = color.normalizeHex(hexColor) ?? "#000000";
+  lastAppliedColor = c;
   const uiColor = color.getFaintUiTextColor(c);
+  const popupContrast = color.getFaintUiTextColor(c, color.POPUP_CONTRAST_DELTA);
   document.documentElement.style.background = c;
+  document.documentElement.style.setProperty("--popup-contrast", popupContrast);
   document.body.style.background = c;
   document.body.style.margin = "0";
   const app = document.getElementById("app");

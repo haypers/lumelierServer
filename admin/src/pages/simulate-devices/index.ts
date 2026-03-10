@@ -23,7 +23,7 @@ import {
   deleteAllClients,
   postSample,
 } from "./api";
-import { updateClientGrid, type GridItem } from "./client-grid";
+import { updateClientGrid } from "./client-grid";
 import {
   renderDetailsPane,
   updateDetailsPaneChartsSamplePoints,
@@ -55,7 +55,6 @@ let btnClone: HTMLElement | null = null;
 
 let squareSizePx = SQUARE_SIZE_DEFAULT;
 let showLagOverlay = true;
-let groupByTrack = false;
 let pageIndex = 0;
 let resizeObserver: ResizeObserver | null = null;
 let lastContainerWidth = 0;
@@ -75,29 +74,6 @@ let gridRefreshFullPending = false;
 let suppressAutoSelect = false;
 /** Current show for simulated devices API; set in render(container, showId) when showId is non-null. */
 let currentShowId: string | null = null;
-
-/** Clients in display order (sorted by track when groupByTrack is true). */
-function getDisplayClients(): ClientSummaryForGrid[] {
-  if (!groupByTrack) return clients;
-  return [...clients].sort((a, b) => {
-    const ta = a.lastAssignedTrackIndex ?? -1;
-    const tb = b.lastAssignedTrackIndex ?? -1;
-    return ta - tb;
-  });
-}
-
-/** Insert line breaks before each new track group so each group starts on its own row. */
-function insertBreaksForGroups(pageClients: ClientSummaryForGrid[]): GridItem[] {
-  const items: GridItem[] = [];
-  let prevTrack: number | null | undefined = undefined;
-  for (const c of pageClients) {
-    const t = c.lastAssignedTrackIndex ?? null;
-    if (prevTrack !== undefined && t !== prevTrack) items.push({ _gridBreak: true });
-    items.push(c);
-    prevTrack = t;
-  }
-  return items;
-}
 
 function computeGridLayout(
   containerWidth: number,
@@ -201,7 +177,7 @@ function getVisiblePageLayout(): {
   totalPages: number;
   displayClients: ClientSummaryForGrid[];
 } {
-  const displayClients = getDisplayClients();
+  const displayClients = clients;
   const { w, h } = getGridAvailableSize();
   const cellSize = squareSizePx + GRID_GAP_PX;
   const snappedH = Math.max(cellSize, Math.floor(h / cellSize) * cellSize);
@@ -217,9 +193,8 @@ function updateGridLayoutAndRender(): void {
   const visible = getVisiblePageLayout();
   const { start, pageSize, totalPages, displayClients } = visible;
   const pageClients = displayClients.slice(start, start + pageSize);
-  const pageItems: GridItem[] = groupByTrack ? insertBreaksForGroups(pageClients) : pageClients;
   const showIdForGrid = currentShowId;
-  updateClientGrid(gridContainer, pageItems, selectedId, (id) => {
+  updateClientGrid(gridContainer, pageClients, selectedId, (id) => {
     selectedId = id;
     selectedClientFull = null;
     selectedAnchor = null;
@@ -625,10 +600,6 @@ function renderSimulateDevicesFull(container: HTMLElement): void {
               <input type="range" id="simulate-devices-square-size" min="${SQUARE_SIZE_MIN}" max="${SQUARE_SIZE_MAX}" value="${squareSizePx}" />
               <span id="simulate-devices-square-size-value">${squareSizePx} px</span>
             </span>
-            <span class="simulate-devices-group-by-track-wrap">
-              <input type="checkbox" id="simulate-devices-group-by-track" ${groupByTrack ? "checked" : ""} aria-label="Group by track" />
-              <label for="simulate-devices-group-by-track" class="simulate-devices-toolbar-label">Group by track</label>
-            </span>
             <button type="button" class="devices-toolbar-btn" id="simulate-devices-lag-overlay-toggle"><span id="simulate-devices-lag-overlay-toggle-label">Hide </span><span class="simulate-devices-lag-overlay-toggle-icon">${noSignalIcon}</span></button>
           </div>
           <div class="simulate-devices-toolbar-secondary" id="simulate-devices-toolbar-secondary" hidden>
@@ -828,13 +799,6 @@ function renderSimulateDevicesFull(container: HTMLElement): void {
       updateGridLayoutAndRender();
     }
   });
-  const groupByTrackCheckbox = document.getElementById("simulate-devices-group-by-track") as HTMLInputElement | null;
-  groupByTrackCheckbox?.addEventListener("change", () => {
-    groupByTrack = groupByTrackCheckbox.checked;
-    pageIndex = 0;
-    refresh();
-  });
-
   const lagOverlayToggleBtn = document.getElementById("simulate-devices-lag-overlay-toggle");
   const lagOverlayToggleLabel = document.getElementById("simulate-devices-lag-overlay-toggle-label");
   lagOverlayToggleBtn?.addEventListener("click", () => {

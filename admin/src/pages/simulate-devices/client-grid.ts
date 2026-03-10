@@ -1,23 +1,16 @@
 import type { ClientSummaryForGrid } from "./types";
 import noSignalSvg from "../../icons/noSignal.svg?raw";
+import { getContrastingColor } from "../../color";
 
 const inLag = (c: ClientSummaryForGrid): boolean =>
   c.lagEndsInMs != null && c.lagEndsInMs > 0;
 
-/** Line break between track groups when "Group by track" is on; forces next group to start on a new row. */
-export interface GridBreak {
-  _gridBreak: true;
-}
-
-export type GridItem = ClientSummaryForGrid | GridBreak;
-
-function isGridBreak(item: GridItem): item is GridBreak {
-  return item != null && typeof item === "object" && "_gridBreak" in item && item._gridBreak === true;
-}
+/** Fallback when client has no display color (e.g. not yet from server). */
+const DEFAULT_BG_FOR_CONTRAST = "#333333";
 
 export function renderClientGrid(
   container: HTMLElement,
-  items: GridItem[],
+  items: ClientSummaryForGrid[],
   selectedId: string | null,
   onSelect: (id: string) => void,
   squareSizePx: number = 24,
@@ -29,15 +22,7 @@ export function renderClientGrid(
   const inner = document.createElement("div");
   inner.className = "simulate-devices-grid";
   const size = `${squareSizePx}px`;
-  for (const item of items) {
-    if (isGridBreak(item)) {
-      const br = document.createElement("span");
-      br.className = "simulate-devices-grid-break";
-      br.setAttribute("aria-hidden", "true");
-      inner.appendChild(br);
-      continue;
-    }
-    const client = item;
+  for (const client of items) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "simulate-devices-grid-square";
@@ -55,6 +40,8 @@ export function renderClientGrid(
     overlay.className = "simulate-devices-grid-square-lag-overlay";
     overlay.setAttribute("aria-hidden", "true");
     overlay.innerHTML = noSignalSvg;
+    const bgForContrast = client.currentDisplayColor ?? DEFAULT_BG_FOR_CONTRAST;
+    overlay.style.color = getContrastingColor(bgForContrast);
     if (showLagOverlay && inLag(client)) {
       overlay.classList.add("simulate-devices-grid-square-lag-overlay--visible");
     }
@@ -74,7 +61,7 @@ export function renderClientGrid(
 
 export function updateClientGrid(
   container: HTMLElement,
-  items: GridItem[],
+  items: ClientSummaryForGrid[],
   selectedId: string | null,
   onSelect: (id: string) => void,
   squareSizePx: number = 24,
@@ -82,12 +69,11 @@ export function updateClientGrid(
 ): void {
   const inner = container.querySelector(".simulate-devices-grid");
   const squares = inner?.querySelectorAll(".simulate-devices-grid-square");
-  const clients = items.filter((item): item is ClientSummaryForGrid => !isGridBreak(item));
-  if (inner && squares && squares.length === clients.length && items.length === clients.length) {
+  if (inner && squares && squares.length === items.length) {
     const size = `${squareSizePx}px`;
-    for (let i = 0; i < clients.length; i++) {
+    for (let i = 0; i < items.length; i++) {
       const btn = squares[i] as HTMLButtonElement;
-      const client = clients[i];
+      const client = items[i];
       btn.setAttribute("data-client-id", client.id);
       btn.style.width = size;
       btn.style.height = size;
@@ -96,8 +82,10 @@ export function updateClientGrid(
       btn.classList.toggle("simulate-devices-grid-square--selected", client.id === selectedId);
       btn.style.backgroundColor =
         client.currentDisplayColor ?? btn.style.backgroundColor ?? "var(--bg-elevated)";
-      const overlay = btn.querySelector(".simulate-devices-grid-square-lag-overlay");
+      const overlay = btn.querySelector(".simulate-devices-grid-square-lag-overlay") as HTMLElement | null;
       if (overlay) {
+        const bgForContrast = client.currentDisplayColor ?? DEFAULT_BG_FOR_CONTRAST;
+        overlay.style.color = getContrastingColor(bgForContrast);
         overlay.classList.toggle(
           "simulate-devices-grid-square-lag-overlay--visible",
           showLagOverlay && inLag(client)

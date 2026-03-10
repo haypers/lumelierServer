@@ -1,15 +1,84 @@
-import { getFaintUiTextColor, normalizeHex } from "./color";
-
 const POPUP_CONTAINER_ID = "popup-container";
 const POPUP_STACK_ID = "popup-stack";
 
-function getContrastColor(): string {
-  const bg =
-    document.documentElement.style.background ||
-    document.body.style.background ||
-    "#000000";
-  const hex = normalizeHex(bg) ?? "#000000";
-  return getFaintUiTextColor(hex);
+/** Popups use var(--popup-contrast), set by ui.applyDisplayedColor when the main display color changes. */
+const POPUP_CONTRAST_VAR = "var(--popup-contrast)";
+
+/** Shared layout: same width, variable height, same color. */
+const POPUP_CARD_WIDTH = "min(400px, max(280px, 85vw))";
+const POPUP_PADDING = "16px 18px";
+const POPUP_BORDER_WIDTH = "4px";
+const POPUP_RADIUS = "12px";
+const POPUP_FONT = "system-ui,-apple-system,Segoe UI,Roboto,sans-serif";
+const POPUP_FONT_SIZE = "15px";
+const POPUP_BUTTON_FONT_SIZE = "14px";
+const POPUP_BUTTON_PADDING = "14px 16px";
+const POPUP_LINE_HEIGHT = "1.45";
+
+function cardBaseStyle(): string {
+  return [
+    `width:${POPUP_CARD_WIDTH};box-sizing:border-box;`,
+    "background:transparent;",
+    `font-family:${POPUP_FONT};font-size:${POPUP_FONT_SIZE};`,
+    "overflow:hidden;",
+    "transition:opacity 0.2s ease-out, transform 0.2s ease-out;",
+  ].join(" ");
+}
+
+function messageBlockStyle(): string {
+  return [
+    `padding:${POPUP_PADDING};margin:0;background:transparent;`,
+    `border:${POPUP_BORDER_WIDTH} solid ${POPUP_CONTRAST_VAR};border-bottom-width:0;`,
+    `border-radius:${POPUP_RADIUS} ${POPUP_RADIUS} 0 0;`,
+    `line-height:${POPUP_LINE_HEIGHT};color:${POPUP_CONTRAST_VAR};`,
+  ].join(" ");
+}
+
+function buttonStyle(radius: string): string {
+  return [
+    `padding:${POPUP_BUTTON_PADDING};background:transparent;`,
+    `border:${POPUP_BORDER_WIDTH} solid ${POPUP_CONTRAST_VAR};`,
+    `border-radius:${radius};`,
+    `font:inherit;font-size:${POPUP_BUTTON_FONT_SIZE};cursor:pointer;color:${POPUP_CONTRAST_VAR};`,
+  ].join(" ");
+}
+
+function leftButtonStyle(): string {
+  return [
+    `flex:1;margin:0;padding:${POPUP_BUTTON_PADDING};background:transparent;`,
+    `border:${POPUP_BORDER_WIDTH} solid ${POPUP_CONTRAST_VAR};border-right-width:0;`,
+    `border-radius:0 0 0 ${POPUP_RADIUS};`,
+    `font:inherit;font-size:${POPUP_BUTTON_FONT_SIZE};cursor:pointer;color:${POPUP_CONTRAST_VAR};`,
+  ].join(" ");
+}
+
+function rightButtonStyle(): string {
+  return [
+    `flex:1;margin:0;padding:${POPUP_BUTTON_PADDING};background:transparent;`,
+    `border:${POPUP_BORDER_WIDTH} solid ${POPUP_CONTRAST_VAR};border-left-width:0;`,
+    `border-radius:0 0 ${POPUP_RADIUS} 0;`,
+    `font:inherit;font-size:${POPUP_BUTTON_FONT_SIZE};cursor:pointer;color:${POPUP_CONTRAST_VAR};`,
+  ].join(" ");
+}
+
+/** Style for a button inside custom card content (uses currentColor to match card). */
+export function getCustomCardButtonStyle(): string {
+  return [
+    `padding:${POPUP_BUTTON_PADDING};background:transparent;margin:0;`,
+    `border:${POPUP_BORDER_WIDTH} solid currentColor;`,
+    `border-radius:${POPUP_RADIUS};`,
+    `font:inherit;font-size:${POPUP_BUTTON_FONT_SIZE};cursor:pointer;color:inherit;`,
+  ].join(" ");
+}
+
+/** Full-width bottom button for custom card (matches one-button modal structure). Use as last element in content. */
+export function getCustomCardPrimaryButtonStyle(): string {
+  return [
+    `width:100%;margin:0;padding:${POPUP_BUTTON_PADDING};background:transparent;`,
+    `border:${POPUP_BORDER_WIDTH} solid currentColor;border-top-width:0;`,
+    `border-radius:0 0 ${POPUP_RADIUS} ${POPUP_RADIUS};`,
+    `font:inherit;font-size:${POPUP_BUTTON_FONT_SIZE};cursor:pointer;color:inherit;`,
+  ].join(" ");
 }
 
 export interface TwoButtonModalOptions {
@@ -89,26 +158,14 @@ function removePopup(entry: PopupEntry): void {
 export function createTwoButtonModal(options: TwoButtonModalOptions): { dismiss: () => void } {
   const { type, message, leftLabel, rightLabel, onLeftClick, onRightClick } = options;
   const stack = getStack();
-  const contrast = getContrastColor();
 
   const card = document.createElement("div");
   card.dataset.popupType = type;
-  card.style.cssText = [
-    "min-width:min(280px, 85vw);max-width:400px;",
-    "background:transparent;",
-    "font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;",
-    "overflow:hidden;",
-    "transition:opacity 0.2s ease-out, transform 0.2s ease-out;",
-  ].join(" ");
+  card.style.cssText = cardBaseStyle();
 
   const messageBlock = document.createElement("div");
   messageBlock.textContent = message;
-  messageBlock.style.cssText = [
-    "padding:16px 18px;margin:0;background:transparent;",
-    "border:4px solid " + contrast + ";border-bottom-width:0;",
-    "border-radius:12px 12px 0 0;",
-    "line-height:1.45;color:" + contrast + ";",
-  ].join(" ");
+  messageBlock.style.cssText = messageBlockStyle();
 
   const buttonsRow = document.createElement("div");
   buttonsRow.style.cssText = "display:flex;margin:0;";
@@ -116,23 +173,13 @@ export function createTwoButtonModal(options: TwoButtonModalOptions): { dismiss:
   const leftBtn = document.createElement("button");
   leftBtn.type = "button";
   leftBtn.textContent = leftLabel;
-  leftBtn.style.cssText = [
-    "flex:1;padding:14px 16px;background:transparent;",
-    "border:4px solid " + contrast + ";border-right-width:0;",
-    "border-radius:0 0 0 12px;",
-    "font:inherit;font-size:14px;cursor:pointer;color:" + contrast + ";",
-  ].join(" ");
+  leftBtn.style.cssText = leftButtonStyle();
   leftBtn.addEventListener("click", () => onLeftClick?.());
 
   const rightBtn = document.createElement("button");
   rightBtn.type = "button";
   rightBtn.textContent = rightLabel;
-  rightBtn.style.cssText = [
-    "flex:1;padding:14px 16px;background:transparent;",
-    "border:4px solid " + contrast + ";border-left-width:0;",
-    "border-radius:0 0 12px 0;",
-    "font:inherit;font-size:14px;cursor:pointer;color:" + contrast + ";",
-  ].join(" ");
+  rightBtn.style.cssText = rightButtonStyle();
   rightBtn.addEventListener("click", () => onRightClick?.());
 
   buttonsRow.appendChild(leftBtn);
@@ -159,35 +206,21 @@ export function createTwoButtonModal(options: TwoButtonModalOptions): { dismiss:
 export function createOneButtonModal(options: OneButtonModalOptions): { dismiss: () => void } {
   const { type, message, primaryLabel, onPrimaryClick } = options;
   const stack = getStack();
-  const contrast = getContrastColor();
 
   const card = document.createElement("div");
   card.dataset.popupType = type;
-  card.style.cssText = [
-    "min-width:min(280px, 85vw);max-width:400px;",
-    "background:transparent;",
-    "font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;",
-    "overflow:hidden;",
-    "transition:opacity 0.2s ease-out, transform 0.2s ease-out;",
-  ].join(" ");
+  card.style.cssText = cardBaseStyle();
 
   const messageBlock = document.createElement("div");
   messageBlock.textContent = message;
-  messageBlock.style.cssText = [
-    "padding:16px 18px;margin:0;background:transparent;",
-    "border:4px solid " + contrast + ";border-bottom-width:0;",
-    "border-radius:12px 12px 0 0;",
-    "line-height:1.45;color:" + contrast + ";",
-  ].join(" ");
+  messageBlock.style.cssText = messageBlockStyle();
 
   const primaryBtn = document.createElement("button");
   primaryBtn.type = "button";
   primaryBtn.textContent = primaryLabel;
   primaryBtn.style.cssText = [
-    "width:100%;padding:14px 16px;background:transparent;margin:0;",
-    "border:4px solid " + contrast + ";",
-    "border-radius:0 0 12px 12px;",
-    "font:inherit;font-size:14px;cursor:pointer;color:" + contrast + ";",
+    "width:100%;margin:0;",
+    buttonStyle(`0 0 ${POPUP_RADIUS} ${POPUP_RADIUS}`),
   ].join(" ");
   primaryBtn.addEventListener("click", () => onPrimaryClick?.());
 
@@ -209,32 +242,43 @@ export function createOneButtonModal(options: OneButtonModalOptions): { dismiss:
 
 export interface CustomCardOptions {
   type: string;
-  /** Card body; should include any buttons (e.g. Close) that call the returned dismiss(). */
+  /** Card body (message area only). Do not include the primary button here. */
   content: HTMLElement;
+  /** Optional full-width bottom button (e.g. Close). Apply getCustomCardPrimaryButtonStyle() before passing. Appended to card outside the padded content so it aligns with one-button modal. */
+  primaryButton?: HTMLElement;
 }
 
 /**
- * Push a custom card to the popup stack. Same border/styling as other modals.
- * Caller builds content (e.g. device id, track select, Close button) and wires Close to the returned dismiss().
+ * Push a custom card to the popup stack. Same width, structure, and color as other modals.
+ * Content is wrapped in a message-style block (top rounded, no bottom border). If primaryButton
+ * is provided, it is appended to the card as a sibling (full-width, no content padding).
  */
 export function showCustomCard(options: CustomCardOptions): { dismiss: () => void } {
-  const { type, content } = options;
+  const { type, content, primaryButton } = options;
   const stack = getStack();
-  const contrast = getContrastColor();
 
   const card = document.createElement("div");
   card.dataset.popupType = type;
-  card.style.cssText = [
-    "min-width:min(280px, 85vw);max-width:400px;",
-    "background:transparent;",
-    "font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:15px;",
-    "overflow:hidden;",
-    "transition:opacity 0.2s ease-out, transform 0.2s ease-out;",
-    "border:4px solid " + contrast + ";",
-    "border-radius:12px;",
-    "color:" + contrast + ";",
+  card.style.cssText = cardBaseStyle();
+
+  const wrapper = document.createElement("div");
+  wrapper.style.cssText = [
+    messageBlockStyle(),
+    "display:flex;flex-direction:column;gap:12px;",
+    "width:100%;box-sizing:border-box;",
   ].join(" ");
-  card.appendChild(content);
+  wrapper.appendChild(content);
+  card.appendChild(wrapper);
+  if (primaryButton) {
+    primaryButton.style.cssText = [
+      "width:100%;margin:0;",
+      "padding:" + POPUP_BUTTON_PADDING + ";background:transparent;",
+      "border:" + POPUP_BORDER_WIDTH + " solid " + POPUP_CONTRAST_VAR + ";",
+      "border-radius:0 0 " + POPUP_RADIUS + " " + POPUP_RADIUS + ";",
+      "font:inherit;font-size:" + POPUP_BUTTON_FONT_SIZE + ";cursor:pointer;color:" + POPUP_CONTRAST_VAR + ";",
+    ].join(" ");
+    card.appendChild(primaryButton);
+  }
 
   let dismissed = false;
   function dismiss(): void {
