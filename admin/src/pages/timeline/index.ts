@@ -234,7 +234,6 @@ function addEventsFromVideo(events: VideoImportEvent[], layerId: string): void {
       kind: "event",
       label: id,
       effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-      target: "All",
       color: ev.color,
     };
     items.add({
@@ -280,9 +279,6 @@ function updateItemInTimeline(id: IdType, updates: DetailsPanelUpdates): void {
   }
   if (updates.effectType !== undefined) {
     payload.effectType = updates.effectType || undefined;
-  }
-  if (updates.target !== undefined) {
-    payload.target = updates.target || undefined;
   }
   if (updates.color !== undefined) {
     payload.color = updates.color || undefined;
@@ -506,7 +502,6 @@ function getRainbowCycleTemplate(): TimelineStateJSON {
       label: color.name,
       effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
       color: color.hex,
-      target: "All",
     });
   }
   
@@ -521,7 +516,6 @@ function getRainbowCycleTemplate(): TimelineStateJSON {
       label: color.name,
       effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
       color: color.hex,
-      target: "All",
     });
   }
   
@@ -536,7 +530,6 @@ function getRainbowCycleTemplate(): TimelineStateJSON {
       label: color.name,
       effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
       color: color.hex,
-      target: "All",
     });
   }
   
@@ -575,7 +568,6 @@ function getBreatheTemplate(): TimelineStateJSON {
       label: color.name,
       effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
       color: color.hex,
-      target: "All",
     });
   }
   
@@ -610,7 +602,6 @@ function getPartyModeTemplate(): TimelineStateJSON {
       label: color.name,
       effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
       color: color.hex,
-      target: "All",
     });
   }
   

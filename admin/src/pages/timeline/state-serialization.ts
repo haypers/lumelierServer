@@ -30,7 +30,6 @@ export function exportState(
         endSec: payload.kind === "clip" ? endSec : undefined, // events are points, no endSec
         label: payload.label,
         effectType: payload.effectType,
-        target: payload.target,
         color: payload.color,
       };
     });
@@ -68,7 +67,6 @@ export function importState(
       kind: it.kind,
       label: it.label,
       effectType: it.effectType,
-      target: it.target,
       color: it.color,
     };
     if (it.kind === "clip") {

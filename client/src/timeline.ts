@@ -11,7 +11,6 @@ export interface BroadcastTimelineItem {
   kind?: string;
   startSec: number;
   effectType?: string;
-  target?: string;
   color?: string;
 }
 

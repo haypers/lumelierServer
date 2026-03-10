@@ -35,8 +35,6 @@ export interface TimelineItemPayload {
   label?: string;
   /** Event type (e.g. "Set Color Broadcast"). No effect on timeline visual. */
   effectType?: string;
-  /** For "Set Color Broadcast": target audience (All, GPS Enabled, GPS Disabled). */
-  target?: string;
   /** For "Set Color Broadcast": hex color (e.g. "#ff0000"). */
   color?: string;
 }
@@ -57,7 +55,6 @@ export interface TimelineStateJSON {
     endSec?: number;
     label?: string;
     effectType?: string;
-    target?: string;
     color?: string;
   }[];
   /** Readhead position in seconds. */

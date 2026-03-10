@@ -18,7 +18,6 @@ export interface DetailsPanelUpdates {
   layerId?: string;
   label?: string;
   effectType?: string;
-  target?: string;
   color?: string;
 }
 
@@ -27,9 +26,6 @@ export type GetLayersFn = () => LayerInfo[];
 
 /** Event type options for the dropdown. Only one for now. */
 export const EVENT_TYPE_OPTIONS = ["Set Color Broadcast"] as const;
-
-/** Target options for "Set Color Broadcast" event type. */
-export const TARGET_OPTIONS = ["All", "GPS Enabled", "GPS Disabled"] as const;
 
 /** Called to refresh the details panel; pass current itemId to re-render that item (e.g. after changing event type). */
 export type OnDetailsUpdatedFn = (currentItemId?: IdType) => void;
@@ -75,28 +71,16 @@ export function updateDetailsPanel(
 
   const isSetColorBroadcast =
     payload.kind === "event" && payload.effectType === "Set Color Broadcast";
-  const targetValue = payload.target ?? "All";
   const colorValue =
     payload.color && /^#[0-9A-Fa-f]{6}$/.test(payload.color)
       ? payload.color
       : "#ffffff";
-
-  const targetOptions = TARGET_OPTIONS.map(
-    (t) =>
-      `<option value="${escapeAttr(t)}" ${t === targetValue ? "selected" : ""}>${escapeHtml(t)}</option>`
-  ).join("");
 
   const subsettingsHtml =
     isSetColorBroadcast
       ? `
   <div class="detail-subsettings">
     <dl class="detail-grid">
-      <dt>Target</dt>
-      <dd>
-        <select class="detail-input detail-target" aria-label="Target">
-          ${targetOptions}
-        </select>
-      </dd>
       <dt>Color</dt>
       <dd>
         <input type="color" class="detail-input detail-color" value="${escapeAttr(colorValue)}" aria-label="Color" />
@@ -165,16 +149,10 @@ export function updateDetailsPanel(
       const val = effectSelect.value;
       updateItem(itemId as IdType, { effectType: val });
       if (val === "Set Color Broadcast") {
-        updateItem(itemId as IdType, { target: "All", color: "#ffffff" });
+        updateItem(itemId as IdType, { color: "#ffffff" });
       }
       onUpdated?.(itemId as IdType);
     }
-  }
-
-  function applyTarget(): void {
-    if (!body) return;
-    const targetSelect = body.querySelector(".detail-target") as HTMLSelectElement | null;
-    if (targetSelect) updateItem(itemId as IdType, { target: targetSelect.value || undefined });
   }
 
   function applyColor(): void {
@@ -195,9 +173,7 @@ export function updateDetailsPanel(
   if (effectSelect) {
     effectSelect.addEventListener("change", applyEffectType);
   }
-  const targetSelect = body.querySelector(".detail-target") as HTMLSelectElement | null;
   const colorInput = body.querySelector(".detail-color") as HTMLInputElement | null;
-  if (targetSelect) targetSelect.addEventListener("change", applyTarget);
   if (colorInput) {
     colorInput.addEventListener("input", applyColor);
     colorInput.addEventListener("change", applyColor);
