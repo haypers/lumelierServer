@@ -29,12 +29,15 @@ const SORT_FIELD_MAP: Record<string, string> = {
   geoAccuracy: "geoAccuracy",
   geoAlt: "geoAlt",
   geoAltAccuracy: "geoAltAccuracy",
+  trackDisplay: "trackIndex",
+  trackIndex: "trackIndex",
 };
 
 /** Tooltips for column headers (same order as columnDefs). */
 const COLUMN_HEADER_TOOLTIPS = [
   "Stable identifier for this device. Sent by the client in the X-Device-ID header once it has received one from the server (e.g. on first connection).",
   "Whether the server considers the device connected (contacted within the last 20 s) and if the client has returned the device ID handshake.",
+  "Track index (1-based) assigned by the server when the device first polled; label (TRACKID - TRACKNAME) is resolved in this UI from the show timeline layers.",
   "Server time (Unix ms) when this device was first seen. Shown in local time.",
   "Round-trip time reported by the client (average of last few polls). Measured by the client from send of GET /api/poll to receipt of response, sent on the next poll as X-Ping-Ms.",
   "Most recent round-trip time reported by the client for the previous poll. Same measurement as Avg but not averaged.",
@@ -48,6 +51,7 @@ const COLUMN_HEADER_TOOLTIPS = [
   "Horizontal accuracy (meters) of the position. Sent in X-Geo-Accuracy.",
   "Altitude (meters) if available. Sent in X-Geo-Alt.",
   "Altitude accuracy (meters) if available. Sent in X-Geo-Alt-Accuracy.",
+  "True if the device is currently sending latitude and longitude in poll headers (X-Geo-Lat, X-Geo-Lon). Set from the most recent poll; used by the server for track assignment at GPS branches.",
 ];
 
 interface Stats {
@@ -71,6 +75,8 @@ interface DeviceRow {
   geoAccuracy?: number | null;
   geoAlt?: number | null;
   geoAltAccuracy?: number | null;
+  isSendingGps?: boolean;
+  trackIndex?: number;
 }
 
 interface ConnectedDevicesFullResponse {
@@ -103,6 +109,9 @@ let table: Tabulator | null = null;
 let connectedFilterActive = false;
 /** Current show ID from render(); used for show-scoped API paths. */
 let currentShowId: string | null = null;
+/** Cached timeline layers for current show (from GET show-workspaces/:show_id/timeline). Cleared when show changes. */
+let cachedTimelineLayers: { id: string; label: string }[] | null = null;
+let cachedTimelineLayersShowId: string | null = null;
 /** Offset (ms) from client time to server time: serverTimeMs ≈ Date.now() + serverTimeOffsetMs */
 let serverTimeOffsetMs = 0;
 let serverTimeRafId: number | null = null;
@@ -130,6 +139,38 @@ function formatUptime(ms: number): string {
 
 function formatTime(ms: number): string {
   return new Date(ms).toLocaleString();
+}
+
+/** Build "TRACKID - TRACKNAME" from 1-based track index and timeline layers; fallback to index only. */
+function trackDisplayFromIndex(
+  trackIndex: number | undefined,
+  layers: { label?: string }[] | null,
+): string {
+  if (trackIndex == null) return "";
+  const t = trackIndex === 0 ? 1 : trackIndex;
+  if (!layers?.length) return String(t);
+  const idx = Math.max(0, t - 1);
+  const layer = layers[idx];
+  const label = layer?.label ?? "(no name)";
+  return `${t} - ${label}`;
+}
+
+async function fetchTimelineLayersIfNeeded(): Promise<{ label?: string }[] | null> {
+  if (!currentShowId) return null;
+  if (cachedTimelineLayersShowId === currentShowId && cachedTimelineLayers !== null) {
+    return cachedTimelineLayers;
+  }
+  try {
+    const res = await fetch(`/api/admin/show-workspaces/${currentShowId}/timeline`, { credentials: "include" });
+    if (!res.ok) return null;
+    const data = (await res.json()) as { layers?: { id?: string; label?: string }[] };
+    const layers = Array.isArray(data.layers) ? data.layers : null;
+    cachedTimelineLayersShowId = currentShowId;
+    cachedTimelineLayers = layers?.map((l) => ({ id: l.id ?? "", label: l.label ?? "" })) ?? null;
+    return cachedTimelineLayers;
+  } catch {
+    return null;
+  }
 }
 
 function getStoredPageSize(): number {
@@ -186,9 +227,12 @@ function escapeCsvField(value: string): string {
 }
 
 function buildDevicesCsv(devices: DeviceRow[]): string {
+  const layers = cachedTimelineLayersShowId === currentShowId ? cachedTimelineLayers : null;
   const headers = [
     "Device ID",
     "Connection Status",
+    "Track",
+    "Is Sending GPS Data",
     "First Connected At",
     "Avg Client RTT (ms)",
     "Last Client RTT (ms)",
@@ -208,6 +252,8 @@ function buildDevicesCsv(devices: DeviceRow[]): string {
     [
       d.deviceId,
       d.connectionStatus,
+      trackDisplayFromIndex(d.trackIndex, layers),
+      d.isSendingGps ? "Yes" : "No",
       formatTime(d.firstConnectedAt),
       d.averagePingMs != null ? String(d.averagePingMs) : "",
       d.lastClientRttMs != null ? String(d.lastClientRttMs) : "",
@@ -240,6 +286,7 @@ function downloadCsv(csv: string, filename: string): void {
 
 async function exportDeviceListCsv(): Promise<void> {
   try {
+    await fetchTimelineLayersIfNeeded();
     const devices = await fetchFullDeviceList();
     const csv = buildDevicesCsv(devices);
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
@@ -333,6 +380,7 @@ function orderRowsByIds(devices: DeviceRow[], ids: string[]): DeviceRow[] {
 }
 
 function updateTable(data: DeviceRow[], orderIds?: string[]): void {
+  const layers = cachedTimelineLayersShowId === currentShowId ? cachedTimelineLayers : null;
   const rows = (orderIds ? orderRowsByIds(data, orderIds) : data).map((d) => ({
     deviceId: d.deviceId,
     connectionStatus: d.connectionStatus,
@@ -351,6 +399,9 @@ function updateTable(data: DeviceRow[], orderIds?: string[]): void {
     geoAccuracy: d.geoAccuracy ?? null,
     geoAlt: d.geoAlt ?? null,
     geoAltAccuracy: d.geoAltAccuracy ?? null,
+    isSendingGps: d.isSendingGps ?? false,
+    trackIndex: d.trackIndex ?? undefined,
+    trackDisplay: trackDisplayFromIndex(d.trackIndex, layers),
   }));
 
   const t = table;
@@ -427,6 +478,7 @@ async function refresh(): Promise<void> {
   refreshEveryApi?.recordRefresh();
   let success = false;
   try {
+    await fetchTimelineLayersIfNeeded();
     let pageData = await fetchPageIds();
     paginationTotalCount = pageData.total_count;
     let totalPages = getTotalPages();
@@ -489,8 +541,11 @@ const CONNECTED_DEVICES_LIST_NOT_LIVE_MESSAGE =
 const LIVE_STATE_EVENT_NAME = "lumelier-live-state";
 let connectedDevicesListContainer: HTMLElement | null = null;
 let connectedDevicesLiveStateListener: ((e: Event) => void) | null = null;
+/** True when the full list UI is shown; false when showing "not live" or empty state. Only refresh when live state value actually changes. */
+let connectedDevicesShowingFullUI = false;
 
 function cleanupConnectedDevicesList(): void {
+  connectedDevicesShowingFullUI = false;
   if (refreshTimer) {
     clearInterval(refreshTimer);
     refreshTimer = null;
@@ -520,6 +575,7 @@ function showConnectedDevicesNotLiveMessage(container: HTMLElement): void {
 
 function renderConnectedDevicesListFull(container: HTMLElement): void {
   cleanupConnectedDevicesList();
+  connectedDevicesShowingFullUI = true;
 
   paginationPageSize = getStoredPageSize();
   paginationPage = 1;
@@ -527,19 +583,21 @@ function renderConnectedDevicesListFull(container: HTMLElement): void {
   const columnDefs = [
     { title: "Device ID", field: "deviceId", sorter: "string", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[0] } },
     { title: "Connection Status", field: "connectionStatus", sorter: "string", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[1] } },
-    { title: "First Connected At", field: "firstConnectedAtFormatted", sorter: "string", visible: false, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[2] } },
-    { title: "Avg Client RTT (ms)", field: "averagePingMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[3] } },
-    { title: "Last Client RTT (ms)", field: "lastClientRttMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[4] } },
-    { title: "Avg Server Processing (ms)", field: "averageServerProcessingMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[5] } },
-    { title: "Last Server Processing (ms)", field: "lastServerProcessingMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[6] } },
-    { title: "Time since last contact (ms)", field: "timeSinceLastContactMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[7] } },
-    { title: "Disconnect Events", field: "disconnectEvents", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[8] } },
-    { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", visible: false, sorterParams: { field: "estimatedUptimeMs" }, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[9] } },
-    { title: "Latitude", field: "geoLat", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[10] } },
-    { title: "Longitude", field: "geoLon", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[11] } },
-    { title: "Geo Accuracy (m)", field: "geoAccuracy", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[12] } },
-    { title: "Altitude (m)", field: "geoAlt", sorter: "number", visible: false, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[13] } },
-    { title: "Altitude Accuracy (m)", field: "geoAltAccuracy", sorter: "number", visible: false, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[14] } },
+    { title: "Track", field: "trackDisplay", sorter: "string", sorterParams: { field: "trackIndex" }, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[2] } },
+    { title: "Is Sending GPS Data", field: "isSendingGps", sorter: "boolean", formatter: (c: { getValue(): unknown }) => (c.getValue() ? "Yes" : "No"), titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[16] } },
+    { title: "First Connected At", field: "firstConnectedAtFormatted", sorter: "string", visible: false, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[3] } },
+    { title: "Avg Client RTT (ms)", field: "averagePingMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[4] } },
+    { title: "Last Client RTT (ms)", field: "lastClientRttMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[5] } },
+    { title: "Avg Server Processing (ms)", field: "averageServerProcessingMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[6] } },
+    { title: "Last Server Processing (ms)", field: "lastServerProcessingMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[7] } },
+    { title: "Time since last contact (ms)", field: "timeSinceLastContactMs", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[8] } },
+    { title: "Disconnect Events", field: "disconnectEvents", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[9] } },
+    { title: "Estimated Uptime", field: "estimatedUptimeFormatted", sorter: "number", visible: false, sorterParams: { field: "estimatedUptimeMs" }, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[10] } },
+    { title: "Latitude", field: "geoLat", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[11] } },
+    { title: "Longitude", field: "geoLon", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[12] } },
+    { title: "Geo Accuracy (m)", field: "geoAccuracy", sorter: "number", titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[13] } },
+    { title: "Altitude (m)", field: "geoAlt", sorter: "number", visible: false, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[14] } },
+    { title: "Altitude Accuracy (m)", field: "geoAltAccuracy", sorter: "number", visible: false, titleFormatter: columnTitleWithInfoBubble, titleFormatterParams: { tooltipText: COLUMN_HEADER_TOOLTIPS[15] } },
   ];
 
   container.innerHTML = `
@@ -766,6 +824,10 @@ function renderConnectedDevicesListFull(container: HTMLElement): void {
 }
 
 export function render(container: HTMLElement, showId: string | null): void {
+  if (showId !== currentShowId) {
+    cachedTimelineLayersShowId = null;
+    cachedTimelineLayers = null;
+  }
   currentShowId = showId;
   if (showId === null) {
     connectedDevicesListContainer = null;
@@ -787,10 +849,14 @@ export function render(container: HTMLElement, showId: string | null): void {
   connectedDevicesLiveStateListener = (e: Event) => {
     const ev = e as CustomEvent<{ showId: string; live: boolean }>;
     if (ev.detail?.showId !== currentShowId || !connectedDevicesListContainer) return;
-    cleanupConnectedDevicesList();
     if (ev.detail.live) {
-      renderConnectedDevicesListFull(connectedDevicesListContainer);
+      if (!connectedDevicesShowingFullUI) {
+        connectedDevicesShowingFullUI = true;
+        renderConnectedDevicesListFull(connectedDevicesListContainer);
+      }
     } else {
+      connectedDevicesShowingFullUI = false;
+      cleanupConnectedDevicesList();
       showConnectedDevicesNotLiveMessage(connectedDevicesListContainer);
     }
   };

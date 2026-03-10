@@ -41,9 +41,7 @@ export interface TimelineItemPayload {
   color?: string;
 }
 
-import type { TrackAssignmentsRoot } from "./track-assignments/types";
-
-/** Serializable timeline state for server. */
+/** Serializable timeline state for server (timeline.json). Track splitter tree is stored in trackSplitterTree.json. */
 export interface TimelineStateJSON {
   version: number;
   /** Show title; default "Untitled Show" when missing. */
@@ -64,6 +62,4 @@ export interface TimelineStateJSON {
   }[];
   /** Readhead position in seconds. */
   readheadSec: number;
-  /** How users are split into tracks when they join. Stored in timeline.json. */
-  trackAssignments?: TrackAssignmentsRoot;
 }

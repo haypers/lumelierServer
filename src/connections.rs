@@ -1,5 +1,9 @@
 //! # Connection Registry — Device Presence and Ping
 //!
+//! All connected-device data (identity, timestamps, ping, track, geo, etc.) is held in this single
+//! in-memory structure for fast access. There is no persistence and no separate datastructures for
+//! device state—keep it that way to avoid drift and extra complexity.
+//!
 //! Tracks each device that has hit GET /api/poll: last seen time, recent RTT samples (X-Ping-Ms),
 //! handshake status, and disconnect events. "Connected" means last_seen within CONNECTED_THRESHOLD_MS.
 //! A background task calls tick_disconnects every 10s to bump disconnect_events for devices that have gone silent.
@@ -28,6 +32,10 @@ pub struct DeviceState {
     pub geo_accuracy: Option<f64>,
     pub geo_alt: Option<f64>,
     pub geo_alt_accuracy: Option<f64>,
+    /// True if the current poll included lat and lon (we do not require altitude).
+    pub is_sending_gps: bool,
+    /// Assigned track index (1-based). 0 means not yet assigned.
+    pub track_index: u32,
 }
 
 #[derive(Clone, Debug)]
@@ -49,6 +57,9 @@ pub struct DeviceRow {
     pub geo_accuracy: Option<f64>,
     pub geo_alt: Option<f64>,
     pub geo_alt_accuracy: Option<f64>,
+    /// True if the device is currently sending GPS (lat/lon) in polls.
+    pub is_sending_gps: bool,
+    pub track_index: u32,
 }
 
 /// Geo values from client (X-Geo-* headers). All optional.
@@ -112,6 +123,7 @@ impl ConnectionRegistry {
     }
 
     /// Upsert: only this key is locked; no global write lock.
+    /// Returns true if the entry was newly inserted (first poll from this device).
     pub fn upsert(
         &self,
         device_id: String,
@@ -120,7 +132,9 @@ impl ConnectionRegistry {
         server_processing_ms: Option<u32>,
         handshake_returned: bool,
         geo: &GeoUpdate,
-    ) {
+    ) -> bool {
+        let is_sending_gps = geo.lat.is_some() && geo.lon.is_some();
+        let was_new = !self.devices.contains_key(&device_id);
         let mut entry = self.devices.entry(device_id.clone()).or_insert_with(|| DeviceState {
             device_id: device_id.clone(),
             first_connected_at_ms: now_ms,
@@ -135,12 +149,15 @@ impl ConnectionRegistry {
             geo_accuracy: None,
             geo_alt: None,
             geo_alt_accuracy: None,
+            is_sending_gps: false,
+            track_index: 0,
         });
         entry.disconnect_counted = false;
         if handshake_returned {
             entry.handshake_returned = true;
         }
         entry.last_seen_at_ms = now_ms;
+        entry.is_sending_gps = is_sending_gps;
         if let Some(p) = ping_ms {
             entry.ping_samples.push(p);
             if entry.ping_samples.len() > PING_SAMPLES_MAX {
@@ -168,6 +185,34 @@ impl ConnectionRegistry {
         if geo.alt_accuracy.is_some() {
             entry.geo_alt_accuracy = geo.alt_accuracy;
         }
+        was_new
+    }
+
+    /// Returns the device's current is_sending_gps value, or None if the device is not in the registry.
+    pub fn get_is_sending_gps(&self, device_id: &str) -> Option<bool> {
+        self.devices.get(device_id).map(|r| r.is_sending_gps)
+    }
+
+    /// Sets the assigned track index for the device if it exists.
+    pub fn set_track_index(&self, device_id: &str, track_index: u32) {
+        if let Some(mut r) = self.devices.get_mut(device_id) {
+            r.track_index = track_index;
+        }
+    }
+
+    /// Returns the device's track index (1-based). Returns 1 if the device is not in the registry or not yet assigned (0).
+    pub fn get_track_index(&self, device_id: &str) -> u32 {
+        self.devices
+            .get(device_id)
+            .map(|r| {
+                let t = r.track_index;
+                if t == 0 {
+                    1
+                } else {
+                    t
+                }
+            })
+            .unwrap_or(1)
     }
 
     /// Update disconnect counts for devices that have gone silent (not on reconnect).
@@ -240,6 +285,8 @@ impl ConnectionRegistry {
                     geo_accuracy: d.geo_accuracy,
                     geo_alt: d.geo_alt,
                     geo_alt_accuracy: d.geo_alt_accuracy,
+                    is_sending_gps: d.is_sending_gps,
+                    track_index: d.track_index,
                 }
             })
             .collect();
@@ -304,6 +351,8 @@ impl ConnectionRegistry {
                     geo_accuracy: d.geo_accuracy,
                     geo_alt: d.geo_alt,
                     geo_alt_accuracy: d.geo_alt_accuracy,
+                    is_sending_gps: d.is_sending_gps,
+                    track_index: d.track_index,
                 }
             })
             .collect();
@@ -348,6 +397,8 @@ impl ConnectionRegistry {
                         geo_accuracy: d.geo_accuracy,
                         geo_alt: d.geo_alt,
                         geo_alt_accuracy: d.geo_alt_accuracy,
+                        is_sending_gps: d.is_sending_gps,
+                        track_index: d.track_index,
                     }
                 })
             })

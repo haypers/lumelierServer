@@ -1,7 +1,7 @@
 //! # Show workspaces — Per-show folders under userData/shows
 //!
-//! Each show has a folder {show_id}/ with info.json, timeline.json, venueShape.json,
-//! and simulatedClientProfiles/. Creating a show updates the user's show_ids and the show's info.json.
+//! Each show has a folder {show_id}/ with info.json, timeline.json, trackSplitterTree.json,
+//! venueShape.json, and simulatedClientProfiles/. Creating a show updates the user's show_ids and the show's info.json.
 
 use std::sync::Arc;
 
@@ -19,6 +19,7 @@ use crate::auth;
 use crate::broadcast::BroadcastSnapshot;
 use crate::time;
 use crate::timeline_validator;
+use crate::track_splitter_tree::TrackSplitterTree;
 
 const SHOW_ID_LEN: usize = 8;
 const SHOW_ID_CHARS: &[u8] = b"0123456789abcdefghijklmnopqrstuvwxyz";
@@ -319,6 +320,60 @@ pub async fn put_timeline(
     Ok(StatusCode::OK)
 }
 
+const TRACK_SPLITTER_TREE_FILENAME: &str = "trackSplitterTree.json";
+
+/// GET /api/admin/show-workspaces/:show_id/track-splitter-tree — returns trackSplitterTree.json for the show. 404 if file missing.
+pub async fn get_track_splitter_tree(
+    State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &username, &show_id).await?;
+    let path = state.shows_path.join(&show_id).join(TRACK_SPLITTER_TREE_FILENAME);
+    let bytes = fs::read(&path)
+        .await
+        .map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
+            _ => StatusCode::INTERNAL_SERVER_ERROR,
+        })?;
+    Ok(([("content-type", "application/json")], bytes))
+}
+
+/// PUT /api/admin/show-workspaces/:show_id/track-splitter-tree — write trackSplitterTree.json. Expects { "root": ... }.
+pub async fn put_track_splitter_tree(
+    State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Result<StatusCode, StatusCode> {
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &username, &show_id).await?;
+    let value: serde_json::Value =
+        serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let obj = value.as_object().ok_or(StatusCode::BAD_REQUEST)?;
+    if !obj.contains_key("root") {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let path = state.shows_path.join(&show_id).join(TRACK_SPLITTER_TREE_FILENAME);
+    fs::write(&path, &body)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    Ok(StatusCode::OK)
+}
+
 /// GET /api/admin/show-workspaces/:show_id/venue-shape — returns venueShape.json for the show. 404 if file missing.
 pub async fn get_venue_shape(
     State(state): State<AdminAppState>,
@@ -578,6 +633,16 @@ pub async fn post_go_live(
         }
     } else {
         // File missing or unreadable; leave broadcast empty (same as before go-live).
+    }
+
+    // Load track splitter tree so poll can assign devices to tracks.
+    let tree_path = state.shows_path.join(&show_id).join(TRACK_SPLITTER_TREE_FILENAME);
+    if let Ok(bytes) = fs::read(&tree_path).await {
+        if let Ok(tree) = serde_json::from_slice::<TrackSplitterTree>(&bytes) {
+            bucket
+                .track_splitter_tree
+                .store(Arc::new(Arc::new(Some(tree))));
+        }
     }
 
     // Notify simulated server in real time so it can create the bucket without waiting for the next 10s poll.

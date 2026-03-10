@@ -33,12 +33,8 @@ function hasZeroDestructionPointInAllCharts(curves: DistributionCurve[]): boolea
   );
 }
 
-interface TimelineLayersResponse {
-  layers?: { id: string; label: string }[];
-}
-
 export function showCreateClientsModal(
-  showId: string,
+  _showId: string,
   onCreate: (newClients: SimulatedClient[]) => void
 ): void {
   let generateFromProfile = true;
@@ -62,15 +58,11 @@ export function showCreateClientsModal(
   countRow.appendChild(countInput);
   content.appendChild(countRow);
 
-  const trackRow = document.createElement("div");
-  trackRow.className = "create-clients-row";
-  trackRow.innerHTML = `
-    <label for="create-modal-track">Track to sync to:</label>
-    <select id="create-modal-track" aria-label="Track to sync to">
-      <option value="">All layers</option>
-    </select>
-  `;
-  content.appendChild(trackRow);
+  // Track assignment is now done by the main server on first poll; UI to set track when creating clients will be restored later.
+  // const trackRow = document.createElement("div");
+  // trackRow.className = "create-clients-row";
+  // trackRow.innerHTML = `...Track to sync to dropdown...`;
+  // content.appendChild(trackRow);
 
   const modeRow = document.createElement("div");
   modeRow.className = "create-modal-mode-row";
@@ -321,9 +313,10 @@ export function showCreateClientsModal(
           console.log("generated client thrown out for having invalid chart of 0 points");
         }
       }
-      const trackSelect = content.querySelector("#create-modal-track") as HTMLSelectElement | null;
-      const trackVal = trackSelect?.value?.trim() ?? "";
-      for (const c of newClients) c.trackId = trackVal || null;
+      // Track set by main server on first poll; restore UI later.
+      // const trackSelect = content.querySelector("#create-modal-track") as HTMLSelectElement | null;
+      // const trackVal = trackSelect?.value?.trim() ?? "";
+      // for (const c of newClients) c.lastAssignedTrackIndex = trackVal ? parseInt(trackVal, 10) : null;
       close();
       onCreate(newClients);
     } else {
@@ -361,9 +354,10 @@ export function showCreateClientsModal(
         });
         newClients.push(createClientWithRandomCurves(bounds, pointCounts));
       }
-      const trackSelect = content.querySelector("#create-modal-track") as HTMLSelectElement | null;
-      const trackVal = trackSelect?.value?.trim() ?? "";
-      for (const c of newClients) c.trackId = trackVal || null;
+      // Track set by main server on first poll; restore UI later.
+      // const trackSelect = content.querySelector("#create-modal-track") as HTMLSelectElement | null;
+      // const trackVal = trackSelect?.value?.trim() ?? "";
+      // for (const c of newClients) c.lastAssignedTrackIndex = trackVal ? parseInt(trackVal, 10) : null;
       close();
       onCreate(newClients);
     }
@@ -390,29 +384,7 @@ export function showCreateClientsModal(
   });
   closeRef.current = modalApi.close;
 
-  async function loadTimelineLayers(): Promise<void> {
-    const select = content.querySelector("#create-modal-track") as HTMLSelectElement | null;
-    if (!select) return;
-    try {
-      const res = await fetch(`/api/admin/show-workspaces/${encodeURIComponent(showId)}/timeline`, {
-        credentials: "include",
-      });
-      if (!res.ok) return;
-      const data = (await res.json()) as TimelineLayersResponse;
-      const layers = data?.layers ?? [];
-      select.innerHTML = '<option value="">All layers</option>';
-      for (const l of layers) {
-        const opt = document.createElement("option");
-        opt.value = l.id;
-        opt.textContent = l.label;
-        select.appendChild(opt);
-      }
-    } catch {
-      // leave as "All layers" only
-    }
-  }
-
+  // Track dropdown hidden; restore loadTimelineLayers() when we add UI to set track on create.
   loadProfileList();
-  void loadTimelineLayers();
   setMode(true);
 }

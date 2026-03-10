@@ -10,12 +10,44 @@
 }
 .track-assignments-rows-container {
   position: relative;
+  z-index: 1;
 }
 .track-assignments-row-wrapper {
   position: relative;
   min-height: 28px;
 }
-.track-assignments-tree-svg.track-assignments-tree-svg--row {
+.track-assignments-row-line {
+  display: flex;
+  align-items: center;
+  min-height: 28px;
+  white-space: nowrap;
+}
+.track-assignments-dot-column {
+  flex-shrink: 0;
+  width: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.track-assignments-dot-column--hidden {
+  visibility: hidden;
+}
+.track-assignments-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.track-assignments-children-container {
+  padding-left: 38px;
+}
+.track-assignments-add-branch-row .track-assignments-row-line {
+  min-height: auto;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+.track-assignments-tree-svg {
   position: absolute;
   left: 0;
   top: 0;
@@ -40,7 +72,7 @@
   gap: 2px;
 }
 .track-assignments-percent-input {
-  width: 5em;
+  width: 4em;
   padding: 2px 6px;
   font: inherit;
   font-size: 13px;
@@ -48,6 +80,36 @@
   border-radius: 4px;
   background: var(--bg);
   color: var(--text);
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+.track-assignments-percent-input::-webkit-outer-spin-button,
+.track-assignments-percent-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+/* Split Devices Randomly: % sum must equal 100 */
+.track-assignments-percent-input--invalid {
+  border-width: 2px;
+  border-color: rgba(197, 48, 48, 0.45);
+}
+.track-assignments-percent-input.track-assignments-percent-input--invalid-focused {
+  outline: none;
+  border-width: 2px;
+  border-color: rgba(197, 48, 48, 0.8);
+  box-shadow: 0 0 0 2px rgba(197, 48, 48, 0.2);
+}
+.track-assignments-percent-input.track-assignments-percent-input--valid-sibling-focused {
+  outline: none;
+  border-width: 2px;
+  border-color: rgba(74, 125, 199, 0.4);
+  box-shadow: 0 0 0 2px rgba(74, 125, 199, 0.1);
+}
+.track-assignments-percent-input.track-assignments-percent-input--valid-focused {
+  outline: none;
+  border-width: 2px;
+  border-color: rgba(74, 125, 199, 0.7);
+  box-shadow: 0 0 0 2px rgba(74, 125, 199, 0.2);
 }
 .track-assignments-suffix-select {
   flex-shrink: 0;
@@ -56,9 +118,13 @@
   font-size: 13px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  background: var(--bg);
+  background: transparent;
   color: var(--text);
   min-width: 180px;
+}
+.track-assignments-suffix-select option {
+  background: var(--bg-elevated);
+  color: var(--text);
 }
 .track-assignments-track-id-input {
   width: 5em;
@@ -78,7 +144,11 @@
   opacity: 0;
   transition: opacity 0.15s;
 }
-.track-assignments-row:hover .track-assignments-trash-wrap {
+.track-assignments-row-line:hover .track-assignments-trash-wrap {
+  opacity: 1;
+}
+/* When hovering over a child row that has no trash (e.g. GPS Compatible/Incompatible), show the parent row's trash */
+.track-assignments-row-wrapper:has(> .track-assignments-children-container > .track-assignments-row-wrapper--no-trash:hover) > .track-assignments-row-line .track-assignments-trash-wrap {
   opacity: 1;
 }
 .track-assignments-trash-btn {

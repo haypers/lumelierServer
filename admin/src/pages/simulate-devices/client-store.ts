@@ -36,7 +36,7 @@ export function createClientWithRandomCurves(
   const client: SimulatedClient = {
     id,
     deviceId: id,
-    trackId: null,
+    lastAssignedTrackIndex: null,
     serverTimeEstimate: null,
     currentDisplayColor: "#888",
     pingsEverySecDist: { anchors: [] },
@@ -69,7 +69,7 @@ export function createClient(): SimulatedClient {
   return {
     id,
     deviceId: id,
-    trackId: null,
+    lastAssignedTrackIndex: null,
     serverTimeEstimate: null,
     currentDisplayColor: "#888",
     pingsEverySecDist: { anchors: [] },
@@ -91,7 +91,7 @@ export function cloneClient(client: SimulatedClient): SimulatedClient {
     ...client,
     id: newId,
     deviceId: newId,
-    trackId: client.trackId ?? null,
+    lastAssignedTrackIndex: client.lastAssignedTrackIndex ?? null,
     pingsEverySecDist: { anchors: client.pingsEverySecDist.anchors.map((a) => ({ ...a })) },
     clientToServerDelayDist: { anchors: client.clientToServerDelayDist.anchors.map((a) => ({ ...a })) },
     serverToClientDelayDist: { anchors: client.serverToClientDelayDist.anchors.map((a) => ({ ...a })) },

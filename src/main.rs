@@ -25,6 +25,7 @@ mod connections;
 mod live_shows;
 mod time;
 mod timeline_validator;
+pub mod track_splitter_tree;
 
 const PORT: u16 = 3002;
 const ADMIN_PORT: u16 = 3010;
@@ -226,6 +227,10 @@ async fn main() {
             get(api::get_show_members).post(api::post_show_member),
         )
         .route("/show-workspaces/:show_id/timeline", get(api::get_timeline).put(api::put_timeline))
+        .route(
+            "/show-workspaces/:show_id/track-splitter-tree",
+            get(api::get_track_splitter_tree).put(api::put_track_splitter_tree),
+        )
         .route(
             "/show-workspaces/:show_id/venue-shape",
             get(api::get_venue_shape).put(api::put_venue_shape),

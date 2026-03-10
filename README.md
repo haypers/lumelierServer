@@ -48,7 +48,7 @@ The server listens on **http://0.0.0.0:3002** (all interfaces), so you can use:
 
 ### 3. Use the client
 
-Open **http://localhost:3000** in a browser. The page will poll `/api/poll` every few seconds, show synced server time, and display the current event color.
+Open **http://localhost:3002** (or **http://localhost:3002/<show_id>** for a specific show) in a browser. The page will poll `/api/poll` every few seconds, show synced server time, and display the current event color.
 
 ## One-port deployment
 

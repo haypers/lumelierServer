@@ -100,6 +100,8 @@ function formatServerTimeStr(client: SimulatedClient): string {
 export function updateDetailsPaneReadOnly(container: HTMLElement, client: SimulatedClient): void {
   const values: Record<string, string> = {
     deviceId: client.deviceId,
+    lastAssignedTrackIndex:
+      client.lastAssignedTrackIndex != null ? String(client.lastAssignedTrackIndex) : "—",
     serverTimeEstimate: formatServerTimeStr(client),
     nextPollIn: client.nextPollInMs != null ? `${client.nextPollInMs} ms` : "—",
     nextLagSpikeIn: client.nextLagSpikeInMs != null ? `${client.nextLagSpikeInMs} ms` : "—",
@@ -202,6 +204,12 @@ export function renderDetailsPane(
     "Device ID",
     client.deviceId,
     "The device identifier sent to the main server on each poll."
+  );
+  addRow(
+    "lastAssignedTrackIndex",
+    "Last Assigned Track ID",
+    client.lastAssignedTrackIndex != null ? String(client.lastAssignedTrackIndex) : "—",
+    "The last track index (1-based) the main server assigned to this client (from X-Track-Id poll response header)."
   );
   const serverTimeStr = formatServerTimeStr(client);
   addRow(

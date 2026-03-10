@@ -80,18 +80,18 @@ let currentShowId: string | null = null;
 function getDisplayClients(): ClientSummaryForGrid[] {
   if (!groupByTrack) return clients;
   return [...clients].sort((a, b) => {
-    const ta = a.trackId ?? "";
-    const tb = b.trackId ?? "";
-    return ta.localeCompare(tb);
+    const ta = a.lastAssignedTrackIndex ?? -1;
+    const tb = b.lastAssignedTrackIndex ?? -1;
+    return ta - tb;
   });
 }
 
 /** Insert line breaks before each new track group so each group starts on its own row. */
 function insertBreaksForGroups(pageClients: ClientSummaryForGrid[]): GridItem[] {
   const items: GridItem[] = [];
-  let prevTrack: string | null | undefined = undefined;
+  let prevTrack: number | null | undefined = undefined;
   for (const c of pageClients) {
-    const t = c.trackId ?? null;
+    const t = c.lastAssignedTrackIndex ?? null;
     if (prevTrack !== undefined && t !== prevTrack) items.push({ _gridBreak: true });
     items.push(c);
     prevTrack = t;

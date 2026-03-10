@@ -2,6 +2,7 @@ import type { DataItem } from "vis-timeline";
 import type { IdType } from "vis-timeline";
 import type { TimelineItemPayload } from "./types";
 import { dateToSecFloat } from "./types";
+import { createLayerTrackPicker } from "./layer-track-picker";
 
 export type GetItemFn = (
   id: IdType
@@ -62,17 +63,8 @@ export function updateDetailsPanel(
   const payload = item.payload ?? { kind: "event" as const };
   const startSec = dateToSecFloat(new Date(item.start as Date));
   const layers = getLayers();
-  const layerIndex =
-    layers.findIndex((l) => l.id === String(item.group)) + 1 || 1;
 
   h3.textContent = payload.kind === "clip" ? "Clip details" : "Event details";
-
-  const layerOptions = layers
-    .map(
-      (l) =>
-        `<option value="${escapeAttr(l.id)}" ${l.id === String(item.group) ? "selected" : ""}>${escapeHtml(l.label)}</option>`
-    )
-    .join("");
 
   const eventTypeOptions =
     `<option value="" ${payload.effectType == null || payload.effectType === "" ? "selected" : ""}>—</option>` +
@@ -124,12 +116,7 @@ export function updateDetailsPanel(
         <span class="detail-unit">s</span>
       </dd>
       <dt>Layer</dt>
-      <dd class="detail-layer-wrap">
-        <select class="detail-input detail-layer-select" aria-label="Layer by name">
-          ${layerOptions}
-        </select>
-        <input type="number" class="detail-input detail-layer-num" min="1" max="${Math.max(1, layers.length)}" value="${layerIndex}" aria-label="Layer index" />
-      </dd>
+      <dd class="detail-layer-wrap"></dd>
       <dt>Name</dt>
       <dd>
         <input type="text" class="detail-input detail-label" value="${escapeAttr(payload.label ?? "")}" aria-label="Name" />
@@ -146,9 +133,19 @@ export function updateDetailsPanel(
       ` : "</dl>"}
   `;
 
+  const layerWrap = body.querySelector(".detail-layer-wrap");
+  if (layerWrap) {
+    layerWrap.appendChild(
+      createLayerTrackPicker({
+        layers,
+        value: String(item.group),
+        onChange: (layerId) => updateItem(itemId as IdType, { layerId }),
+        ariaLabel: "Layer by name",
+      })
+    );
+  }
+
   const startInput = body.querySelector(".detail-start") as HTMLInputElement;
-  const layerSelect = body.querySelector(".detail-layer-select") as HTMLSelectElement;
-  const layerNumInput = body.querySelector(".detail-layer-num") as HTMLInputElement;
   const labelInput = body.querySelector(".detail-label") as HTMLInputElement;
   const effectSelect = body.querySelector(".detail-effect-type") as HTMLSelectElement | null;
 
@@ -156,27 +153,6 @@ export function updateDetailsPanel(
     const val = parseFloat(startInput.value);
     if (!Number.isNaN(val) && val >= 0) {
       updateItem(itemId as IdType, { startSec: val });
-    }
-  }
-
-  function applyLayerFromSelect(): void {
-    const layerId = layerSelect.value;
-    const idx = layers.findIndex((l) => l.id === layerId) + 1;
-    if (idx >= 1) {
-      layerNumInput.value = String(idx);
-      layerNumInput.max = String(layers.length);
-      updateItem(itemId as IdType, { layerId });
-    }
-  }
-
-  function applyLayerFromNum(): void {
-    const num = parseInt(layerNumInput.value, 10);
-    if (!Number.isNaN(num) && num >= 1 && num <= layers.length) {
-      const layer = layers[num - 1];
-      if (layer) {
-        layerSelect.value = layer.id;
-        updateItem(itemId as IdType, { layerId: layer.id });
-      }
     }
   }
 
@@ -214,9 +190,6 @@ export function updateDetailsPanel(
 
   startInput.addEventListener("change", applyStart);
   startInput.addEventListener("blur", applyStart);
-  layerSelect.addEventListener("change", applyLayerFromSelect);
-  layerNumInput.addEventListener("change", applyLayerFromNum);
-  layerNumInput.addEventListener("blur", applyLayerFromNum);
   labelInput.addEventListener("change", applyLabel);
   labelInput.addEventListener("blur", applyLabel);
   if (effectSelect) {

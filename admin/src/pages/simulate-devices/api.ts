@@ -8,12 +8,27 @@ import type {
 
 const BASE = "http://localhost:3003";
 
-/** Minimal list (id, deviceId only) for pagination; use getSummaries(showId, visibleIds) for colors/connection. 404 => show not live, returns []. */
+/** Minimal list (id, deviceId, lastAssignedTrackIndex) for pagination; use getSummaries(showId, visibleIds) for colors/connection. 404 => show not live, returns []. */
 export async function getClients(showId: string): Promise<ClientSummaryForGrid[]> {
   const res = await fetch(`${BASE}/shows/${encodeURIComponent(showId)}/clients`);
   if (res.status === 404) return [];
   if (!res.ok) throw new Error(`GET /shows/:showId/clients failed: ${res.status}`);
-  return res.json();
+  const raw = (await res.json()) as Record<string, unknown>[];
+  return raw.map((row) => {
+    const r = row as { last_assigned_track_index?: number | null };
+    const track =
+      typeof row.lastAssignedTrackIndex === "number"
+        ? row.lastAssignedTrackIndex
+        : typeof r.last_assigned_track_index === "number"
+          ? r.last_assigned_track_index
+          : null;
+    return {
+      ...row,
+      id: String(row.id ?? ""),
+      deviceId: String(row.deviceId ?? row.device_id ?? ""),
+      lastAssignedTrackIndex: track ?? undefined,
+    } as ClientSummaryForGrid;
+  });
 }
 
 /** Fetch currentDisplayColor only for the given IDs. Same order as ids. 404 => show not live, returns []. */

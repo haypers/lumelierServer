@@ -81,6 +81,10 @@ pub struct DeviceRowResponse {
     pub geo_alt: Option<f64>,
     #[serde(rename = "geoAltAccuracy", skip_serializing_if = "Option::is_none")]
     pub geo_alt_accuracy: Option<f64>,
+    #[serde(rename = "isSendingGps")]
+    pub is_sending_gps: bool,
+    #[serde(rename = "trackIndex")]
+    pub track_index: u32,
 }
 
 #[derive(Serialize)]
@@ -184,6 +188,8 @@ pub async fn get_connected_devices(
             geo_accuracy: r.geo_accuracy,
             geo_alt: r.geo_alt,
             geo_alt_accuracy: r.geo_alt_accuracy,
+            is_sending_gps: r.is_sending_gps,
+            track_index: r.track_index,
         })
         .collect();
 
@@ -231,6 +237,8 @@ fn sort_rows(rows: &mut [DeviceRow], sort_field: &str, sort_asc: bool) {
             "geoAccuracy" => compare_option_f64(a.geo_accuracy, b.geo_accuracy),
             "geoAlt" => compare_option_f64(a.geo_alt, b.geo_alt),
             "geoAltAccuracy" => compare_option_f64(a.geo_alt_accuracy, b.geo_alt_accuracy),
+            "isSendingGps" => a.is_sending_gps.cmp(&b.is_sending_gps),
+            "trackIndex" => a.track_index.cmp(&b.track_index),
             _ => a.device_id.cmp(&b.device_id),
         };
         if sort_asc {
@@ -328,6 +336,8 @@ pub async fn post_by_ids(
             geo_accuracy: r.geo_accuracy,
             geo_alt: r.geo_alt,
             geo_alt_accuracy: r.geo_alt_accuracy,
+            is_sending_gps: r.is_sending_gps,
+            track_index: r.track_index,
         })
         .collect();
 

@@ -108,8 +108,12 @@ function renderLiveState(container: HTMLElement, data: LiveJoinUrlResponse): voi
 /** Refreshes the page content from the server and re-renders. Called when live state changes (custom event or initial load). */
 function refreshLiveState(container: HTMLElement, showId: string): void {
   fetchLiveJoinUrl(showId)
-    .then((data) => renderLiveState(container, data))
+    .then((data) => {
+      sessionManagerLastLive = data.live === true;
+      renderLiveState(container, data);
+    })
     .catch(() => {
+      sessionManagerLastLive = false;
       const block = container.querySelector(".attendee-access-live-block") as HTMLElement | null;
       if (block) block.dataset.live = "false";
       const notLiveWrap = container.querySelector(".attendee-access-not-live-wrap");
@@ -122,6 +126,8 @@ function refreshLiveState(container: HTMLElement, showId: string): void {
 }
 
 let liveStateListener: ((e: Event) => void) | null = null;
+/** Last known live state for this show; only refresh when it changes (avoids re-fetch on every 30s poll). */
+let sessionManagerLastLive: boolean | null = null;
 
 export function render(container: HTMLElement, showId: string | null): void {
   // Remove previous live-state listener so we don't double-subscribe or react to wrong show.
@@ -129,6 +135,7 @@ export function render(container: HTMLElement, showId: string | null): void {
     window.removeEventListener(LIVE_STATE_EVENT_NAME, liveStateListener);
     liveStateListener = null;
   }
+  sessionManagerLastLive = null;
 
   if (showId === null) {
     container.innerHTML = `
@@ -167,6 +174,9 @@ export function render(container: HTMLElement, showId: string | null): void {
     const ev = e as CustomEvent<{ showId: string; live: boolean }>;
     const detail = ev.detail;
     if (detail?.showId !== showId) return;
+    const live = detail.live === true;
+    if (sessionManagerLastLive === live) return;
+    sessionManagerLastLive = live;
     refreshLiveState(container, showId);
   };
   window.addEventListener(LIVE_STATE_EVENT_NAME, liveStateListener);

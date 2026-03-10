@@ -15,10 +15,6 @@ import {
 const PROFILE_VALIDATION_TOOLTIP =
   "Every Distribution Table in the profile must have at least 1 point with a 0% chance of destruction.";
 
-interface TimelineLayersResponse {
-  layers?: { id: string; label: string }[];
-}
-
 function getCurveCopy(client: SimulatedClient, key: SimulatedClientDistKey): DistributionCurve {
   const cur = client[key];
   return cur && Array.isArray(cur.anchors)
@@ -34,7 +30,7 @@ function hasZeroDestructionPointInAllCharts(curves: DistributionCurve[]): boolea
 }
 
 export function showCloneClientModal(
-  showId: string,
+  _showId: string,
   sourceClient: SimulatedClient,
   onCreate: (newClients: SimulatedClient[]) => void
 ): void {
@@ -53,15 +49,11 @@ export function showCloneClientModal(
   `;
   content.appendChild(countRow);
 
-  const trackRow = document.createElement("div");
-  trackRow.className = "clone-clients-row";
-  trackRow.innerHTML = `
-    <label for="clone-modal-track">Track to sync to:</label>
-    <select id="clone-modal-track" aria-label="Track to sync to">
-      <option value="">All layers</option>
-    </select>
-  `;
-  content.appendChild(trackRow);
+  // Track assignment is now done by the main server on first poll; UI to set track when cloning will be restored later.
+  // const trackRow = document.createElement("div");
+  // trackRow.className = "clone-clients-row";
+  // trackRow.innerHTML = `...Track to sync to dropdown...`;
+  // content.appendChild(trackRow);
 
   const distributionHeading = document.createElement("h4");
   distributionHeading.className = "modal-distribution-heading";
@@ -245,9 +237,10 @@ export function showCloneClientModal(
         console.log("generated client thrown out for having invalid chart of 0 points");
       }
     }
-    const trackSelect = content.querySelector("#clone-modal-track") as HTMLSelectElement | null;
-    const trackVal = trackSelect?.value?.trim() ?? "";
-    for (const c of newClients) c.trackId = trackVal || null;
+    // Track set by main server on first poll; restore UI later.
+    // const trackSelect = content.querySelector("#clone-modal-track") as HTMLSelectElement | null;
+    // const trackVal = trackSelect?.value?.trim() ?? "";
+    // for (const c of newClients) c.lastAssignedTrackIndex = trackVal ? parseInt(trackVal, 10) : null;
     modalClose();
     onCreate(newClients);
   }
@@ -268,30 +261,5 @@ export function showCloneClientModal(
     },
   });
 
-  async function loadCloneTimelineLayers(): Promise<void> {
-    const select = content.querySelector("#clone-modal-track") as HTMLSelectElement | null;
-    if (!select) return;
-    try {
-      const res = await fetch(`/api/admin/show-workspaces/${encodeURIComponent(showId)}/timeline`, {
-        credentials: "include",
-      });
-      if (!res.ok) return;
-      const data = (await res.json()) as TimelineLayersResponse;
-      const layers = data?.layers ?? [];
-      const currentVal = sourceClient.trackId ?? "";
-      select.innerHTML = '<option value="">All layers</option>';
-      for (const l of layers) {
-        const opt = document.createElement("option");
-        opt.value = l.id;
-        opt.textContent = l.label;
-        if (l.id === currentVal) opt.selected = true;
-        select.appendChild(opt);
-      }
-      if (!currentVal || !layers.some((l) => l.id === currentVal)) select.value = "";
-    } catch {
-      select.value = "";
-    }
-  }
-
-  void loadCloneTimelineLayers();
+  // Track dropdown hidden; restore loadCloneTimelineLayers() when we add UI to set track on clone.
 }

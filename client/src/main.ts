@@ -280,44 +280,13 @@ function openInfoPanel(): void {
   serverTimeRow.textContent = "Server time: " + String(getServerTime());
   content.appendChild(serverTimeRow);
 
-  const layers = broadcastCache?.timeline?.layers;
-  const hasLayers = Array.isArray(layers) && layers.length > 0;
-
-  const trackRow = document.createElement("div");
-  trackRow.style.display = "flex";
-  trackRow.style.flexDirection = "column";
-  trackRow.style.gap = "6px";
-  const trackLabel = document.createElement("label");
-  trackLabel.textContent = "Track:";
-  trackLabel.setAttribute("for", "info-track-select");
-  const select = document.createElement("select");
-  select.id = "info-track-select";
-  select.setAttribute("aria-label", "Track to sync to");
-  select.style.cssText =
-    "border:2px solid currentColor;background:transparent;color:inherit;padding:6px 8px;font:inherit;cursor:pointer;border-radius:6px;";
-  if (hasLayers) {
-    const allOption = document.createElement("option");
-    allOption.value = "";
-    allOption.textContent = "All layers";
-    select.appendChild(allOption);
-    for (const l of layers) {
-      const opt = document.createElement("option");
-      opt.value = l.id;
-      opt.textContent = l.label;
-      select.appendChild(opt);
-    }
-    select.value = selectedTrackId ?? "";
-  } else {
-    const noTrack = document.createElement("option");
-    noTrack.value = "";
-    noTrack.textContent = "No track list yet";
-    noTrack.disabled = true;
-    select.appendChild(noTrack);
-    select.value = "";
-  }
-  trackRow.appendChild(trackLabel);
-  trackRow.appendChild(select);
-  content.appendChild(trackRow);
+  // Track selection will be restored later; the server sends X-Track-Id in the poll response header for future use.
+  // const layers = broadcastCache?.timeline?.layers;
+  // const hasLayers = Array.isArray(layers) && layers.length > 0;
+  // const trackRow = document.createElement("div");
+  // ... Track: label and <select> with layer options ...
+  // content.appendChild(trackRow);
+  // select.addEventListener("change", () => { ... selectedTrackId, localStorage, rebuildBroadcastColorEvents, syncDisplayOnce ... });
 
   const closeBtn = document.createElement("button");
   closeBtn.type = "button";
@@ -328,18 +297,6 @@ function openInfoPanel(): void {
 
   const { dismiss } = popup.showCustomCard({ type: INFO_PANEL_TYPE, content });
   closeBtn.addEventListener("click", () => dismiss());
-
-  select.addEventListener("change", () => {
-    const val = select.value;
-    selectedTrackId = val.length > 0 ? val : null;
-    if (selectedTrackId != null) {
-      localStorage.setItem(TRACK_ID_STORAGE_KEY, selectedTrackId);
-    } else {
-      localStorage.removeItem(TRACK_ID_STORAGE_KEY);
-    }
-    rebuildBroadcastColorEvents();
-    syncDisplayOnce();
-  });
 }
 
 function doRender(): void {

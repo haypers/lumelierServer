@@ -9,7 +9,9 @@
 //! plus deviceId, events (empty), and broadcast if set.
 
 use axum::extract::{Query, State};
+use axum::http::header::HeaderValue;
 use axum::http::{HeaderMap, StatusCode};
+use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::Deserialize;
 use serde::Serialize;
@@ -17,8 +19,10 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::api::{is_valid_show_id_format, AdminAppState, MainAppState};
-use crate::connections::{ConnectionRegistry, GeoUpdate};
+use crate::connections::GeoUpdate;
+use crate::live_shows::LiveShowState;
 use crate::time;
+use crate::track_splitter_tree;
 
 const MAX_DEVICE_ID_LEN: usize = 255;
 
@@ -104,6 +108,46 @@ fn geo_from_headers(headers: &HeaderMap) -> GeoUpdate {
     }
 }
 
+/// Filter timeline to only the layer and items for the given 1-based track index.
+/// If layers are missing/empty or index is out of range, returns the full timeline unchanged.
+fn filter_timeline_by_track(timeline: &serde_json::Value, track_index: u32) -> Arc<serde_json::Value> {
+    let obj = match timeline.as_object() {
+        Some(o) => o,
+        None => return Arc::new(timeline.clone()),
+    };
+    let layers = match obj.get("layers").and_then(|v| v.as_array()) {
+        Some(a) if !a.is_empty() => a,
+        _ => return Arc::new(timeline.clone()),
+    };
+    let track_idx = (track_index as usize).saturating_sub(1);
+    let layer = match layers.get(track_idx) {
+        Some(l) => l,
+        None => return Arc::new(timeline.clone()),
+    };
+    let layer_id = match layer.get("id").and_then(|v| v.as_str()) {
+        Some(id) => id,
+        None => return Arc::new(timeline.clone()),
+    };
+    let items = match obj.get("items").and_then(|v| v.as_array()) {
+        Some(arr) => arr
+            .iter()
+            .filter(|it| it.get("layerId").and_then(|v| v.as_str()) == Some(layer_id))
+            .cloned()
+            .collect::<Vec<_>>(),
+        None => vec![],
+    };
+    // Preserve other top-level keys from the original (e.g. version) if any
+    let mut out = serde_json::Map::new();
+    for (k, v) in obj.iter() {
+        if k != "layers" && k != "items" {
+            out.insert(k.clone(), v.clone());
+        }
+    }
+    out.insert("layers".to_string(), serde_json::Value::Array(vec![layer.clone()]));
+    out.insert("items".to_string(), serde_json::Value::Array(items));
+    Arc::new(serde_json::Value::Object(out))
+}
+
 #[derive(Deserialize)]
 pub struct PollQuery {
     pub show: Option<String>,
@@ -129,7 +173,7 @@ pub async fn poll(
     State(state): State<MainAppState>,
     Query(query): Query<PollQuery>,
     headers: HeaderMap,
-) -> Result<Json<PollResponse>, StatusCode> {
+) -> Result<Response, StatusCode> {
     let show_id = show_id_from_request(&query, &headers)
         .ok_or(StatusCode::BAD_REQUEST)?;
     if !is_valid_show_id_format(&show_id) {
@@ -139,14 +183,14 @@ pub async fn poll(
         .live_shows
         .get(&show_id)
         .ok_or(StatusCode::NOT_FOUND)?;
-    poll_impl(bucket.registry.clone(), bucket.broadcast.clone(), headers).await
+    poll_impl(bucket, headers).await
 }
 
 pub async fn poll_admin(
     State(state): State<AdminAppState>,
     Query(query): Query<PollQuery>,
     headers: HeaderMap,
-) -> Result<Json<PollResponse>, StatusCode> {
+) -> Result<Response, StatusCode> {
     let show_id = show_id_from_request(&query, &headers)
         .ok_or(StatusCode::BAD_REQUEST)?;
     if !is_valid_show_id_format(&show_id) {
@@ -156,14 +200,16 @@ pub async fn poll_admin(
         .live_shows
         .get(&show_id)
         .ok_or(StatusCode::NOT_FOUND)?;
-    poll_impl(bucket.registry.clone(), bucket.broadcast.clone(), headers).await
+    poll_impl(bucket, headers).await
 }
 
 async fn poll_impl(
-    registry: Arc<ConnectionRegistry>,
-    broadcast: Arc<arc_swap::ArcSwap<crate::broadcast::BroadcastSnapshot>>,
+    bucket: Arc<LiveShowState>,
     headers: HeaderMap,
-) -> Result<Json<PollResponse>, StatusCode> {
+) -> Result<Response, StatusCode> {
+    let registry = &bucket.registry;
+    let broadcast = &bucket.broadcast;
+
     // NTP t1: capture server receive time as early as possible.
     let server_time_at_recv = time::unix_now_ms();
     let client_send_ms = client_send_ms_from_headers(&headers).ok_or(StatusCode::BAD_REQUEST)?;
@@ -175,24 +221,17 @@ async fn poll_impl(
     }
     let ping_ms = ping_ms_from_headers(&headers);
     let geo = geo_from_headers(&headers);
+    let has_gps_now = geo.lat.is_some() && geo.lon.is_some();
 
-    let snap = broadcast.load_full();
-    let broadcast_value = snap.timeline_parsed.as_ref().map(|timeline| PollBroadcast {
-        timeline: timeline.clone(),
-        readhead_sec: snap.readhead_sec,
-        play_at_ms: snap.play_at_ms,
-        pause_at_ms: snap.pause_at_ms,
-    });
+    let had_gps_before = registry.get_is_sending_gps(&device_id);
 
-    let events: Vec<PollEvent> = vec![];
-
-    // NTP t2: capture server send time right before returning.
-    let server_time_at_send = time::unix_now_ms();
-
-    let server_processing_ms = server_time_at_send
-        .saturating_sub(server_time_at_recv)
-        .min(u64::from(u32::MAX)) as u32;
-    registry.upsert(
+    let server_processing_ms = {
+        let server_time_at_send = time::unix_now_ms();
+        server_time_at_send
+            .saturating_sub(server_time_at_recv)
+            .min(u64::from(u32::MAX)) as u32
+    };
+    let is_new = registry.upsert(
         device_id.clone(),
         now_ms,
         ping_ms,
@@ -201,7 +240,36 @@ async fn poll_impl(
         &geo,
     );
 
-    Ok(Json(PollResponse {
+    let should_assign = is_new || (had_gps_before != Some(has_gps_now));
+    if should_assign {
+        let tree_opt = bucket.track_splitter_tree.load_full();
+        let track = if let Some(tree) = tree_opt.as_ref().as_ref() {
+            let mut rng = rand::rngs::OsRng;
+            track_splitter_tree::evaluate(tree, has_gps_now, &mut rng)
+        } else {
+            1
+        };
+        registry.set_track_index(&device_id, track);
+    }
+
+    // Device state (including track) comes from the same ConnectionRegistry used by the admin API—single source of truth.
+    let track_index = registry.get_track_index(&device_id);
+
+    let snap = broadcast.load_full();
+    let broadcast_value = snap.timeline_parsed.as_ref().map(|timeline| {
+        let filtered_timeline = filter_timeline_by_track(timeline, track_index);
+        PollBroadcast {
+            timeline: filtered_timeline,
+            readhead_sec: snap.readhead_sec,
+            play_at_ms: snap.play_at_ms,
+            pause_at_ms: snap.pause_at_ms,
+        }
+    });
+
+    let events: Vec<PollEvent> = vec![];
+    let server_time_at_send = time::unix_now_ms();
+
+    let body = PollResponse {
         server_time: now_ms,
         server_time_at_recv,
         server_time_at_send,
@@ -209,5 +277,12 @@ async fn poll_impl(
         device_id,
         events,
         broadcast: broadcast_value,
-    }))
+    };
+
+    let mut response = Json(body).into_response();
+    response.headers_mut().insert(
+        "X-Track-Id",
+        HeaderValue::from_str(&track_index.to_string()).expect("track index is valid header value"),
+    );
+    Ok(response)
 }

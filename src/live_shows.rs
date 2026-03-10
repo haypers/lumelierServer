@@ -1,29 +1,34 @@
 //! # Live show store — Per-show registry and broadcast
 //!
-//! When a show is "live", it has an entry in LiveShowStore: a ConnectionRegistry (devices)
-//! and a BroadcastSnapshot (timeline + play/pause). Poll and admin device/broadcast APIs
-//! resolve the bucket by show_id; 404 if not live.
+//! When a show is "live", it has an entry in LiveShowState: a ConnectionRegistry (devices),
+//! a BroadcastSnapshot (timeline + play/pause), and an optional track splitter tree for
+//! assigning devices to tracks. Poll and admin device/broadcast APIs resolve the bucket by show_id; 404 if not live.
 
 use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use dashmap::DashMap;
 
 use crate::broadcast::BroadcastSnapshot;
 use crate::connections::ConnectionRegistry;
+use crate::track_splitter_tree::TrackSplitterTree;
+
+/// Optional track splitter tree for this show (loaded at go-live from trackSplitterTree.json).
+pub type TrackSplitterTreeRef = Arc<ArcSwap<Arc<Option<TrackSplitterTree>>>>;
 
 #[derive(Clone)]
 pub struct LiveShowState {
     pub registry: Arc<ConnectionRegistry>,
-    pub broadcast: Arc<arc_swap::ArcSwap<BroadcastSnapshot>>,
+    pub broadcast: Arc<ArcSwap<BroadcastSnapshot>>,
+    pub track_splitter_tree: TrackSplitterTreeRef,
 }
 
 impl LiveShowState {
     fn new() -> Self {
         Self {
             registry: Arc::new(ConnectionRegistry::new()),
-            broadcast: Arc::new(arc_swap::ArcSwap::from_pointee(
-                BroadcastSnapshot::new(),
-            )),
+            broadcast: Arc::new(ArcSwap::from_pointee(BroadcastSnapshot::new())),
+            track_splitter_tree: Arc::new(ArcSwap::from_pointee(Arc::new(None))),
         }
     }
 }

@@ -30,12 +30,12 @@ import {
 import type { TimelineStateJSON } from "./types";
 import {
   closeTrackAssignmentsDropdown,
-  getTrackAssignmentsRoot,
   openTrackAssignmentsDropdown,
   setTrackAssignmentsRoot,
   isTrackAssignmentsDropdownOpen,
 } from "./track-assignments";
 import { getDefaultTrackAssignments } from "./track-assignments";
+import type { TrackAssignmentsRoot } from "./track-assignments";
 export type { TimelineItemPayload, TimelineStateJSON } from "./types";
 import { openModal as openVideoImportModal } from "./import-from-video";
 import type { VideoImportEvent } from "./import-from-video";
@@ -63,6 +63,8 @@ let timelineAutosaveEl: HTMLElement | null = null;
 let isBroadcastMode = false;
 const LIVE_STATE_EVENT_NAME = "lumelier-live-state";
 let timelineLiveStateListenerRef: ((e: Event) => void) | null = null;
+/** Last applied live-or-pending state; only apply when it changes (avoids re-running broadcast UI on every 30s poll). */
+let timelineLastLiveOrPending: boolean | null = null;
 /** Set in render(); used when loading a show to create timeline and show content. */
 let timelineWrapEl: HTMLElement | null = null;
 let timelineContentEl: HTMLElement | null = null;
@@ -414,10 +416,7 @@ function getExportState(): TimelineStateJSON {
     () => projectTitle,
     () => requestsGPS
   );
-  return {
-    ...base,
-    trackAssignments: getTrackAssignmentsRoot(),
-  };
+  return base;
 }
 
 function setRequestsGPS(value: boolean): void {
@@ -844,13 +843,8 @@ function ensureTimelineCreated(): void {
    * We call it from onInitialDrawComplete, addLayer, and removeLayer only. */
 }
 
-/** Load state into timeline and show toolbar + timeline. Call when opening a show or creating new. */
+/** Load state into timeline and show toolbar + timeline. Call when opening a show or creating new. Track splitter tree is loaded separately via loadTrackSplitterTree(showId). */
 function loadShowState(state: TimelineStateJSON): void {
-  setTrackAssignmentsRoot(
-    state.trackAssignments != null && state.trackAssignments.root != null
-      ? state.trackAssignments
-      : getDefaultTrackAssignments()
-  );
   groupLabelCache.clear();
   ensureTimelineCreated();
   importState(
@@ -934,6 +928,34 @@ async function runAutosave(): Promise<void> {
   }
 }
 
+async function loadTrackSplitterTree(showId: string): Promise<void> {
+  try {
+    const res = await fetch(`/api/admin/show-workspaces/${showId}/track-splitter-tree`, {
+      credentials: "include",
+    });
+    if (res.ok) {
+      const tree = (await res.json()) as TrackAssignmentsRoot;
+      if (tree?.root != null) {
+        setTrackAssignmentsRoot(tree);
+        return;
+      }
+    }
+  } catch {
+    // ignore
+  }
+  setTrackAssignmentsRoot(getDefaultTrackAssignments());
+}
+
+async function saveTrackSplitterTreeToServer(root: TrackAssignmentsRoot): Promise<void> {
+  if (!currentShowId) return;
+  await fetch(`/api/admin/show-workspaces/${currentShowId}/track-splitter-tree`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(root),
+  });
+}
+
 async function loadTimelineFromServer(showId: string): Promise<void> {
   try {
     const res = await fetch(`/api/admin/show-workspaces/${showId}/timeline`, { credentials: "include" });
@@ -943,6 +965,7 @@ async function loadTimelineFromServer(showId: string): Promise<void> {
     }
     if (res.status === 404) {
       loadShowState(getDefaultNewShowState());
+      await loadTrackSplitterTree(showId);
       hasLoadedShow = true;
       setAutosaveUI("saved");
       return;
@@ -956,10 +979,12 @@ async function loadTimelineFromServer(showId: string): Promise<void> {
     } else {
       loadShowState(state);
     }
+    await loadTrackSplitterTree(showId);
     hasLoadedShow = true;
     setAutosaveUI("saved");
   } catch {
     loadShowState(getDefaultNewShowState());
+    await loadTrackSplitterTree(showId);
     hasLoadedShow = true;
     setAutosaveUI("saved");
   }
@@ -1024,7 +1049,7 @@ export function render(container: HTMLElement, showId: string | null): void {
                 <button type="button" class="btn btn-icon-only" data-action="pause" aria-label="Pause">${pauseIcon}</button>
               </div>
               <div class="timeline-toolbar-right" id="timeline-toolbar-right">
-                <button type="button" class="btn btn-icon-label" data-action="split-users-tracks" aria-label="Split Users Into Tracks">${treeIcon}Split Users Into Tracks</button>
+                <button type="button" class="btn btn-icon-label" data-action="split-devices-tracks" aria-label="Split Devices Into Tracks">${treeIcon}Split Devices Into Tracks</button>
                 <button type="button" class="btn btn-primary" data-action="import-from-video">Import from video</button>
                 <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
                 <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
@@ -1108,6 +1133,8 @@ export function render(container: HTMLElement, showId: string | null): void {
 
   function applyLiveState(live: boolean, pending: boolean): void {
     const liveOrPending = live || pending;
+    if (timelineLastLiveOrPending === liveOrPending) return;
+    timelineLastLiveOrPending = liveOrPending;
     if (liveOrPending) {
       applyBroadcastUI();
     } else {
@@ -1118,6 +1145,7 @@ export function render(container: HTMLElement, showId: string | null): void {
   if (timelineLiveStateListenerRef) {
     window.removeEventListener(LIVE_STATE_EVENT_NAME, timelineLiveStateListenerRef);
   }
+  timelineLastLiveOrPending = null;
   timelineLiveStateListenerRef = (e: Event) => {
     const ev = e as CustomEvent<{ showId: string; live: boolean; pending?: boolean }>;
     if (ev.detail?.showId !== currentShowId) return;
@@ -1262,13 +1290,13 @@ export function render(container: HTMLElement, showId: string | null): void {
             () => []
           );
           break;
-        case "split-users-tracks": {
+        case "split-devices-tracks": {
           const btn = el as HTMLElement;
           (e as MouseEvent).stopPropagation();
           if (isTrackAssignmentsDropdownOpen()) {
             closeTrackAssignmentsDropdown();
           } else {
-            openTrackAssignmentsDropdown(btn);
+            openTrackAssignmentsDropdown(btn, getLayers, saveTrackSplitterTreeToServer);
           }
           break;
         }
