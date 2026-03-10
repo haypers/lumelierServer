@@ -11,9 +11,7 @@
   "dependencies": {
     "leaflet": "^1.9.4",
     "qrcode": "^1.5.4",
-    "tabulator-tables": "^6.2.1",
-    "vis-data": "^8.0.3",
-    "vis-timeline": "^8.5.0"
+    "tabulator-tables": "^6.2.1"
   },
   "devDependencies": {
     "@types/leaflet": "^1.9.21",

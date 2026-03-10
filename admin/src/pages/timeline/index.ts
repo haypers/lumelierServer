@@ -1,24 +1,13 @@
-import "vis-timeline/styles/vis-timeline-graph2d.css";
 import "./styles.css";
-import { DataSet } from "vis-data";
-import { Timeline, type DataItem, type DataGroup, type IdType } from "vis-timeline";
 import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
 import circleCheckIcon from "../../icons/circle-check.svg?raw";
 import pauseIcon from "../../icons/pause.svg?raw";
 import playIcon from "../../icons/play.svg?raw";
 import resetIcon from "../../icons/reset.svg?raw";
 import treeIcon from "../../icons/tree.svg?raw";
-import trashIcon from "../../icons/trash.svg?raw";
-import {
-  SEC,
-  readheadId,
-  defaultTimeZero,
-  toMs,
-  timeToDate,
-  dateToSec,
-  dateToSecFloat,
-  type TimelineItemPayload,
-} from "./types";
+import { timeToDate } from "./types";
+import type { TimelineStateJSON } from "./types";
+import { createCustomTimelineView, type CustomTimelineView } from "./custom-timeline";
 import { createInfoBubble } from "../../components/info-bubble";
 import type { DetailsPanelUpdates } from "./details-panel";
 import { updateDetailsPanel } from "./details-panel";
@@ -26,8 +15,9 @@ import {
   exportState,
   importState,
   type NextIds,
+  type LayersArray,
+  type ItemsArray,
 } from "./state-serialization";
-import type { TimelineStateJSON } from "./types";
 import {
   closeTrackAssignmentsDropdown,
   openTrackAssignmentsDropdown,
@@ -40,11 +30,10 @@ export type { TimelineItemPayload, TimelineStateJSON } from "./types";
 import { openModal as openVideoImportModal } from "./import-from-video";
 import type { VideoImportEvent } from "./import-from-video";
 
-let timeline: Timeline | null = null;
-let groups: DataSet<DataGroup>;
-let items: DataSet<DataItem & { payload?: TimelineItemPayload }>;
-/** Reuse the same label element per group so vis-timeline's redraw doesn't see a new node and report "resized" in a loop. */
-const groupLabelCache = new Map<string, HTMLElement>();
+let layers: LayersArray = [];
+let items: ItemsArray = [];
+let readheadSec = 0;
+let customTimelineView: CustomTimelineView | null = null;
 let nextLayerId = 1;
 let nextItemId = 1;
 let projectTitle = "Untitled Show";
@@ -72,7 +61,6 @@ let timelinePageBodyEl: HTMLElement | null = null;
 let timelineMountEl: HTMLElement | null = null;
 let timelineDetailsPanelEl: HTMLElement | null = null;
 let timelineLoadingEl: HTMLElement | null = null;
-let deleteKeyListenerAdded = false;
 
 /** Offset (ms) from client time to server time: serverTimeMs ≈ Date.now() + serverTimeOffsetMs */
 let serverTimeOffsetMs = 0;
@@ -82,44 +70,25 @@ let broadcastPauseAtMs: number | null = null;
 let broadcastReadheadTickId: ReturnType<typeof setInterval> | null = null;
 
 const BROADCAST_READHEAD_TICK_MS = 100;
-const BROADCAST_READHEAD_POST_DEBOUNCE_MS = 150;
-let broadcastReadheadPostTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getServerTimeMs(): number {
   return Date.now() + serverTimeOffsetMs;
 }
 
+function setReadheadSec(sec: number): void {
+  readheadSec = Math.max(0, sec);
+  customTimelineView?.update();
+}
+
 function tickBroadcastReadhead(): void {
-  if (broadcastPlayAtMs == null || !timeline) return;
+  if (broadcastPlayAtMs == null) return;
   const nowMs = getServerTimeMs();
   if (nowMs < broadcastPlayAtMs) return;
   if (broadcastPauseAtMs != null && nowMs >= broadcastPauseAtMs) {
     return;
   }
   const sec = broadcastReadheadSec + (nowMs - broadcastPlayAtMs) / 1000;
-  timeline.setCustomTime(timeToDate(sec), readheadId);
-}
-
-function postBroadcastReadheadDebounced(sec: number): void {
-  if (!isBroadcastMode) return;
-  // If currently playing (not yet paused), the readhead is driven by tickBroadcastReadhead().
-  // We intentionally do not spam the server with playback ticks.
-  if (broadcastPlayAtMs != null && broadcastPauseAtMs == null) return;
-  if (broadcastReadheadPostTimer != null) {
-    clearTimeout(broadcastReadheadPostTimer);
-    broadcastReadheadPostTimer = null;
-  }
-  const clamped = Math.max(0, sec);
-  broadcastReadheadPostTimer = setTimeout(() => {
-    broadcastReadheadPostTimer = null;
-    if (!currentShowId) return;
-    fetch(`/api/admin/shows/${currentShowId}/broadcast/readhead`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ readheadSec: clamped }),
-      credentials: "include",
-    }).catch(() => {});
-  }, BROADCAST_READHEAD_POST_DEBOUNCE_MS);
+  setReadheadSec(sec);
 }
 
 function startBroadcastReadheadTick(): void {
@@ -140,7 +109,7 @@ function stopBroadcastReadheadTick(): void {
 }
 
 function ensureGroups(): void {
-  if (!groups.length) {
+  if (!layers.length) {
     addLayer();
   }
 }
@@ -148,271 +117,121 @@ function ensureGroups(): void {
 function addLayer(): string {
   const id = String(nextLayerId++);
   const label = `Layer ${id}`;
-  groups.add({ id, content: label });
-  updateOnlyLayerVisibility();
+  layers.push({ id, label });
+  customTimelineView?.update();
   refreshDetailsPanel();
   scheduleAutosave();
   return id;
 }
 
-function removeLayer(id: IdType): void {
-  const groupIds = groups.getIds();
-  if (groupIds.length <= 1) return;
-  groupLabelCache.delete(String(id));
-  groups.remove(id);
-  items.getIds().forEach((itemId) => {
-    const item = items.get(itemId) as (DataItem & { payload?: TimelineItemPayload }) | null;
-    if (item?.group === id) items.remove(itemId);
-  });
-  updateOnlyLayerVisibility();
+function removeLayer(id: string): void {
+  if (layers.length <= 1) return;
+  layers = layers.filter((l) => l.id !== id);
+  items = items.filter((it) => it.layerId !== id);
+  customTimelineView?.update();
   refreshDetailsPanel();
   scheduleAutosave();
 }
 
-function addClip(layerId?: IdType): string {
+function getDefaultStartSec(): number {
+  const range = customTimelineView?.getVisibleRange?.();
+  return range ? range.startSec + 2 : 0;
+}
+
+function addClip(layerId?: string): string {
   ensureGroups();
-  const gid = layerId ?? groups.getIds()[0];
-  const start = timeline ? dateToSec(timeline.getWindow().start) + 2 : 0;
+  const gid = layerId ?? layers[0].id;
+  const start = getDefaultStartSec();
   const end = start + 5;
   const id = `item-${nextItemId++}`;
-  const payload: TimelineItemPayload = { kind: "clip", label: `Clip ${id}`, effectType: "fade" };
-  items.add({
+  items.push({
     id,
-    group: gid,
-    start: timeToDate(start),
-    end: timeToDate(end),
-    content: payload.label ?? id,
-    type: "range",
-    payload,
+    layerId: gid,
+    kind: "clip",
+    startSec: start,
+    endSec: end,
+    label: `Clip ${id}`,
+    effectType: "fade",
   });
+  customTimelineView?.update();
   scheduleAutosave();
   return id;
 }
 
-function addEvent(layerId?: IdType): string {
+function addEvent(layerId?: string): string {
   ensureGroups();
-  const gid = layerId ?? groups.getIds()[0];
-  const at = timeline ? dateToSec(timeline.getWindow().start) + 2 : 0;
+  const gid = layerId ?? layers[0].id;
+  const at = getDefaultStartSec();
   const id = `item-${nextItemId++}`;
-  const payload: TimelineItemPayload = {
+  items.push({
+    id,
+    layerId: gid,
     kind: "event",
+    startSec: at,
     label: `Event ${id}`,
     effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-  };
-  items.add({
-    id,
-    group: gid,
-    start: timeToDate(at),
-    content: payload.label ?? id,
-    type: "point",
-    payload,
   });
+  customTimelineView?.update();
   scheduleAutosave();
   return id;
 }
 
 function removeSelected(): void {
-  const sel = timeline?.getSelection() ?? [];
-  sel.forEach((id) => items.remove(id));
-  scheduleAutosave();
+  // View-only: no selection yet; nothing to remove
+  refreshDetailsPanel();
 }
 
 function getLayers(): { id: string; label: string }[] {
-  return groups.get().map((g: DataGroup) => ({
-    id: String(g.id),
-    label: String(g.content),
-  }));
+  return layers.map((l) => ({ id: l.id, label: l.label }));
 }
 
 /** Add multiple "Set Color Broadcast" events from video import; used by the video-import modal. */
 function addEventsFromVideo(events: VideoImportEvent[], layerId: string): void {
   ensureGroups();
-  const gid = layerId || groups.getIds()[0];
+  const gid = layerId || layers[0].id;
   events.forEach((ev) => {
     const id = `video-${nextItemId++}`;
-    const payload: TimelineItemPayload = {
+    items.push({
+      id,
+      layerId: gid,
       kind: "event",
+      startSec: ev.startSec,
       label: id,
       effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
       color: ev.color,
-    };
-    items.add({
-      id,
-      group: gid,
-      start: timeToDate(ev.startSec),
-      content: payload.label ?? id,
-      type: "point",
-      payload,
     });
   });
+  customTimelineView?.update();
   scheduleAutosave();
-  timeline?.fit();
 }
 
-function updateItemInTimeline(id: IdType, updates: DetailsPanelUpdates): void {
-  const item = items.get(id) as (DataItem & { payload?: TimelineItemPayload }) | null;
+function updateItemInTimeline(id: string, updates: DetailsPanelUpdates): void {
+  const item = items.find((it) => it.id === id);
   if (!item) return;
-  const payload = { ...(item.payload ?? { kind: "event" as const }) };
-  let start: Date | undefined;
-  let end: Date | undefined;
-  let group: string | undefined;
-  let content: string | undefined;
-
   if (updates.startSec !== undefined) {
     const sec = Number(updates.startSec);
     if (!Number.isNaN(sec) && sec >= 0) {
-      start = timeToDate(sec);
-      if (item.end != null && payload.kind === "clip") {
-        const durMs = new Date(item.end).getTime() - new Date(item.start).getTime();
-        end = new Date(start.getTime() + durMs);
-      } else if (payload.kind === "event") {
-        end = undefined;
-      }
+      const dur = item.kind === "clip" && item.endSec != null ? item.endSec - item.startSec : 0;
+      item.startSec = sec;
+      if (item.kind === "clip") item.endSec = sec + dur;
     }
   }
-  if (updates.layerId !== undefined) {
-    group = updates.layerId;
-  }
-  if (updates.label !== undefined) {
-    payload.label = updates.label || undefined;
-    content = updates.label?.trim() || String(id);
-  }
-  if (updates.effectType !== undefined) {
-    payload.effectType = updates.effectType || undefined;
-  }
-  if (updates.color !== undefined) {
-    payload.color = updates.color || undefined;
-  }
-
-  items.update({
-    id,
-    ...(start != null && { start }),
-    ...(end !== undefined && { end }),
-    ...(group != null && { group }),
-    ...(content != null && { content }),
-    payload,
-  });
+  if (updates.layerId !== undefined) item.layerId = updates.layerId;
+  if (updates.label !== undefined) item.label = updates.label || undefined;
+  if (updates.effectType !== undefined) item.effectType = updates.effectType || undefined;
+  if (updates.color !== undefined) item.color = updates.color || undefined;
+  customTimelineView?.update();
   scheduleAutosave();
 }
 
-function createGroupLabelElement(
-  groupData: { id: IdType; content: string },
-  onRemove: (id: IdType) => void,
-  onRename: (id: IdType, newContent: string) => void
-): HTMLElement {
-  const wrap = document.createElement("div");
-  wrap.className = "timeline-layer-label";
-  const label = String(groupData.content ?? "");
-  wrap.innerHTML = `
-    <span class="timeline-layer-label-name" title="Double-click to rename">${escapeHtml(label)}</span>
-    <button type="button" class="timeline-layer-label-remove" title="Remove layer" aria-label="Remove layer">${trashIcon}</button>
-  `;
-  const nameEl = wrap.querySelector(".timeline-layer-label-name") as HTMLElement;
-  const btn = wrap.querySelector(".timeline-layer-label-remove") as HTMLButtonElement;
-
-  btn.addEventListener("click", (e) => {
-    e.stopPropagation();
-    e.preventDefault();
-    if (isBroadcastMode) return;
-    if (groupData.id == null) return;
-    if (groups.getIds().length <= 1) return;
-    if (confirm("Remove this layer and all its items?")) {
-      onRemove(groupData.id);
-      timeline?.fit();
-    }
-  });
-
-  nameEl.addEventListener("dblclick", (e) => {
-    e.stopPropagation();
-    if (isBroadcastMode) return;
-    const input = document.createElement("input");
-    input.type = "text";
-    input.className = "timeline-layer-label-input";
-    input.value = nameEl.textContent ?? "";
-    input.setAttribute("aria-label", "Layer name");
-    const commit = () => {
-      const val = input.value.trim();
-      if (val && groupData.id != null) {
-        onRename(groupData.id, val);
-      }
-      wrap.replaceChild(nameEl, input);
-      nameEl.textContent = val || label;
-    };
-    input.addEventListener("blur", commit);
-    input.addEventListener("keydown", (ev) => {
-      if (ev.key === "Enter") {
-        ev.preventDefault();
-        input.blur();
-      }
-      if (ev.key === "Escape") {
-        wrap.replaceChild(nameEl, input);
-      }
-    });
-    wrap.replaceChild(input, nameEl);
-    input.focus();
-    input.select();
-  });
-
-  return wrap;
-}
-
-function escapeHtml(s: string): string {
-  const div = document.createElement("div");
-  div.textContent = s;
-  return div.innerHTML;
-}
-
-let updateOnlyLayerVisibilityRafId: number | null = null;
-function updateOnlyLayerVisibility(): void {
-  if (updateOnlyLayerVisibilityRafId != null) return;
-  updateOnlyLayerVisibilityRafId = requestAnimationFrame(() => {
-    updateOnlyLayerVisibilityRafId = null;
-    const mount = document.getElementById("timeline-mount");
-    if (!mount) return;
-    const totalLayers = groups.getIds().length;
-    const onlyOne = totalLayers <= 1;
-    mount.querySelectorAll(".timeline-layer-label").forEach((el) => {
-      const wrap = el as HTMLElement;
-      if (onlyOne) {
-        wrap.classList.add("timeline-layer-label--only-one");
-      } else {
-        wrap.classList.remove("timeline-layer-label--only-one");
-      }
-    });
-  });
-}
-
-function injectAddLayerButton(): void {
-  const mount = document.getElementById("timeline-mount");
-  if (!mount) return;
-  const corner = mount.querySelector(
-    ".vis-panel.vis-background:not(.vis-horizontal):not(.vis-vertical)"
-  ) as HTMLElement | null;
-  if (!corner) return;
-  const existing = mount.querySelector(".timeline-add-layer-wrap");
-  if (existing) return;
-  const wrap = document.createElement("div");
-  wrap.className = "timeline-add-layer-wrap";
-  wrap.innerHTML = '<button type="button" class="timeline-add-layer-btn">+ Layer</button>';
-  wrap.querySelector("button")?.addEventListener("click", () => {
-    addLayer();
-    timeline?.fit();
-  });
-  corner.appendChild(wrap);
-}
-
 function getExportState(): TimelineStateJSON {
-  const base = exportState(
-    groups,
-    items,
-    () =>
-      timeline
-        ? dateToSecFloat(new Date(toMs(timeline.getCustomTime(readheadId))))
-        : 0,
+  return exportState(
+    () => layers,
+    () => items,
+    () => readheadSec,
     () => projectTitle,
     () => requestsGPS
   );
-  return base;
 }
 
 function setRequestsGPS(value: boolean): void {
@@ -425,9 +244,7 @@ function setRequestsGPS(value: boolean): void {
 }
 
 function getReadheadSecClamped(): number {
-  if (!timeline) return 0;
-  const sec = dateToSecFloat(new Date(toMs(timeline.getCustomTime(readheadId))));
-  return Math.max(0, sec);
+  return Math.max(0, readheadSec);
 }
 
 /** Default state for "Create New Show": one layer, one event at 5s (no clip). */
@@ -643,9 +460,26 @@ export async function applyTemplateToShow(showId: string, templateType: Template
   });
 }
 
-function refreshDetailsPanel(forceItemId?: IdType): void {
+function getItemForDetails(id: string): import("./details-panel").DetailsPanelItem | null {
+  const it = items.find((i) => i.id === id);
+  if (!it) return null;
+  return {
+    id: it.id,
+    start: timeToDate(it.startSec),
+    end: it.kind === "clip" && it.endSec != null ? timeToDate(it.endSec) : undefined,
+    group: it.layerId,
+    payload: {
+      kind: it.kind,
+      label: it.label,
+      effectType: it.effectType,
+      color: it.color,
+    },
+  };
+}
+
+function refreshDetailsPanel(forceItemId?: string): void {
   if (!timelineDetailsPanelEl) return;
-  const itemId = forceItemId ?? timeline?.getSelection()?.[0];
+  const itemId = forceItemId ?? null;
   if (itemId == null) {
     updateDetailsPanel(
       timelineDetailsPanelEl,
@@ -660,7 +494,7 @@ function refreshDetailsPanel(forceItemId?: IdType): void {
   updateDetailsPanel(
     timelineDetailsPanelEl,
     itemId,
-    (id) => items.get(id) as (DataItem & { payload?: TimelineItemPayload }) | null,
+    getItemForDetails,
     updateItemInTimeline,
     getLayers,
     (currentItemId) => refreshDetailsPanel(currentItemId)
@@ -709,140 +543,49 @@ function showTimelineContent(): void {
   hasLoadedShow = true;
 }
 
-function ensureTimelineCreated(): void {
-  if (timeline != null) return;
+function ensureCustomTimelineCreated(): void {
+  if (customTimelineView != null) return;
   if (!timelineMountEl || !timelineDetailsPanelEl) return;
   const loadingEl = timelineLoadingEl;
-  timeline = new Timeline(
+  customTimelineView = createCustomTimelineView(
     timelineMountEl,
-    items,
-    groups,
+    () => ({ layers, items, readheadSec }),
     {
-      start: defaultTimeZero,
-      end: timeToDate(60),
-      min: defaultTimeZero,
-      max: timeToDate(600),
-      zoomMin: 100,
-      zoomMax: 600 * SEC,
-      orientation: "top",
-      showCurrentTime: false,
-      snap: null,
-      format: {
-        minorLabels: (date: unknown) => `${toMs(date as Date | number | { valueOf(): number }) / SEC}s`,
-        majorLabels: (date: unknown) => `${toMs(date as Date | number | { valueOf(): number }) / SEC}s`,
+      onAddLayer: () => {
+        addLayer();
+        customTimelineView?.update();
       },
-      editable: { add: false, remove: false, updateGroup: false, updateTime: true },
-      itemsAlwaysDraggable: { item: true, range: true },
-      margin: { item: 10, axis: 4 },
-      stack: false,
-      multiselect: true,
-      selectable: true,
-      verticalScroll: true,
-      groupHeightMode: "fixed",
-      groupTemplate: (data: { id: IdType; content: string }, _element: HTMLElement) => {
-        const key = String(data?.id ?? "");
-        let wrap = groupLabelCache.get(key);
-        if (wrap) {
-          const nameEl = wrap.querySelector(".timeline-layer-label-name") as HTMLElement | null;
-          if (nameEl) {
-            nameEl.textContent = String(data.content ?? "");
-            nameEl.title = "Double-click to rename";
-          }
-          return wrap;
+      onRemoveLayer: (id) => removeLayer(id),
+      onRenameLayer: (id, label) => {
+        const layer = layers.find((l) => l.id === id);
+        if (layer) {
+          layer.label = label;
+          customTimelineView?.update();
+          refreshDetailsPanel();
+          scheduleAutosave();
         }
-        wrap = createGroupLabelElement(
-          data,
-          (id) => removeLayer(id),
-          (id, newContent) => {
-            groups.update({ id, content: newContent });
-            refreshDetailsPanel();
-            scheduleAutosave();
-          }
-        );
-        groupLabelCache.set(key, wrap);
-        return wrap;
-      },
-      onInitialDrawComplete: () => {
-        requestAnimationFrame(() => {
-          if (loadingEl) {
-            loadingEl.classList.add("timeline-loading--hidden");
-            loadingEl.setAttribute("aria-hidden", "true");
-          }
-          injectAddLayerButton();
-          updateOnlyLayerVisibility();
-          /* Force a redraw after DOM has settled so layers don't overlap the ruler on first load
-             (vis-timeline can stop after its redraw limit and leave layout wrong until interaction). */
-          requestAnimationFrame(() => {
-            timeline?.redraw();
-          });
-        });
       },
     }
   );
-  timeline.addCustomTime(defaultTimeZero, readheadId);
-  timeline.setCustomTimeTitle("Readhead", readheadId);
-  items.on("update", () => scheduleAutosave());
-  timeline.on("timechange", (props: { id?: string; time?: Date | number }) => {
-    if (props.id !== readheadId || !timeline) return;
-    const sec = dateToSecFloat(new Date(toMs(props.time ?? 0)));
-    if (sec < 0) timeline.setCustomTime(timeToDate(0), readheadId);
-    postBroadcastReadheadDebounced(sec);
+  requestAnimationFrame(() => {
+    if (loadingEl) {
+      loadingEl.classList.add("timeline-loading--hidden");
+      loadingEl.setAttribute("aria-hidden", "true");
+    }
   });
-  timeline.on("select", (props) => {
-    updateDetailsPanel(
-      timelineDetailsPanelEl as HTMLElement,
-      props.items?.[0] ?? null,
-      (id) => items.get(id) as (DataItem & { payload?: TimelineItemPayload }) | null,
-      updateItemInTimeline,
-      getLayers,
-      (currentItemId) => refreshDetailsPanel(currentItemId)
-    );
-  });
-  timeline.on("deselect", () => {
-    updateDetailsPanel(
-      timelineDetailsPanelEl as HTMLElement,
-      null,
-      () => null,
-      () => {},
-      () => []
-    );
-  });
-  if (!deleteKeyListenerAdded) {
-    deleteKeyListenerAdded = true;
-    document.addEventListener("keydown", (e) => {
-      if (e.key !== "Delete") return;
-      if (!timeline) return;
-      if (isBroadcastMode) return;
-      const sel = timeline.getSelection();
-      if (!sel?.length) return;
-      const tag = document.activeElement?.tagName?.toUpperCase();
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      e.preventDefault();
-      sel.forEach((id) => items.remove(id));
-      scheduleAutosave();
-      updateDetailsPanel(
-        timelineDetailsPanelEl as HTMLElement,
-        null,
-        () => null,
-        () => {},
-        () => []
-      );
-    });
-  }
-  /* Do not call updateOnlyLayerVisibility from groups.on("*") — "*" fires during vis-timeline's
-   * internal redraws and would schedule a RAF that mutates label DOM and triggers a redraw loop.
-   * We call it from onInitialDrawComplete, addLayer, and removeLayer only. */
 }
 
 /** Load state into timeline and show toolbar + timeline. Call when opening a show or creating new. Track splitter tree is loaded separately via loadTrackSplitterTree(showId). */
 function loadShowState(state: TimelineStateJSON): void {
-  groupLabelCache.clear();
-  ensureTimelineCreated();
   importState(
     state,
-    groups,
-    items,
-    (sec) => timeline?.setCustomTime(timeToDate(sec), readheadId),
+    (newLayers) => {
+      layers = [...newLayers];
+    },
+    (newItems) => {
+      items = [...newItems];
+    },
+    (sec) => setReadheadSec(sec),
     (ids: NextIds) => {
       nextItemId = ids.nextItemId;
       nextLayerId = ids.nextLayerId;
@@ -854,20 +597,9 @@ function loadShowState(state: TimelineStateJSON): void {
     },
     (value) => setRequestsGPS(value)
   );
+  ensureCustomTimelineCreated();
+  customTimelineView?.update();
   showTimelineContent();
-  timeline?.fit();
-  /* Timeline is created while .timeline-content is hidden, so vis-timeline's first draw runs with
-   * zero-sized container and readhead/events/axis don't render. rAF and redraw() alone are not
-   * enough; vis-timeline only recalculates layout on resize. Trigger a resize so it redraws. */
-  setTimeout(() => {
-    window.dispatchEvent(new Event("resize"));
-  }, 0);
-  if (isBroadcastMode && timeline) {
-    timeline.setOptions({
-      editable: { add: false, remove: false, updateGroup: false, updateTime: false },
-    });
-    timelineContentEl?.classList.add("timeline-readhead-no-drag");
-  }
 }
 
 function setAutosaveUI(state: "saved" | "syncing"): void {
@@ -982,13 +714,14 @@ async function loadTimelineFromServer(showId: string): Promise<void> {
 }
 
 export function render(container: HTMLElement, showId: string | null): void {
-  timeline = null;
+  customTimelineView = null;
   hasLoadedShow = false;
   currentShowId = showId;
   isBroadcastMode = false;
   requestsGPS = false;
-  groups = new DataSet<DataGroup>([]);
-  items = new DataSet<DataItem & { payload?: TimelineItemPayload }>([]);
+  layers = [];
+  items = [];
+  readheadSec = 0;
   timelineAutosaveEl = null;
 
   if (showId === null) {
@@ -1098,9 +831,6 @@ export function render(container: HTMLElement, showId: string | null): void {
     timelineContentEl?.classList.add("timeline-content--broadcast");
     timelineDetailsPanelEl?.classList.add("timeline-details-panel--readonly");
     ensureReadOnlyHeaderRow();
-    timeline?.setOptions({
-      editable: { add: false, remove: false, updateGroup: false, updateTime: false },
-    });
     updateLiveStatusMessage(true);
   }
 
@@ -1116,9 +846,6 @@ export function render(container: HTMLElement, showId: string | null): void {
       if (h3) timelineDetailsPanelEl?.insertBefore(h3, wrapper);
       wrapper.remove();
     }
-    timeline?.setOptions({
-      editable: { add: false, remove: false, updateGroup: false, updateTime: true },
-    });
     updateLiveStatusMessage(false);
   }
 
@@ -1161,10 +888,7 @@ export function render(container: HTMLElement, showId: string | null): void {
       const action = (el as HTMLElement).getAttribute("data-action");
       switch (action) {
         case "restart": {
-          // Set readhead to 0 and start playing
-          if (timeline) {
-            timeline.setCustomTime(timeToDate(0), readheadId);
-          }
+          setReadheadSec(0);
           console.log("User hit restart, playing from beginning.");
           try {
             if (!currentShowId) throw new Error("No show selected");
@@ -1184,9 +908,6 @@ export function render(container: HTMLElement, showId: string | null): void {
             broadcastReadheadSec = 0;
             broadcastPauseAtMs = null;
             startBroadcastReadheadTick();
-            timeline?.setOptions({
-              editable: { add: false, remove: false, updateGroup: false, updateTime: false },
-            });
             timelineContentEl?.classList.add("timeline-readhead-no-drag");
             console.log("Restarting timeline from beginning at", playAtMs);
           } catch (e) {
@@ -1215,9 +936,6 @@ export function render(container: HTMLElement, showId: string | null): void {
             broadcastReadheadSec = readheadSec;
             broadcastPauseAtMs = null;
             startBroadcastReadheadTick();
-            timeline?.setOptions({
-              editable: { add: false, remove: false, updateGroup: false, updateTime: false },
-            });
             timelineContentEl?.classList.add("timeline-readhead-no-drag");
             console.log("Planning to start playing timeline at", playAtMs);
             console.log("Starting to send json to all clients");
@@ -1241,9 +959,6 @@ export function render(container: HTMLElement, showId: string | null): void {
               serverTimeOffsetMs = data.serverTimeMs - Date.now();
             }
             broadcastPauseAtMs = pauseAtMs;
-            timeline?.setOptions({
-              editable: { add: false, remove: false, updateGroup: false, updateTime: true },
-            });
             timelineContentEl?.classList.remove("timeline-readhead-no-drag");
             console.log("User requested a pause. Planning to pause at", pauseAtMs);
             console.log("Sending pause instruction to clients to pause at", pauseAtMs);
@@ -1258,7 +973,7 @@ export function render(container: HTMLElement, showId: string | null): void {
         }
         case "add-clip":
           addClip();
-          timeline?.fit();
+          customTimelineView?.update();
           break;
         case "import-from-video":
           openVideoImportModal({
@@ -1269,7 +984,6 @@ export function render(container: HTMLElement, showId: string | null): void {
           break;
         case "add-event":
           addEvent();
-          timeline?.fit();
           break;
         case "remove-item":
           removeSelected();

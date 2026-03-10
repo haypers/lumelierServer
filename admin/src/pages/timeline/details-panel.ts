@@ -1,12 +1,17 @@
-import type { DataItem } from "vis-timeline";
-import type { IdType } from "vis-timeline";
 import type { TimelineItemPayload } from "./types";
 import { dateToSecFloat } from "./types";
 import { createLayerTrackPicker } from "./layer-track-picker";
 
-export type GetItemFn = (
-  id: IdType
-) => (DataItem & { payload?: TimelineItemPayload }) | null;
+/** Item shape used by the details panel (id, start/end/group, payload). */
+export interface DetailsPanelItem {
+  id: string;
+  start: Date;
+  end?: Date;
+  group: string;
+  payload: TimelineItemPayload;
+}
+
+export type GetItemFn = (id: string) => DetailsPanelItem | null;
 
 export interface LayerInfo {
   id: string;
@@ -21,18 +26,18 @@ export interface DetailsPanelUpdates {
   color?: string;
 }
 
-export type UpdateItemFn = (id: IdType, updates: DetailsPanelUpdates) => void;
+export type UpdateItemFn = (id: string, updates: DetailsPanelUpdates) => void;
 export type GetLayersFn = () => LayerInfo[];
 
 /** Event type options for the dropdown. Only one for now. */
 export const EVENT_TYPE_OPTIONS = ["Set Color Broadcast"] as const;
 
 /** Called to refresh the details panel; pass current itemId to re-render that item (e.g. after changing event type). */
-export type OnDetailsUpdatedFn = (currentItemId?: IdType) => void;
+export type OnDetailsUpdatedFn = (currentItemId?: string) => void;
 
 export function updateDetailsPanel(
   container: HTMLElement,
-  itemId: IdType | null | undefined,
+  itemId: string | null | undefined,
   getItem: GetItemFn,
   updateItem: UpdateItemFn,
   getLayers: GetLayersFn,
@@ -50,14 +55,15 @@ export function updateDetailsPanel(
   }
 
   const item = getItem(itemId);
-  if (!item) {
+  if (!item || itemId == null) {
     h3.textContent = "Selection";
     body.innerHTML = '<p class="no-selection">Item not found.</p>';
     return;
   }
+  const itemIdStr = itemId as string;
 
   const payload = item.payload ?? { kind: "event" as const };
-  const startSec = dateToSecFloat(new Date(item.start as Date));
+  const startSec = dateToSecFloat(item.start);
   const layers = getLayers();
 
   h3.textContent = payload.kind === "clip" ? "Clip details" : "Event details";
@@ -123,7 +129,7 @@ export function updateDetailsPanel(
       createLayerTrackPicker({
         layers,
         value: String(item.group),
-        onChange: (layerId) => updateItem(itemId as IdType, { layerId }),
+        onChange: (layerId) => updateItem(itemIdStr, { layerId }),
         ariaLabel: "Layer by name",
       })
     );
@@ -136,22 +142,22 @@ export function updateDetailsPanel(
   function applyStart(): void {
     const val = parseFloat(startInput.value);
     if (!Number.isNaN(val) && val >= 0) {
-      updateItem(itemId as IdType, { startSec: val });
+      updateItem(itemIdStr, { startSec: val });
     }
   }
 
   function applyLabel(): void {
-    updateItem(itemId as IdType, { label: labelInput.value.trim() || undefined });
+    updateItem(itemIdStr, { label: labelInput.value.trim() || undefined });
   }
 
   function applyEffectType(): void {
     if (effectSelect) {
       const val = effectSelect.value;
-      updateItem(itemId as IdType, { effectType: val });
+      updateItem(itemIdStr, { effectType: val });
       if (val === "Set Color Broadcast") {
-        updateItem(itemId as IdType, { color: "#ffffff" });
+        updateItem(itemIdStr, { color: "#ffffff" });
       }
-      onUpdated?.(itemId as IdType);
+      onUpdated?.(itemIdStr);
     }
   }
 
@@ -161,7 +167,7 @@ export function updateDetailsPanel(
     const hexSpan = body.querySelector(".detail-color-hex");
     if (colorInput) {
       const hex = colorInput.value;
-      updateItem(itemId as IdType, { color: hex });
+      updateItem(itemIdStr, { color: hex });
       if (hexSpan) hexSpan.textContent = hex;
     }
   }

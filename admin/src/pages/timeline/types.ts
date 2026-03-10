@@ -1,10 +1,10 @@
-/** Time in seconds; we use Date(sec * 1000) for vis-timeline so 0 = epoch start. */
+/** Time in seconds; we use sec * 1000 for Date so 0 = epoch start. */
 export const SEC = 1000;
 
 export const readheadId = "readhead";
 export const defaultTimeZero = new Date(0);
 
-/** Normalize vis-timeline time (Date, number, or moment-like) to milliseconds. */
+/** Normalize time (Date, number, or moment-like) to milliseconds. */
 export function toMs(t: unknown): number {
   if (typeof t === "number" && !Number.isNaN(t)) return t;
   if (t instanceof Date) return t.getTime();

@@ -1,44 +1,30 @@
-import type { DataSet } from "vis-data";
-import type { DataGroup, DataItem } from "vis-timeline";
-import type { TimelineItemPayload } from "./types";
 import type { TimelineStateJSON } from "./types";
-import { timeToDate, dateToSec } from "./types";
+
+export type LayersArray = TimelineStateJSON["layers"];
+export type ItemsArray = TimelineStateJSON["items"];
 
 export function exportState(
-  groups: DataSet<DataGroup>,
-  items: DataSet<DataItem & { payload?: TimelineItemPayload }>,
+  getLayers: () => LayersArray,
+  getItems: () => ItemsArray,
   getReadheadSec: () => number,
   getTitle: () => string,
   getRequestsGPS: () => boolean
 ): TimelineStateJSON {
-  const layers = groups.get().map((g: DataGroup) => ({
-    id: String(g.id),
-    label: String(g.content),
-  }));
-  const itemList = items
-    .get()
-    .map((it: DataItem & { payload?: TimelineItemPayload }) => {
-      const payload = it.payload ?? { kind: "clip" as const };
-      const startSec = dateToSec(new Date(it.start as Date));
-      const endSec =
-        it.end != null ? dateToSec(new Date(it.end as Date)) : undefined;
-      return {
-        id: String(it.id),
-        layerId: String(it.group),
-        kind: payload.kind,
-        startSec,
-        endSec: payload.kind === "clip" ? endSec : undefined, // events are points, no endSec
-        label: payload.label,
-        effectType: payload.effectType,
-        color: payload.color,
-      };
-    });
   return {
     version: 1,
     title: getTitle(),
     requestsGPS: getRequestsGPS(),
-    layers,
-    items: itemList,
+    layers: getLayers().map((l) => ({ id: l.id, label: l.label })),
+    items: getItems().map((it) => ({
+      id: it.id,
+      layerId: it.layerId,
+      kind: it.kind,
+      startSec: it.startSec,
+      endSec: it.kind === "clip" ? it.endSec : undefined,
+      label: it.label,
+      effectType: it.effectType,
+      color: it.color,
+    })),
     readheadSec: getReadheadSec(),
   };
 }
@@ -50,8 +36,8 @@ export interface NextIds {
 
 export function importState(
   state: TimelineStateJSON,
-  groups: DataSet<DataGroup>,
-  items: DataSet<DataItem & { payload?: TimelineItemPayload }>,
+  setLayers: (layers: LayersArray) => void,
+  setItems: (items: ItemsArray) => void,
   setReadheadSec: (sec: number) => void,
   setNextIds: (ids: NextIds) => void,
   setTitle: (title: string) => void,
@@ -59,38 +45,19 @@ export function importState(
 ): void {
   setTitle(state.title ?? "Untitled Show");
   setRequestsGPS(state.requestsGPS === true);
-  groups.clear();
-  items.clear();
-  state.layers.forEach((l) => groups.add({ id: l.id, content: l.label }));
-  state.items.forEach((it) => {
-    const payload: TimelineItemPayload = {
+  setLayers(state.layers.map((l) => ({ id: l.id, label: l.label })));
+  setItems(
+    state.items.map((it) => ({
+      id: it.id,
+      layerId: it.layerId,
       kind: it.kind,
+      startSec: it.startSec,
+      endSec: it.endSec,
       label: it.label,
       effectType: it.effectType,
       color: it.color,
-    };
-    if (it.kind === "clip") {
-      items.add({
-        id: it.id,
-        group: it.layerId,
-        start: timeToDate(it.startSec),
-        end: timeToDate(it.endSec ?? it.startSec + 1),
-        content: it.label ?? it.id,
-        type: "range",
-        payload,
-      });
-    } else {
-      // event (point item)
-      items.add({
-        id: it.id,
-        group: it.layerId,
-        start: timeToDate(it.startSec),
-        content: it.label ?? it.id,
-        type: "point",
-        payload,
-      });
-    }
-  });
+    }))
+  );
   const maxId = state.items.reduce((acc, it) => {
     const n = parseInt(it.id.replace(/\D/g, ""), 10);
     return Number.isNaN(n) ? acc : Math.max(acc, n);

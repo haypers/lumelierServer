@@ -627,66 +627,62 @@
   height: 100%;
   overflow: hidden;
 }
-.timeline-container-wrap .vis-timeline {
-  border: none;
-  height: 100% !important;
+
+/* Custom timeline (left labels + right ruler/layers) */
+.custom-timeline {
+  background: var(--bg-elevated);
 }
-/* Override vis-timeline to match dark theme */
-.vis-timeline {
-  background: var(--bg-elevated) !important;
-  color: var(--text) !important;
+.custom-timeline-layer-labels {
+  flex-shrink: 0;
 }
-.vis-panel.vis-background {
-  background: var(--bg) !important;
+.custom-timeline-ruler-spacer {
+  flex-shrink: 0;
 }
-.vis-panel.vis-center,
-.vis-panel.vis-top,
-.vis-panel.vis-bottom {
-  border-color: var(--border) !important;
+.custom-timeline-layer-labels-scroll {
+  overflow-y: auto;
+  overflow-x: hidden;
 }
-.vis-time-axis .vis-text {
-  color: var(--text-muted) !important;
-  fill: var(--text-muted) !important;
+.custom-timeline-ruler-wrap {
+  flex-shrink: 0;
+  overflow-x: auto;
 }
-.vis-time-axis .vis-grid.vis-minor {
-  stroke: var(--border) !important;
+.custom-timeline-ruler {
+  min-width: min-content;
 }
-.vis-time-axis .vis-grid.vis-major {
-  stroke: var(--border) !important;
+.custom-timeline-ruler-tick {
+  pointer-events: none;
 }
-/* Layer labels column (thinner) */
-.timeline-container-wrap .vis-panel.vis-left {
-  width: 180px !important;
-  min-width: 180px !important;
+.custom-timeline-layers-scroll {
+  overflow: auto;
 }
-.vis-labelset .vis-label {
-  background: var(--bg) !important;
-  color: var(--text) !important;
-  border-color: var(--border) !important;
-  min-height: 32px;
-  display: flex;
-  align-items: center;
+.custom-timeline-layers {
+  min-height: 100%;
 }
-.vis-labelset .vis-label .vis-inner {
-  width: 100%;
-  min-height: 32px;
-  display: flex;
-  align-items: center;
-  padding: 0 4px;
+.custom-timeline-layer-row-wrap {
   box-sizing: border-box;
 }
-/* Custom layer label: name + trash. Fixed height prevents vis-timeline from measuring
-   different heights across redraws and triggering its "infinite loop in redraw?" warning. */
-.timeline-layer-label {
+.custom-timeline-point {
+  pointer-events: none;
+}
+.custom-timeline-range {
+  pointer-events: none;
+}
+.custom-timeline-readhead {
+  pointer-events: none;
+}
+
+/* Layer label row (shared by custom timeline left column) */
+.timeline-layer-label,
+.custom-timeline-layer-label-row {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
   min-width: 0;
-  height: 28px;
-  min-height: 28px;
-  max-height: 28px;
-  padding: 0;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  padding: 0 6px;
   box-sizing: border-box;
 }
 .timeline-layer-label-name,
@@ -739,25 +735,13 @@
   width: 14px;
   height: 14px;
 }
-.vis-label:hover .timeline-layer-label-remove {
+.timeline-layer-label:hover .timeline-layer-label-remove,
+.custom-timeline-layer-label-row:hover .timeline-layer-label-remove {
   visibility: visible;
 }
-/* Keep button in layout (visibility + pointer-events) so toggling this class does not change
-   label height and trigger vis-timeline's "resized" redraw loop. */
 .timeline-layer-label--only-one .timeline-layer-label-remove {
   visibility: hidden !important;
   pointer-events: none;
-}
-/* "+ Layer" button in top-left corner (vis-panel.vis-background) */
-.timeline-container-wrap .vis-panel.vis-background:not(.vis-horizontal):not(.vis-vertical) {
-  position: relative;
-}
-.timeline-add-layer-wrap {
-  position: absolute;
-  top: 0;
-  left: 0;
-  padding: 6px 8px;
-  z-index: 2;
 }
 .timeline-add-layer-btn {
   padding: 6px 10px;
@@ -772,36 +756,6 @@
   background: var(--accent-current);
   border-color: var(--accent);
 }
-.timeline-content--broadcast .timeline-add-layer-wrap {
-  display: none !important;
-}
 .timeline-content--broadcast .timeline-layer-label-remove {
   display: none !important;
-}
-.vis-item {
-  border-color: var(--accent) !important;
-  background-color: rgba(74, 125, 199, 0.35) !important;
-  color: var(--text) !important;
-}
-.vis-item.vis-selected {
-  border-color: var(--accent) !important;
-  background-color: var(--accent-current) !important;
-}
-.vis-item.vis-point.vis-selected {
-  background-color: var(--accent) !important;
-}
-.vis-item.vis-range.vis-selected {
-  background-color: rgba(74, 125, 199, 0.5) !important;
-  border-width: 2px !important;
-  border-color: var(--accent) !important;
-}
-.vis-custom-time {
-  background-color: var(--accent) !important;
-  width: 2px !important;
-}
-.timeline-content.timeline-readhead-no-drag .vis-custom-time {
-  pointer-events: none;
-}
-.vis-current-time {
-  background-color: var(--accent) !important;
 }
