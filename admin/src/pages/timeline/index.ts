@@ -7,7 +7,7 @@ import resetIcon from "../../icons/reset.svg?raw";
 import treeIcon from "../../icons/tree.svg?raw";
 import { timeToDate } from "./types";
 import type { TimelineStateJSON } from "./types";
-import { createCustomTimelineView, type CustomTimelineView } from "./custom-timeline";
+import { createCustomTimelineView, type CustomTimelineView } from "./timelineEditor/custom-timeline";
 import { createInfoBubble } from "../../components/info-bubble";
 import type { DetailsPanelUpdates } from "./details-panel";
 import { updateDetailsPanel } from "./details-panel";
@@ -33,6 +33,7 @@ import type { VideoImportEvent } from "./import-from-video";
 let layers: LayersArray = [];
 let items: ItemsArray = [];
 let readheadSec = 0;
+let selectedItemId: string | null = null;
 let customTimelineView: CustomTimelineView | null = null;
 let nextLayerId = 1;
 let nextItemId = 1;
@@ -70,6 +71,8 @@ let broadcastPauseAtMs: number | null = null;
 let broadcastReadheadTickId: ReturnType<typeof setInterval> | null = null;
 
 const BROADCAST_READHEAD_TICK_MS = 100;
+const BROADCAST_READHEAD_POST_DEBOUNCE_MS = 150;
+let broadcastReadheadPostTimer: ReturnType<typeof setTimeout> | null = null;
 
 function getServerTimeMs(): number {
   return Date.now() + serverTimeOffsetMs;
@@ -89,6 +92,26 @@ function tickBroadcastReadhead(): void {
   }
   const sec = broadcastReadheadSec + (nowMs - broadcastPlayAtMs) / 1000;
   setReadheadSec(sec);
+}
+
+function postBroadcastReadheadDebounced(sec: number): void {
+  if (!isBroadcastMode) return;
+  if (broadcastPlayAtMs != null && broadcastPauseAtMs == null) return;
+  if (broadcastReadheadPostTimer != null) {
+    clearTimeout(broadcastReadheadPostTimer);
+    broadcastReadheadPostTimer = null;
+  }
+  const clamped = Math.max(0, sec);
+  broadcastReadheadPostTimer = setTimeout(() => {
+    broadcastReadheadPostTimer = null;
+    if (!currentShowId) return;
+    fetch(`/api/admin/shows/${currentShowId}/broadcast/readhead`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ readheadSec: clamped }),
+      credentials: "include",
+    }).catch(() => {});
+  }, BROADCAST_READHEAD_POST_DEBOUNCE_MS);
 }
 
 function startBroadcastReadheadTick(): void {
@@ -135,7 +158,7 @@ function removeLayer(id: string): void {
 
 function getDefaultStartSec(): number {
   const range = customTimelineView?.getVisibleRange?.();
-  return range ? range.startSec + 2 : 0;
+  return range ? (range.startSec + range.endSec) / 2 : 0;
 }
 
 function addClip(layerId?: string): string {
@@ -177,8 +200,12 @@ function addEvent(layerId?: string): string {
 }
 
 function removeSelected(): void {
-  // View-only: no selection yet; nothing to remove
+  if (selectedItemId == null) return;
+  items = items.filter((it) => it.id !== selectedItemId);
+  selectedItemId = null;
+  customTimelineView?.update();
   refreshDetailsPanel();
+  scheduleAutosave();
 }
 
 function getLayers(): { id: string; label: string }[] {
@@ -549,7 +576,13 @@ function ensureCustomTimelineCreated(): void {
   const loadingEl = timelineLoadingEl;
   customTimelineView = createCustomTimelineView(
     timelineMountEl,
-    () => ({ layers, items, readheadSec }),
+    () => ({
+      layers,
+      items,
+      readheadSec,
+      selectedItemId,
+      readheadDraggable: !timelineContentEl?.classList.contains("timeline-readhead-no-drag"),
+    }),
     {
       onAddLayer: () => {
         addLayer();
@@ -565,6 +598,26 @@ function ensureCustomTimelineCreated(): void {
           scheduleAutosave();
         }
       },
+      onSelectItem: (id) => {
+        selectedItemId = id;
+        refreshDetailsPanel(id ?? undefined);
+        customTimelineView?.update();
+      },
+      onReadheadChange: (sec) => {
+        setReadheadSec(sec);
+        scheduleAutosave();
+        postBroadcastReadheadDebounced(sec);
+      },
+      onMoveEvent: (itemId, startSec) => {
+        const item = items.find((i) => i.id === itemId);
+        if (item?.kind === "event") {
+          item.startSec = startSec;
+          selectedItemId = itemId;
+          customTimelineView?.update();
+          refreshDetailsPanel(itemId);
+          scheduleAutosave();
+        }
+      },
     }
   );
   requestAnimationFrame(() => {
@@ -572,6 +625,16 @@ function ensureCustomTimelineCreated(): void {
       loadingEl.classList.add("timeline-loading--hidden");
       loadingEl.setAttribute("aria-hidden", "true");
     }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Delete" && e.key !== "Backspace") return;
+    if (isBroadcastMode) return;
+    if (selectedItemId == null) return;
+    const tag = document.activeElement?.tagName?.toUpperCase();
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+    e.preventDefault();
+    removeSelected();
   });
 }
 

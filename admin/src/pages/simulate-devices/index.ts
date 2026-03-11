@@ -171,18 +171,21 @@ function getGridAvailableSize(): { w: number; h: number } {
  * client-side or server-side with a paged/sorted API.
  */
 
-/**
- * Single source of truth for "what is the current visible page". Uses the same snapped
- * height as the grid render so fetch and display never disagree (e.g. after resize).
- * Updates pageIndex (clamps to valid range). Call whenever layout might have changed.
- */
-function getVisiblePageLayout(): {
+/** Cached result of getVisiblePageLayout for reuse in the same tick (e.g. stats-only path). */
+type VisiblePageLayout = {
   layout: ReturnType<typeof computeGridLayout>;
   start: number;
   pageSize: number;
   totalPages: number;
   displayClients: ClientSummaryForGrid[];
-} {
+};
+
+/**
+ * Single source of truth for "what is the current visible page". Uses the same snapped
+ * height as the grid render so fetch and display never disagree (e.g. after resize).
+ * Updates pageIndex (clamps to valid range). Call whenever layout might have changed.
+ */
+function getVisiblePageLayout(): VisiblePageLayout {
   const displayClients = clients;
   const { w, h } = getGridAvailableSize();
   const cellSize = squareSizePx + GRID_GAP_PX;
@@ -194,9 +197,13 @@ function getVisiblePageLayout(): {
   return { layout, start, pageSize, totalPages, displayClients };
 }
 
-function updateGridLayoutAndRender(): void {
+/**
+ * Update grid and pagination. When cachedVisible is provided (stats-only path), use it
+ * and skip getVisiblePageLayout(); otherwise compute layout now.
+ */
+function updateGridLayoutAndRender(cachedVisible?: VisiblePageLayout | null): void {
   if (!gridContainer) return;
-  const visible = getVisiblePageLayout();
+  const visible = cachedVisible ?? getVisiblePageLayout();
   const { start, pageSize, totalPages, displayClients } = visible;
   const pageClients = displayClients.slice(start, start + pageSize);
   const showIdForGrid = currentShowId;
@@ -226,9 +233,9 @@ function getSelected(): ClientSummaryForGrid | null {
 }
 
 const CLOCK_ERROR_AVE_TOOLTIP =
-  "The average difference between the client's estimated server clock and the actual server clock. This should approach 0 to indicate an accurate simulation.";
+  "The average difference between the client's estimated server clock and the actual server clock. This should approach 0 to indicate an accurate simulation. Average is for clients currently on screen.";
 const CLOCK_ERROR_AVE_ABS_TOOLTIP =
-  "The average of the absolute values of the difference between the client's estimated server clock and the actual server clock. The lower this value, the more in sync the devices are.";
+  "The average of the absolute values of the difference between the client's estimated server clock and the actual server clock. The lower this value, the more in sync the devices are. Average is for clients currently on screen.";
 
 function createClockErrorWidget(): HTMLElement {
   const root = document.createElement("div");
@@ -286,7 +293,7 @@ function mergeSummariesIntoClients(summaries: ClientSummarySummary[]): void {
   }
 }
 
-/** Fetch summaries for currently visible page (and selected client if not on page), merge into clients, then refresh. */
+/** Fetch summaries for currently visible page (and selected client if not on page), merge into clients, then update grid on next frame (stats-only path). */
 async function fetchVisibleSummariesAndRefresh(): Promise<boolean> {
   const visible = getVisiblePageLayout();
   const { start, pageSize, displayClients } = visible;
@@ -303,25 +310,24 @@ async function fetchVisibleSummariesAndRefresh(): Promise<boolean> {
   try {
     const summaries = await getSummaries(currentShowId, idsToFetch);
     mergeSummariesIntoClients(summaries);
+    // Average clock error over visible clients only (on-screen page).
     const onScreenSummaries = summaries.slice(0, visibleIds.length);
     const errors = onScreenSummaries
       .map((s) => s.serverTimeEstimateErrorMs)
       .filter((e): e is number => e != null && Number.isFinite(e));
-    if (errors.length > 0) {
-      const ave = errors.reduce((a, b) => a + b, 0) / errors.length;
-      const aveAbs = errors.reduce((a, b) => a + Math.abs(b), 0) / errors.length;
+    const ave = errors.length > 0 ? errors.reduce((a, b) => a + b, 0) / errors.length : null;
+    const aveAbs = errors.length > 0 ? errors.reduce((a, b) => a + Math.abs(b), 0) / errors.length : null;
+    requestAnimationFrame(() => {
       updateClockErrorWidget(ave, aveAbs);
-    } else {
-      updateClockErrorWidget(null, null);
-    }
+      updateGridLayoutAndRender(visible);
+      updatePaginationUI(visible.totalPages, pageIndex);
+    });
+    return true;
   } catch {
-    // leave existing merged data as-is
     updateClockErrorWidget(null, null);
     refresh();
     return false;
   }
-  refresh();
-  return true;
 }
 
 function getDetailsScrollContainer(): HTMLElement | null {

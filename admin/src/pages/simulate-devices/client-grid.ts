@@ -8,6 +8,14 @@ const inLag = (c: ClientSummaryForGrid): boolean =>
 /** Fallback when client has no display color (e.g. not yet from server). */
 const DEFAULT_BG_FOR_CONTRAST = "#333333";
 
+/** Last applied state for dirty check; cleared when we do a full render. */
+let lastApplied: {
+  squareSizePx: number;
+  selectedId: string | null;
+  showLagOverlay: boolean;
+  items: { id: string; currentDisplayColor: string | null; lag: boolean; selected: boolean }[];
+} | null = null;
+
 export function renderClientGrid(
   container: HTMLElement,
   items: ClientSummaryForGrid[],
@@ -71,28 +79,54 @@ export function updateClientGrid(
   const squares = inner?.querySelectorAll(".simulate-devices-grid-square");
   if (inner && squares && squares.length === items.length) {
     const size = `${squareSizePx}px`;
+    const sizeChanged = lastApplied === null || lastApplied.squareSizePx !== squareSizePx;
+    const nextApplied: typeof lastApplied = {
+      squareSizePx,
+      selectedId,
+      showLagOverlay,
+      items: [],
+    };
     for (let i = 0; i < items.length; i++) {
       const btn = squares[i] as HTMLButtonElement;
       const client = items[i];
-      btn.setAttribute("data-client-id", client.id);
-      btn.style.width = size;
-      btn.style.height = size;
-      btn.style.minWidth = size;
-      btn.style.minHeight = size;
-      btn.classList.toggle("simulate-devices-grid-square--selected", client.id === selectedId);
-      btn.style.backgroundColor =
-        client.currentDisplayColor ?? btn.style.backgroundColor ?? "var(--bg-elevated)";
-      const overlay = btn.querySelector(".simulate-devices-grid-square-lag-overlay") as HTMLElement | null;
-      if (overlay) {
-        const bgForContrast = client.currentDisplayColor ?? DEFAULT_BG_FOR_CONTRAST;
-        overlay.style.color = getContrastingColor(bgForContrast);
-        overlay.classList.toggle(
-          "simulate-devices-grid-square-lag-overlay--visible",
-          showLagOverlay && inLag(client)
-        );
+      const color = client.currentDisplayColor ?? "var(--bg-elevated)";
+      const lag = showLagOverlay && inLag(client);
+      const selected = client.id === selectedId;
+      const prev = lastApplied?.items[i];
+      const idChanged = !prev || prev.id !== client.id;
+      const colorChanged = !prev || prev.currentDisplayColor !== (client.currentDisplayColor ?? null);
+      const selectedChanged = !prev || prev.selected !== selected;
+      const lagChanged = !prev || prev.lag !== lag;
+
+      if (idChanged) btn.setAttribute("data-client-id", client.id);
+      if (sizeChanged) {
+        btn.style.width = size;
+        btn.style.height = size;
+        btn.style.minWidth = size;
+        btn.style.minHeight = size;
       }
+      if (selectedChanged) btn.classList.toggle("simulate-devices-grid-square--selected", selected);
+      if (colorChanged) btn.style.backgroundColor = color;
+      if (colorChanged || lagChanged) {
+        const overlay = btn.querySelector(".simulate-devices-grid-square-lag-overlay") as HTMLElement | null;
+        if (overlay) {
+          if (colorChanged) {
+            const bgForContrast = client.currentDisplayColor ?? DEFAULT_BG_FOR_CONTRAST;
+            overlay.style.color = getContrastingColor(bgForContrast);
+          }
+          if (lagChanged) overlay.classList.toggle("simulate-devices-grid-square-lag-overlay--visible", lag);
+        }
+      }
+      nextApplied.items.push({
+        id: client.id,
+        currentDisplayColor: client.currentDisplayColor ?? null,
+        lag,
+        selected,
+      });
     }
+    lastApplied = nextApplied;
     return;
   }
+  lastApplied = null;
   renderClientGrid(container, items, selectedId, onSelect, squareSizePx, showLagOverlay);
 }
