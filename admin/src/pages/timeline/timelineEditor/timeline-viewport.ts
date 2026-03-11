@@ -4,7 +4,7 @@ export interface ViewportItem {
   endSec?: number;
 }
 
-export const MIN_SCROLL_RANGE_SEC = 20 * 60; // 20 minutes
+export const MIN_SCROLL_RANGE_SEC = 5 * 60; // 5 minutes
 export const EXTEND_PAST_LAST_EVENT_SEC = 3 * 60; // 3 minutes
 
 export interface TimelineViewportState {

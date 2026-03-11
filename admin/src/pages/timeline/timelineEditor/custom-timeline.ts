@@ -152,7 +152,6 @@ export function createCustomTimelineView(
   rulerWrap.style.height = `${RULER_HEIGHT_PX}px`;
   rulerWrap.style.minHeight = `${RULER_HEIGHT_PX}px`;
   rulerWrap.style.flexShrink = "0";
-  rulerWrap.style.background = "var(--bg-elevated)";
   rulerWrap.style.borderBottom = "1px solid var(--border)";
 
   const rulerCanvas = document.createElement("div");
@@ -227,7 +226,7 @@ export function createCustomTimelineView(
     update();
   }
 
-  // Pan by wheel (no shift): one "click" = 1/6 tick step in time; zoom with shift+wheel
+  // Pan by wheel (no shift): vertical = 1/6 tick step per click; horizontal = deltaX pixels; zoom with shift+wheel
   viewportWrap.addEventListener("wheel", (e) => {
     if (e.shiftKey) {
       e.preventDefault();
@@ -237,10 +236,13 @@ export function createCustomTimelineView(
       scheduleUpdate();
       return;
     }
-    e.preventDefault();
     const viewportDurationSec = getViewportDurationSec(viewport);
     const tickStep = getTickStepForRange(viewportDurationSec);
-    const deltaSec = (tickStep / 6) * (e.deltaY / WHEEL_DELTA_PER_CLICK);
+    const deltaSecY = (tickStep / 6) * (e.deltaY / WHEEL_DELTA_PER_CLICK);
+    const deltaSecX = -e.deltaX / viewport.pixelsPerSec;
+    const deltaSec = deltaSecY + deltaSecX;
+    if (deltaSec === 0) return;
+    e.preventDefault();
     const scrollRange = getScrollRangeRightSec(viewport, itemsAsViewportItems());
     const duration = getViewportDurationSec(viewport);
     const maxStart = Math.max(0, scrollRange - duration);
@@ -249,16 +251,10 @@ export function createCustomTimelineView(
     scheduleUpdate();
   }, { passive: false });
 
-  // Pan by drag on background; preventDefault to avoid text selection
+  // Pan by drag only when starting on the ruler; event drag when starting on an event
   let panning = false;
   let panStartClientX = 0;
   let panStartSec = 0;
-  function isPanTarget(el: EventTarget | null): boolean {
-    if (!el || !(el instanceof HTMLElement)) return true;
-    const t = el as HTMLElement;
-    return !t.closest(".custom-timeline-event, .custom-timeline-range, .custom-timeline-readhead, .custom-timeline-scrollbar-track");
-  }
-  // Event drag: mousedown on event starts drag; do not start pan
   let eventDragItemId: string | null = null;
   let eventDragStartX = 0;
   let eventDragging = false;
@@ -273,11 +269,13 @@ export function createCustomTimelineView(
       didEventDrag = false;
       return;
     }
-    if (!isPanTarget(e.target)) return;
+    const onRuler = (e.target as HTMLElement)?.closest?.(".custom-timeline-ruler-wrap");
+    if (!onRuler) return;
     e.preventDefault();
     panning = true;
     panStartClientX = e.clientX;
     panStartSec = viewport.startSec;
+    rulerWrap.classList.add("custom-timeline-pan-cursor");
     viewportWrap.classList.add("custom-timeline-pan-cursor");
   });
   document.addEventListener("mousemove", (e) => {
@@ -314,6 +312,7 @@ export function createCustomTimelineView(
     }
     if (panning) {
       panning = false;
+      rulerWrap.classList.remove("custom-timeline-pan-cursor");
       viewportWrap.classList.remove("custom-timeline-pan-cursor");
     }
   });
@@ -325,6 +324,7 @@ export function createCustomTimelineView(
     }
     if (panning) {
       panning = false;
+      rulerWrap.classList.remove("custom-timeline-pan-cursor");
       viewportWrap.classList.remove("custom-timeline-pan-cursor");
     }
   });
@@ -473,7 +473,7 @@ export function createCustomTimelineView(
     }
   }
 
-  let lastRulerKey: { startSec: number; endSec: number; pixelsPerSec: number } | null = null;
+  let lastRulerKey: { startSec: number; endSec: number; pixelsPerSec: number; viewportWidthPx: number } | null = null;
   let lastLayersKey: {
     startSec: number;
     endSec: number;
@@ -488,10 +488,9 @@ export function createCustomTimelineView(
     const state = getState();
     const onlyOne = state.layers.length <= 1;
 
-    // Use rightContent width when available; fallback to parent widths so we don't collapse to 0 on first paint
-    let viewportWidthPx = rightContent.clientWidth;
-    if (viewportWidthPx <= 0) viewportWidthPx = viewportWrap.clientWidth;
-    if (viewportWidthPx <= 0) viewportWidthPx = rightCol.clientWidth;
+    // Use parent width as source of truth so we pick up new size when column grows (rightContent has fixed width from last run)
+    let viewportWidthPx = viewportWrap.clientWidth || rightCol.clientWidth;
+    if (viewportWidthPx <= 0) viewportWidthPx = rightContent.clientWidth;
     setViewportWidthPx(viewport, viewportWidthPx);
 
     rightContent.style.width = viewportWidthPx > 0 ? `${viewportWidthPx}px` : "100%";
@@ -510,10 +509,11 @@ export function createCustomTimelineView(
       lastRulerKey === null ||
       lastRulerKey.startSec !== startSec ||
       lastRulerKey.endSec !== endSec ||
-      lastRulerKey.pixelsPerSec !== viewport.pixelsPerSec;
+      lastRulerKey.pixelsPerSec !== viewport.pixelsPerSec ||
+      lastRulerKey.viewportWidthPx !== viewportWidthPx;
     if (rulerChanged) {
       renderRuler(startSec, endSec, viewportWidthPx);
-      lastRulerKey = { startSec, endSec, pixelsPerSec: viewport.pixelsPerSec };
+      lastRulerKey = { startSec, endSec, pixelsPerSec: viewport.pixelsPerSec, viewportWidthPx };
     }
 
     const totalHeight = state.layers.length * LAYER_ROW_HEIGHT_PX;
@@ -590,6 +590,7 @@ export function createCustomTimelineView(
   const resizeObserver = new ResizeObserver(() => update());
   resizeObserver.observe(rightContent);
   resizeObserver.observe(viewportWrap);
+  resizeObserver.observe(rightCol);
 
   return {
     update,

@@ -664,6 +664,16 @@
 }
 .custom-timeline-ruler-wrap {
   flex-shrink: 0;
+  background: var(--bg);
+  transition: background 0.15s ease;
+  cursor: grab;
+}
+.custom-timeline-ruler-wrap:hover {
+  background: var(--bg-elevated);
+}
+.custom-timeline-ruler-wrap.custom-timeline-pan-cursor,
+.custom-timeline-ruler-wrap.custom-timeline-pan-cursor:active {
+  cursor: grabbing;
 }
 .custom-timeline-ruler {
   min-width: min-content;
