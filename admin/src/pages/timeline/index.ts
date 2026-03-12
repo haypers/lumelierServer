@@ -12,6 +12,7 @@ import { createInfoBubble } from "../../components/info-bubble";
 import { createResizableSplit } from "../../components/resizable-split";
 import type { DetailsPanelUpdates } from "./details-panel";
 import { updateDetailsPanel } from "./details-panel";
+import { renderPreviewPanel } from "./preview";
 import {
   exportState,
   importState,
@@ -888,6 +889,7 @@ export function render(container: HTMLElement, showId: string | null): void {
     panelA.appendChild(detailsSection);
     panelB.appendChild(previewSection);
     bottomRowEl.appendChild(splitContainer);
+    renderPreviewPanel(previewSection);
   }
 
   /* Wrap timeline (top) and bottom row in a vertical resizable split */
