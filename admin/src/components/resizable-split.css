@@ -1,0 +1,80 @@
+/* Reusable resizable split: two panels + draggable handle */
+
+.resizable-split {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.resizable-split--horizontal {
+  flex-direction: row;
+}
+
+.resizable-split--vertical {
+  flex-direction: column;
+}
+
+.resizable-split__panel-a,
+.resizable-split__panel-b {
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+}
+
+.resizable-split--horizontal .resizable-split__panel-a {
+  flex: 0 0 calc(var(--resizable-split-size, 50) * 1%);
+}
+
+.resizable-split--horizontal .resizable-split__panel-b {
+  flex: 1 1 0;
+}
+
+.resizable-split--vertical .resizable-split__panel-a {
+  flex: 0 0 calc(var(--resizable-split-size, 50) * 1%);
+}
+
+.resizable-split--vertical .resizable-split__panel-b {
+  flex: 1 1 0;
+}
+
+.resizable-split__handle {
+  flex: 0 0 6px;
+  background: #1A1D21;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: none;
+  transition: background 0.12s ease;
+}
+
+/* Vertical divider (horizontal split: left | right) → resize left/right cursor */
+.resizable-split--horizontal > .resizable-split__handle {
+  cursor: col-resize;
+}
+
+/* Horizontal divider (vertical split: top | bottom) → resize up/down cursor */
+.resizable-split--vertical > .resizable-split__handle {
+  cursor: row-resize;
+}
+
+/* Only the handle of the split that is being dragged (direct child) */
+.resizable-split--dragging > .resizable-split__handle {
+  background: var(--accent, #4a7dc7);
+}
+
+/* Hover state: brighter grey only after ~0.1s (handled in JS) */
+.resizable-split__handle.resizable-split__handle--hover {
+  background: #8b909a;
+}
+
+.resizable-split--dragging {
+  user-select: none;
+}
+
+/* Keep correct cursor during drag */
+.resizable-split--horizontal.resizable-split--dragging > .resizable-split__handle {
+  cursor: col-resize;
+}
+.resizable-split--vertical.resizable-split--dragging > .resizable-split__handle {
+  cursor: row-resize;
+}

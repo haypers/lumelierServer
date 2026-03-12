@@ -9,6 +9,7 @@ import { timeToDate } from "./types";
 import type { TimelineStateJSON } from "./types";
 import { createCustomTimelineView, type CustomTimelineView } from "./timelineEditor/custom-timeline";
 import { createInfoBubble } from "../../components/info-bubble";
+import { createResizableSplit } from "../../components/resizable-split";
 import type { DetailsPanelUpdates } from "./details-panel";
 import { updateDetailsPanel } from "./details-panel";
 import {
@@ -850,12 +851,9 @@ export function render(container: HTMLElement, showId: string | null): void {
             </div>
           </div>
         </div>
-        <section class="timeline-details-panel" aria-label="Selected item details">
-          <h3>Selection</h3>
-          <div class="timeline-details-body">
-            <p class="no-selection">Select an item on the timeline to view or edit its details.</p>
-          </div>
-        </section>
+        <div class="timeline-bottom-row" id="timeline-bottom-row">
+          <!-- Filled by JS with resizable split (details | preview) -->
+        </div>
       </div>
     </div>
   `;
@@ -863,8 +861,49 @@ export function render(container: HTMLElement, showId: string | null): void {
   const timelineWrap = container.querySelector(".timeline") as HTMLElement | null;
   const pageBody = container.querySelector(".timeline-page-body") as HTMLElement | null;
   const mount = container.querySelector("#timeline-mount");
-  const detailsPanel = container.querySelector(".timeline-details-panel");
   const loadingEl = container.querySelector("#timeline-loading");
+  const bottomRowEl = container.querySelector("#timeline-bottom-row") as HTMLElement | null;
+
+  /* Build bottom row: resizable split with details (left) and preview (right) */
+  if (bottomRowEl) {
+    const detailsSection = document.createElement("section");
+    detailsSection.className = "timeline-details-panel";
+    detailsSection.setAttribute("aria-label", "Selected item details");
+    detailsSection.innerHTML = `
+      <h3>Selection</h3>
+      <div class="timeline-details-body">
+        <p class="no-selection">Select an item on the timeline to view or edit its details.</p>
+      </div>
+    `;
+    const previewSection = document.createElement("section");
+    previewSection.className = "timeline-preview-panel";
+    previewSection.setAttribute("aria-label", "Show preview");
+
+    const { container: splitContainer, panelA, panelB } = createResizableSplit("horizontal", {
+      size: 50,
+      min: 15,
+      max: 85,
+      storageKey: "timeline-details-preview-split",
+    });
+    panelA.appendChild(detailsSection);
+    panelB.appendChild(previewSection);
+    bottomRowEl.appendChild(splitContainer);
+  }
+
+  /* Wrap timeline (top) and bottom row in a vertical resizable split */
+  if (timelineWrap && bottomRowEl && pageBody) {
+    const { container: verticalSplitContainer, panelA: topPanel, panelB: bottomPanel } = createResizableSplit("vertical", {
+      size: 50,
+      min: 20,
+      max: 85,
+      storageKey: "timeline-vertical-split",
+    });
+    topPanel.appendChild(timelineWrap);
+    bottomPanel.appendChild(bottomRowEl);
+    pageBody.appendChild(verticalSplitContainer);
+  }
+
+  const detailsPanel = container.querySelector(".timeline-details-panel");
 
   timelineWrapEl = timelineWrap;
   timelinePageBodyEl = pageBody;
