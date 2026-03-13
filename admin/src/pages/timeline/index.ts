@@ -763,6 +763,15 @@ function ensureCustomTimelineCreated(): void {
         refreshDetailsPanel();
         scheduleAutosave();
       },
+      onMoveItemToLayer: (itemId, layerId) => {
+        const item = items.find((i) => i.id === itemId);
+        if (item) {
+          item.layerId = layerId;
+          customTimelineView?.update();
+          refreshDetailsPanel();
+          scheduleAutosave();
+        }
+      },
     },
     currentShowId ? `lumelier-timeline:${currentShowId}:viewport` : undefined
   );

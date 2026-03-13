@@ -48,6 +48,8 @@ export interface CustomTimelineCallbacks {
   onResizeRange?: (itemId: string, startSec: number, endSec: number) => void;
   onRangeDragStart?: (id: string) => void;
   onRangeDragEnd?: () => void;
+  /** Move the dragged item to another layer (event or range body drag). */
+  onMoveItemToLayer?: (itemId: string, layerId: string) => void;
 }
 
 export interface CustomTimelineView {
@@ -323,6 +325,7 @@ export function createCustomTimelineView(
       onResizeRange: callbacks.onResizeRange,
       onRangeDragStart: callbacks.onRangeDragStart,
       onRangeDragEnd: callbacks.onRangeDragEnd,
+      onMoveItemToLayer: callbacks.onMoveItemToLayer,
     },
     scheduleUpdate,
     getHoverState: () => hoverStateRef.current,
@@ -342,6 +345,7 @@ export function createCustomTimelineView(
       editingRangeIdRef.current = id;
       scheduleUpdate();
     },
+    layerRowHeightPx: LAYER_ROW_HEIGHT_PX,
     onViewportChange: schedulePersistViewport,
   });
 

@@ -6,6 +6,7 @@ import {
   type TimelineViewportState,
 } from "./timeline-viewport";
 import { RANGE_MIN_WIDTH_PX, RANGE_HANDLE_HOVER_RADIUS_PX } from "./range/constants";
+import { getLayerIdUnderClientY } from "./layer-from-position";
 
 export interface HoverState {
   hoveredEventId: string | null;
@@ -13,7 +14,8 @@ export interface HoverState {
 }
 
 export interface TimelineInteractionsState {
-  items: { id: string; kind: string; startSec: number; endSec?: number }[];
+  layers: { id: string; label?: string }[];
+  items: { id: string; kind: string; layerId?: string; startSec: number; endSec?: number }[];
 }
 
 export interface TimelineInteractionsCallbacks {
@@ -23,6 +25,8 @@ export interface TimelineInteractionsCallbacks {
   onResizeRange?: (itemId: string, startSec: number, endSec: number) => void;
   onRangeDragStart?: (id: string) => void;
   onRangeDragEnd?: () => void;
+  /** Move the dragged item to another layer (event or range body drag). */
+  onMoveItemToLayer?: (itemId: string, layerId: string) => void;
 }
 
 export interface SetupTimelineInteractionsOptions {
@@ -40,6 +44,8 @@ export interface SetupTimelineInteractionsOptions {
   onResizeStart: (rangeId: string, side: "left" | "right") => void;
   onResizeEnd: () => void;
   setEditingRangeId: (id: string | null) => void;
+  /** Height in px of one layer row; used to map client Y to layer. */
+  layerRowHeightPx: number;
   /** Called when viewport position/zoom changes (e.g. pan by drag). Use to persist viewport to storage. */
   onViewportChange?: () => void;
 }
@@ -89,6 +95,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     onResizeStart,
     onResizeEnd,
     setEditingRangeId,
+    layerRowHeightPx,
     onViewportChange,
   } = options;
 
@@ -195,6 +202,21 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
         callbacks.onSelectItem(eventDragItemId);
       }
       if (eventDragging) {
+        const state = getState();
+        const targetLayerId = getLayerIdUnderClientY(
+          e.clientY,
+          layersContent,
+          state.layers,
+          layerRowHeightPx
+        );
+        if (
+          targetLayerId != null &&
+          callbacks.onMoveItemToLayer &&
+          state.items.find((i) => i.id === eventDragItemId)?.layerId !== targetLayerId
+        ) {
+          callbacks.onMoveItemToLayer(eventDragItemId, targetLayerId);
+          scheduleUpdate();
+        }
         const rect = rightContent.getBoundingClientRect();
         const x = e.clientX - rect.left;
         const newStartSec = viewport.startSec + x / viewport.pixelsPerSec;
@@ -210,6 +232,21 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
         callbacks.onSelectItem(rangeDragItemId);
       }
       if (rangeDragging) {
+        const state = getState();
+        const targetLayerId = getLayerIdUnderClientY(
+          e.clientY,
+          layersContent,
+          state.layers,
+          layerRowHeightPx
+        );
+        if (
+          targetLayerId != null &&
+          callbacks.onMoveItemToLayer &&
+          state.items.find((i) => i.id === rangeDragItemId)?.layerId !== targetLayerId
+        ) {
+          callbacks.onMoveItemToLayer(rangeDragItemId, targetLayerId);
+          scheduleUpdate();
+        }
         const deltaPx = e.clientX - rangeDragStartX;
         const deltaSec = deltaPx / viewport.pixelsPerSec;
         const scrollRange = getScrollRangeRightSec(viewport, itemsAsViewportItems());
