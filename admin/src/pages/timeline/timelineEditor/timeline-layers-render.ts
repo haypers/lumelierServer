@@ -114,6 +114,12 @@ export function renderVirtualizedLayers(
       );
     }
 
+    const eventInsideEditingRange =
+      editingRange != null
+        ? (ev: { startSec: number }) =>
+            ev.startSec >= editStart && ev.startSec < editEnd
+        : () => false;
+
     events.forEach((it, i) => {
       rowWrap.appendChild(
         renderEventElement(
@@ -124,7 +130,8 @@ export function renderVirtualizedLayers(
           viewportWidthPx,
           selectedItemId,
           hoverState.hoveredEventId === (it as EventItem).id,
-          ranges.map((r) => ({ startSec: r.startSec, endSec: (r as RangeItem).endSec ?? r.startSec + 1 }))
+          ranges.map((r) => ({ startSec: r.startSec, endSec: (r as RangeItem).endSec ?? r.startSec + 1 })),
+          eventInsideEditingRange(it)
         )
       );
     });

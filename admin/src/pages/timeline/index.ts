@@ -33,12 +33,18 @@ import type { TrackAssignmentsRoot } from "./track-assignments";
 export type { TimelineItemPayload, TimelineStateJSON } from "./types";
 import { openModal as openVideoImportModal } from "./import-from-video";
 import type { VideoImportEvent } from "./import-from-video";
+import {
+  getOverlapResolution,
+  isEditingRangeEngulfed,
+} from "./timelineEditor/range-overlap";
 
 let layers: LayersArray = [];
 let items: ItemsArray = [];
 let readheadSec = 0;
 let selectedItemId: string | null = null;
 let draggingRangeId: string | null = null;
+/** Snapshot of the range's bounds when a drag or resize started; used for overlap resolution or undo. */
+let rangeEditingSnapshot: { startSec: number; endSec: number } | null = null;
 let customTimelineView: CustomTimelineView | null = null;
 let nextLayerId = 1;
 let nextItemId = 1;
@@ -681,11 +687,81 @@ function ensureCustomTimelineCreated(): void {
       },
       onRangeDragStart: (id) => {
         draggingRangeId = id;
+        const item = items.find((i) => i.id === id);
+        if (item?.kind === "range") {
+          rangeEditingSnapshot = {
+            startSec: item.startSec,
+            endSec: item.endSec ?? item.startSec + 1,
+          };
+        } else {
+          rangeEditingSnapshot = null;
+        }
         customTimelineView?.update();
       },
       onRangeDragEnd: () => {
+        const editingId = draggingRangeId;
         draggingRangeId = null;
+        const snapshot = rangeEditingSnapshot;
+        rangeEditingSnapshot = null;
+        if (editingId == null || snapshot == null) {
+          customTimelineView?.update();
+          return;
+        }
+        const editingItem = items.find((i) => i.id === editingId);
+        if (editingItem?.kind !== "range") {
+          customTimelineView?.update();
+          return;
+        }
+        const editStart = editingItem.startSec;
+        const editEnd = editingItem.endSec ?? editingItem.startSec + 1;
+        const layerId = editingItem.layerId;
+        const layerRanges = items.filter(
+          (i): i is typeof i & { kind: "range" } =>
+            i.kind === "range" && i.layerId === layerId && i.id !== editingId
+        );
+        const otherRanges = layerRanges.map((r) => ({
+          id: r.id,
+          startSec: r.startSec,
+          endSec: r.endSec,
+        }));
+
+        const editingEngulfedByOther = layerRanges.some((other) => {
+          const oEnd = other.endSec ?? other.startSec + 1;
+          return isEditingRangeEngulfed(editStart, editEnd, other.startSec, oEnd);
+        });
+        if (editingEngulfedByOther) {
+          editingItem.startSec = snapshot.startSec;
+          editingItem.endSec = snapshot.endSec;
+          console.log(
+            "TODO: allow trimming a range into two ranges by dragging a smaller range into it."
+          );
+          customTimelineView?.update();
+          refreshDetailsPanel();
+          scheduleAutosave();
+          return;
+        }
+
+        const { engulfedIds, trims } = getOverlapResolution(editStart, editEnd, otherRanges);
+        const engulfedSet = new Set(engulfedIds);
+        items = items.filter((it) => !engulfedSet.has(it.id));
+        /* Delete events on the same layer whose timestamp is inside the editing range */
+        items = items.filter((it) => {
+          if (it.kind !== "event" || it.layerId !== layerId) return true;
+          return it.startSec < editStart || it.startSec >= editEnd;
+        });
+        for (const t of trims) {
+          const it = items.find((i) => i.id === t.id);
+          if (it?.kind !== "range") continue;
+          if (t.newStartSec != null) it.startSec = t.newStartSec;
+          if (t.newEndSec != null) it.endSec = t.newEndSec;
+          const end = it.endSec ?? it.startSec + 1;
+          if (it.startSec >= end) {
+            items = items.filter((i) => i.id !== t.id);
+          }
+        }
         customTimelineView?.update();
+        refreshDetailsPanel();
+        scheduleAutosave();
       },
     },
     currentShowId ? `lumelier-timeline:${currentShowId}:viewport` : undefined

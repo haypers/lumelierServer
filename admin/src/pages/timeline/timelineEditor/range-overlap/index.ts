@@ -60,6 +60,55 @@ export function getPartialOverlapSegments(
   return out;
 }
 
+export interface OverlapTrim {
+  id: string;
+  newStartSec?: number;
+  newEndSec?: number;
+}
+
+export interface OverlapResolution {
+  engulfedIds: string[];
+  trims: OverlapTrim[];
+}
+
+/**
+ * Returns ids to delete (engulfed by editing range) and trim actions for partially overlapped ranges.
+ * Call with other ranges on the same layer (excluding the editing range).
+ */
+export function getOverlapResolution(
+  editStart: number,
+  editEnd: number,
+  otherRanges: { id: string; startSec: number; endSec?: number }[]
+): OverlapResolution {
+  const engulfedIds: string[] = [];
+  const trims: OverlapTrim[] = [];
+  for (const other of otherRanges) {
+    const oEnd = other.endSec ?? other.startSec + 1;
+    if (isEngulfed(editStart, editEnd, other.startSec, oEnd)) {
+      engulfedIds.push(other.id);
+      continue;
+    }
+    if (!rangesOverlap(editStart, editEnd, other.startSec, oEnd)) continue;
+    if (other.startSec < editStart && editStart < oEnd && oEnd <= editEnd) {
+      trims.push({ id: other.id, newEndSec: editStart });
+    }
+    if (editStart <= other.startSec && other.startSec < editEnd && oEnd > editEnd) {
+      trims.push({ id: other.id, newStartSec: editEnd });
+    }
+  }
+  return { engulfedIds, trims };
+}
+
+/** True if the editing range (editStart, editEnd) is fully inside another range (otherStart, otherEnd). */
+export function isEditingRangeEngulfed(
+  editStart: number,
+  editEnd: number,
+  otherStart: number,
+  otherEnd: number
+): boolean {
+  return otherStart <= editStart && otherEnd >= editEnd;
+}
+
 /** Minimum width (px) of an engulfed box to show the trash icon; below this show only the red shape. */
 const ENGULFED_BOX_MIN_WIDTH_FOR_ICON_PX = 24;
 

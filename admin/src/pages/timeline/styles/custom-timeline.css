@@ -137,6 +137,10 @@
 .custom-timeline-event--hovered .custom-timeline-point {
   opacity: 0.65;
 }
+/* Event inside the range being dragged: dot turns red (will be deleted on release) */
+.custom-timeline-event--inside-editing-range .custom-timeline-point {
+  background: #c00;
+}
 .custom-timeline-scrollbar-container {
   width: 100%;
 }

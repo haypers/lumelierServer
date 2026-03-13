@@ -28,7 +28,8 @@ export function renderEventElement(
   viewportWidthPx: number,
   selectedItemId: string | null,
   hovered = false,
-  layerRanges: LayerRangeBound[] = []
+  layerRanges: LayerRangeBound[] = [],
+  insideEditingRange = false
 ): HTMLElement {
   const selected = item.id === selectedItemId;
   const left = (item.startSec - startSec) * pixelsPerSec;
@@ -54,6 +55,7 @@ export function renderEventElement(
   eventWrap.className = "custom-timeline-event";
   if (selected) eventWrap.classList.add("custom-timeline-point--selected");
   if (hovered) eventWrap.classList.add("custom-timeline-event--hovered");
+  if (insideEditingRange) eventWrap.classList.add("custom-timeline-event--inside-editing-range");
   eventWrap.style.position = "absolute";
   eventWrap.style.left = `${left - EVENT_POINT_SIZE_PX / 2}px`;
   eventWrap.style.top = "50%";
@@ -69,7 +71,7 @@ export function renderEventElement(
   point.style.width = `${EVENT_POINT_SIZE_PX}px`;
   point.style.height = `${EVENT_POINT_SIZE_PX}px`;
   point.style.borderRadius = "50%";
-  point.style.background = "var(--accent)";
+  point.style.background = insideEditingRange ? "#c00" : "var(--accent)";
   point.style.opacity = "0.8";
   point.style.flexShrink = "0";
   eventWrap.appendChild(point);

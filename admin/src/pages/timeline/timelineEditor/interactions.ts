@@ -138,6 +138,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
           resizeEndSec = endSec;
           didRangeResize = false;
           callbacks.onSelectItem(nearest.rangeId);
+          callbacks.onRangeDragStart?.(nearest.rangeId);
           onResizeStart(nearest.rangeId, nearest.side);
           setEditingRangeId(nearest.rangeId);
           return;
@@ -233,6 +234,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
   document.addEventListener("mouseup", () => {
     if (resizeHandleSide !== null) {
       if (resizeItemId != null) didRangeResize = true;
+      callbacks.onRangeDragEnd?.();
       onResizeEnd();
       setEditingRangeId(null);
       resizeHandleSide = null;
@@ -260,6 +262,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
   document.addEventListener("mouseleave", () => {
     if (resizeHandleSide !== null) {
       if (resizeItemId != null) didRangeResize = true;
+      callbacks.onRangeDragEnd?.();
       onResizeEnd();
       setEditingRangeId(null);
       resizeHandleSide = null;
