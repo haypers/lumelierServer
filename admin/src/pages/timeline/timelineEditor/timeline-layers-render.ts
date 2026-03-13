@@ -2,6 +2,14 @@ import type { TimelineStateJSON } from "../types";
 import { renderRangeElement, type RangeItem, type RangeRenderState } from "./range/render-range";
 import { renderEventElement, type EventItem } from "./event/render-event";
 import type { HoverState } from "./interactions";
+import {
+  type EngulfedRange,
+  rangesOverlap,
+  isEngulfed,
+  createEngulfedOverlay,
+  getPartialOverlapSegments,
+} from "./range-overlap";
+import { createPartialOverlapOverlay } from "./range-overlap/partial-overlap";
 
 export interface ResizeState {
   rangeId: string | null;
@@ -25,7 +33,8 @@ export function renderVirtualizedLayers(
   selectedItemId: string | null,
   draggingRangeId: string | null,
   hoverState: HoverState,
-  resizeState: ResizeState
+  resizeState: ResizeState,
+  editingRangeId: string | null
 ): void {
   container.innerHTML = "";
   container.style.width = `${viewportWidthPx}px`;
@@ -46,6 +55,33 @@ export function renderVirtualizedLayers(
     const ranges = layerItems.filter((it): it is typeof it & { kind: "range" } => it.kind === "range");
     const events = layerItems.filter((it): it is typeof it & { kind: "event" } => it.kind === "event");
 
+    const editingRange = editingRangeId
+      ? (ranges.find((r) => r.id === editingRangeId) as RangeItem | undefined)
+      : undefined;
+    const editStart = editingRange ? editingRange.startSec : 0;
+    const editEnd = editingRange
+      ? (editingRange.endSec ?? editingRange.startSec + 1)
+      : 0;
+
+    let hasOverlap = false;
+    const engulfed: EngulfedRange[] = [];
+    const partialOverlaps = editingRange
+      ? getPartialOverlapSegments(
+          editStart,
+          editEnd,
+          ranges.filter((r) => r.id !== editingRange.id)
+        )
+      : [];
+    if (editingRange) {
+      for (const other of ranges) {
+        if (other.id === editingRange.id) continue;
+        const oEnd = (other as RangeItem).endSec ?? other.startSec + 1;
+        if (rangesOverlap(editStart, editEnd, other.startSec, oEnd)) hasOverlap = true;
+        if (isEngulfed(editStart, editEnd, other.startSec, oEnd))
+          engulfed.push({ id: other.id, startSec: other.startSec, endSec: oEnd });
+      }
+    }
+
     ranges.forEach((it) => {
       const item = it as RangeItem;
       const edgeState: RangeRenderState = {
@@ -54,11 +90,30 @@ export function renderVirtualizedLayers(
         highlightRightEdge:
           hoverState.hoveredRangeEdge?.rangeId === item.id && hoverState.hoveredRangeEdge?.side === "right",
         resizeEdge: resizeState.rangeId === item.id ? resizeState.edge : null,
+        isEditingWithOverlap: item.id === editingRangeId && hasOverlap,
       };
       rowWrap.appendChild(
         renderRangeElement(item, startSec, pixelsPerSec, selectedItemId, draggingRangeId, edgeState)
       );
     });
+
+    if (editingRangeId && engulfed.length > 0) {
+      rowWrap.appendChild(
+        createEngulfedOverlay(engulfed, startSec, pixelsPerSec, viewportWidthPx, rowHeightPx)
+      );
+    }
+    if (editingRangeId && partialOverlaps.length > 0) {
+      rowWrap.appendChild(
+        createPartialOverlapOverlay(
+          partialOverlaps,
+          startSec,
+          pixelsPerSec,
+          viewportWidthPx,
+          rowHeightPx
+        )
+      );
+    }
+
     events.forEach((it, i) => {
       rowWrap.appendChild(
         renderEventElement(

@@ -57,12 +57,67 @@ export interface CustomTimelineView {
   getVisibleRange: () => { startSec: number; endSec: number };
 }
 
+function loadStoredViewport(
+  key: string,
+  zoomMin: number,
+  zoomMax: number
+): { startSec: number; pixelsPerSec: number } | null {
+  try {
+    const v = localStorage.getItem(key);
+    if (v == null) return null;
+    const parsed = JSON.parse(v) as unknown;
+    if (parsed == null || typeof parsed !== "object") return null;
+    const startSec = Number((parsed as { startSec?: unknown }).startSec);
+    const pixelsPerSec = Number((parsed as { pixelsPerSec?: unknown }).pixelsPerSec);
+    if (
+      !Number.isFinite(startSec) ||
+      startSec < 0 ||
+      !Number.isFinite(pixelsPerSec) ||
+      pixelsPerSec < zoomMin ||
+      pixelsPerSec > zoomMax
+    ) {
+      return null;
+    }
+    return { startSec, pixelsPerSec };
+  } catch {
+    return null;
+  }
+}
+
+function saveViewport(key: string, viewport: { startSec: number; pixelsPerSec: number }): void {
+  try {
+    localStorage.setItem(key, JSON.stringify({ startSec: viewport.startSec, pixelsPerSec: viewport.pixelsPerSec }));
+  } catch {
+    /* ignore */
+  }
+}
+
+const VIEWPORT_PERSIST_DEBOUNCE_MS = 200;
+
 export function createCustomTimelineView(
   mountEl: HTMLElement,
   getState: () => CustomTimelineState,
-  callbacks: CustomTimelineCallbacks
+  callbacks: CustomTimelineCallbacks,
+  viewportStorageKey?: string
 ): CustomTimelineView {
-  const viewport = createViewportState(DEFAULT_PIXELS_PER_SEC);
+  const stored =
+    viewportStorageKey != null
+      ? loadStoredViewport(viewportStorageKey, ZOOM_MIN_PX_PER_SEC, ZOOM_MAX_PX_PER_SEC)
+      : null;
+  const viewport = stored
+    ? { startSec: stored.startSec, pixelsPerSec: stored.pixelsPerSec, viewportWidthPx: 0 }
+    : createViewportState(DEFAULT_PIXELS_PER_SEC);
+
+  let viewportPersistTimeout: ReturnType<typeof setTimeout> | null = null;
+  function schedulePersistViewport(): void {
+    if (viewportStorageKey == null) return;
+    if (viewportPersistTimeout != null) clearTimeout(viewportPersistTimeout);
+    viewportPersistTimeout = setTimeout(() => {
+      viewportPersistTimeout = null;
+      saveViewport(viewportStorageKey, viewport);
+    }, VIEWPORT_PERSIST_DEBOUNCE_MS);
+  }
+
   const itemsAsViewportItems = (): ViewportItem[] =>
     getState().items.map((it) => ({ startSec: it.startSec, endSec: it.endSec }));
 
@@ -214,6 +269,7 @@ export function createCustomTimelineView(
     const duration = getViewportDurationSec(viewport);
     const maxStart = Math.max(0, scrollRange - duration);
     setStartSec(viewport, Math.max(0, Math.min(maxStart, sec)));
+    schedulePersistViewport();
     scheduleUpdate();
   }
 
@@ -224,6 +280,7 @@ export function createCustomTimelineView(
       const rect = viewportWrap.getBoundingClientRect();
       const cursorX = e.clientX - rect.left;
       zoomAtCursor(viewport, cursorX, e.deltaY, ZOOM_MIN_PX_PER_SEC, ZOOM_MAX_PX_PER_SEC);
+      schedulePersistViewport();
       scheduleUpdate();
       return;
     }
@@ -239,6 +296,7 @@ export function createCustomTimelineView(
     const maxStart = Math.max(0, scrollRange - duration);
     const newStart = Math.max(0, Math.min(maxStart, viewport.startSec - deltaSec));
     setStartSec(viewport, newStart);
+    schedulePersistViewport();
     scheduleUpdate();
   }, { passive: false });
 
@@ -248,6 +306,7 @@ export function createCustomTimelineView(
   const resizeStateRef: { current: { rangeId: string | null; edge: "left" | "right" | null } } = {
     current: { rangeId: null, edge: null },
   };
+  const editingRangeIdRef: { current: string | null } = { current: null };
 
   setupTimelineInteractions({
     viewportWrap,
@@ -279,6 +338,11 @@ export function createCustomTimelineView(
       resizeStateRef.current = { rangeId: null, edge: null };
       scheduleUpdate();
     },
+    setEditingRangeId: (id) => {
+      editingRangeIdRef.current = id;
+      scheduleUpdate();
+    },
+    onViewportChange: schedulePersistViewport,
   });
 
   // Readhead drag
@@ -329,6 +393,7 @@ export function createCustomTimelineView(
     layersLength: number;
     hoverKey: string;
     resizeKey: string;
+    editingKey: string;
   } | null = null;
 
   function update(): void {
@@ -380,8 +445,10 @@ export function createCustomTimelineView(
       .join(",");
     const hoverState = hoverStateRef.current;
     const resizeState = resizeStateRef.current;
+    const editingRangeId = editingRangeIdRef.current;
     const hoverKey = `${hoverState.hoveredEventId ?? ""}|${hoverState.hoveredRangeEdge?.rangeId ?? ""}|${hoverState.hoveredRangeEdge?.side ?? ""}`;
     const resizeKey = `${resizeState.rangeId ?? ""}|${resizeState.edge ?? ""}`;
+    const editingKey = editingRangeId ?? "";
     const layersChanged =
       lastLayersKey === null ||
       lastLayersKey.startSec !== startSec ||
@@ -393,7 +460,8 @@ export function createCustomTimelineView(
       lastLayersKey.draggingRangeId !== state.draggingRangeId ||
       lastLayersKey.layersLength !== state.layers.length ||
       lastLayersKey.hoverKey !== hoverKey ||
-      lastLayersKey.resizeKey !== resizeKey;
+      lastLayersKey.resizeKey !== resizeKey ||
+      lastLayersKey.editingKey !== editingKey;
     if (layersChanged && viewportWidthPx > 0) {
       renderVirtualizedLayers(
         layersContent,
@@ -406,7 +474,8 @@ export function createCustomTimelineView(
         state.selectedItemId,
         state.draggingRangeId,
         hoverState,
-        resizeState
+        resizeState,
+        editingRangeId
       );
       lastLayersKey = {
         startSec,
@@ -419,6 +488,7 @@ export function createCustomTimelineView(
         layersLength: state.layers.length,
         hoverKey,
         resizeKey,
+        editingKey,
       };
     }
 

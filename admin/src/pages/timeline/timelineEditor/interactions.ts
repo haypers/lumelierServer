@@ -39,6 +39,9 @@ export interface SetupTimelineInteractionsOptions {
   setHoverState: (state: HoverState) => void;
   onResizeStart: (rangeId: string, side: "left" | "right") => void;
   onResizeEnd: () => void;
+  setEditingRangeId: (id: string | null) => void;
+  /** Called when viewport position/zoom changes (e.g. pan by drag). Use to persist viewport to storage. */
+  onViewportChange?: () => void;
 }
 
 /** Find the nearest range edge (left or right) in the row under clientY; 1D X distance only. */
@@ -85,6 +88,8 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     setHoverState,
     onResizeStart,
     onResizeEnd,
+    setEditingRangeId,
+    onViewportChange,
   } = options;
 
   let panning = false;
@@ -134,6 +139,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
           didRangeResize = false;
           callbacks.onSelectItem(nearest.rangeId);
           onResizeStart(nearest.rangeId, nearest.side);
+          setEditingRangeId(nearest.rangeId);
           return;
         }
       }
@@ -145,6 +151,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
       if (item && item.kind === "range") {
         const endSec = item.endSec ?? item.startSec + 1;
         callbacks.onSelectItem(rangeItemId);
+        setEditingRangeId(rangeItemId);
         rangeDragItemId = rangeItemId;
         rangeDragStartX = e.clientX;
         rangeDragStartSec = item.startSec;
@@ -219,6 +226,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     const maxStart = Math.max(0, scrollRange - duration);
     const newStart = Math.max(0, Math.min(maxStart, panStartSec + deltaSec));
     setStartSec(viewport, newStart);
+    onViewportChange?.();
     scheduleUpdate();
   });
 
@@ -226,6 +234,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     if (resizeHandleSide !== null) {
       if (resizeItemId != null) didRangeResize = true;
       onResizeEnd();
+      setEditingRangeId(null);
       resizeHandleSide = null;
       resizeItemId = null;
     }
@@ -237,6 +246,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     if (rangeDragItemId != null) {
       if (rangeDragging) didRangeDrag = true;
       callbacks.onRangeDragEnd?.();
+      setEditingRangeId(null);
       rangeDragItemId = null;
       rangeDragging = false;
     }
@@ -251,6 +261,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     if (resizeHandleSide !== null) {
       if (resizeItemId != null) didRangeResize = true;
       onResizeEnd();
+      setEditingRangeId(null);
       resizeHandleSide = null;
       resizeItemId = null;
     }
@@ -262,6 +273,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     if (rangeDragItemId != null) {
       if (rangeDragging) didRangeDrag = true;
       callbacks.onRangeDragEnd?.();
+      setEditingRangeId(null);
       rangeDragItemId = null;
       rangeDragging = false;
     }

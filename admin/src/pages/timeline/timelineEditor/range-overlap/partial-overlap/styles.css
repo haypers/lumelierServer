@@ -1,0 +1,39 @@
+/* Partial overlap body: 4px shorter than range, dark red internal border, light pink fill */
+
+.custom-timeline-partial-overlap-overlay {
+  position: absolute;
+  left: 0;
+  top: 0;
+  pointer-events: none;
+  z-index: 3;
+}
+
+.custom-timeline-partial-overlap-body {
+  box-sizing: border-box;
+  background: #f8a0a0;
+  border-color: #c00;
+  border-style: solid;
+  border-width: 0;
+}
+
+/* We cover their end: segment from edit.start to other.end; right side rounded, no left border */
+.custom-timeline-partial-overlap-body--cover-end {
+  border-top-width: 1px;
+  border-right-width: 1px;
+  border-bottom-width: 1px;
+  border-top-right-radius: 4px;
+  border-bottom-right-radius: 4px;
+}
+
+/* We cover their start: segment from other.start to edit.end; left side rounded, no right border */
+.custom-timeline-partial-overlap-body--cover-start {
+  border-top-width: 1px;
+  border-left-width: 1px;
+  border-bottom-width: 1px;
+  border-top-left-radius: 4px;
+  border-bottom-left-radius: 4px;
+}
+
+.custom-timeline-partial-overlap-pattern {
+  overflow: hidden;
+}

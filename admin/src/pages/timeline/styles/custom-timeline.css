@@ -105,6 +105,7 @@
   outline-offset: 1px;
 }
 .custom-timeline-range {
+  box-sizing: border-box;
   pointer-events: auto;
 }
 .custom-timeline-range--selected {
@@ -125,6 +126,13 @@
 }
 .custom-timeline-range--resize-right {
   box-shadow: inset -2px 0 0 0 var(--accent);
+}
+.custom-timeline-range--editing-overlap {
+  z-index: 2;
+}
+.custom-timeline-range--editing-overlap .custom-timeline-range-label {
+  opacity: 0.2;
+  transition: opacity 0.15s ease;
 }
 .custom-timeline-event--hovered .custom-timeline-point {
   opacity: 0.65;

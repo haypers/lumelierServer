@@ -687,7 +687,8 @@ function ensureCustomTimelineCreated(): void {
         draggingRangeId = null;
         customTimelineView?.update();
       },
-    }
+    },
+    currentShowId ? `lumelier-timeline:${currentShowId}:viewport` : undefined
   );
   requestAnimationFrame(() => {
     if (loadingEl) {
@@ -746,6 +747,7 @@ function setAutosaveUI(state: "saved" | "syncing"): void {
 }
 
 function scheduleAutosave(): void {
+  setAutosaveUI("syncing");
   if (autosaveTimerId != null) {
     clearTimeout(autosaveTimerId);
     autosaveTimerId = null;

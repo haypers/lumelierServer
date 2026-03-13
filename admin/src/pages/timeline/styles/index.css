@@ -4,4 +4,5 @@
 @import "./details-panel.css";
 @import "./layer-track-picker.css";
 @import "./custom-timeline.css";
+@import "../timelineEditor/range-overlap/partial-overlap/styles.css";
 @import "./layer-labels.css";
