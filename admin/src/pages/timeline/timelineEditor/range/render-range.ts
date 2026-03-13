@@ -1,5 +1,8 @@
 import type { RangeType } from "../../types";
-import { RANGE_TYPE_BG, RANGE_HANDLE_WIDTH_PX } from "./constants";
+import { RANGE_TYPE_BG } from "./constants";
+
+const RANGE_LEFT_PADDING_PX = 4;
+const RANGE_RIGHT_PADDING_PX = 6;
 
 export interface RangeItem {
   id: string;
@@ -12,11 +15,19 @@ export interface RangeItem {
   filePath?: string;
 }
 
+export interface RangeRenderState {
+  highlightLeftEdge?: boolean;
+  highlightRightEdge?: boolean;
+  resizeEdge?: "left" | "right" | null;
+}
+
 export function renderRangeElement(
   item: RangeItem,
   startSec: number,
   pixelsPerSec: number,
-  selectedItemId: string | null
+  selectedItemId: string | null,
+  _draggingRangeId: string | null,
+  edgeState?: RangeRenderState
 ): HTMLElement {
   const selected = item.id === selectedItemId;
   const left = (item.startSec - startSec) * pixelsPerSec;
@@ -25,13 +36,17 @@ export function renderRangeElement(
   const rangeType = item.rangeType ?? "Audio";
   const bgColor = RANGE_TYPE_BG[rangeType];
 
-  const handleWidthPx = Math.min(
-    RANGE_HANDLE_WIDTH_PX,
-    Math.max(0, Math.floor(w / 2))
-  );
+  const resizeLeft = edgeState?.resizeEdge === "left";
+  const resizeRight = edgeState?.resizeEdge === "right";
+  const highlightLeft = edgeState?.highlightLeftEdge && !resizeLeft;
+  const highlightRight = edgeState?.highlightRightEdge && !resizeRight;
 
   const range = document.createElement("div");
   range.className = "custom-timeline-range" + (selected ? " custom-timeline-range--selected" : "");
+  if (highlightLeft) range.classList.add("custom-timeline-range--edge-left-highlight");
+  if (highlightRight) range.classList.add("custom-timeline-range--edge-right-highlight");
+  if (resizeLeft) range.classList.add("custom-timeline-range--resize-left");
+  if (resizeRight) range.classList.add("custom-timeline-range--resize-right");
   range.style.position = "absolute";
   range.style.left = `${left}px`;
   range.style.top = "4px";
@@ -40,12 +55,11 @@ export function renderRangeElement(
   range.style.borderRadius = "4px";
   range.style.background = bgColor;
   range.style.border = `1px solid ${bgColor}`;
-  range.style.cursor = "pointer";
   range.style.display = "flex";
   range.style.alignItems = "center";
   range.style.overflow = "hidden";
-  range.style.paddingLeft = `${handleWidthPx}px`;
-  range.style.paddingRight = `${handleWidthPx}px`;
+  range.style.paddingLeft = `${RANGE_LEFT_PADDING_PX}px`;
+  range.style.paddingRight = `${RANGE_RIGHT_PADDING_PX}px`;
   range.dataset.itemId = item.id;
 
   const labelSpan = document.createElement("span");
@@ -56,18 +70,6 @@ export function renderRangeElement(
   labelSpan.style.whiteSpace = "nowrap";
   labelSpan.style.minWidth = "0";
   range.appendChild(labelSpan);
-
-  const handleLeft = document.createElement("div");
-  handleLeft.className = "custom-timeline-range-handle custom-timeline-range-handle-left";
-  handleLeft.dataset.handle = "left";
-  handleLeft.style.width = `${handleWidthPx}px`;
-  range.appendChild(handleLeft);
-
-  const handleRight = document.createElement("div");
-  handleRight.className = "custom-timeline-range-handle custom-timeline-range-handle-right";
-  handleRight.dataset.handle = "right";
-  handleRight.style.width = `${handleWidthPx}px`;
-  range.appendChild(handleRight);
 
   return range;
 }

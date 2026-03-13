@@ -101,7 +101,7 @@
 .custom-timeline-point--selected .custom-timeline-point,
 .custom-timeline-event.custom-timeline-point--selected .custom-timeline-point {
   opacity: 1;
-  outline: 1px solid white;
+  outline: 1px solid rgba(255, 255, 255, 0.75);
   outline-offset: 1px;
 }
 .custom-timeline-range {
@@ -109,44 +109,25 @@
 }
 .custom-timeline-range--selected {
   border-width: 2px;
-  outline: 1px solid white;
+  outline: 1px solid rgba(255, 255, 255, 0.75);
   outline-offset: 1px;
 }
-.custom-timeline-range-handle {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  min-width: 0;
-  cursor: ew-resize;
-  z-index: 1;
-  pointer-events: auto;
+/* Internal 2px highlight (inset) so user sees which edge will be resized on hover */
+.custom-timeline-range--edge-left-highlight {
+  box-shadow: inset 2px 0 0 0 rgba(255, 255, 255, 0.65);
 }
-.custom-timeline-range-handle-left {
-  left: 0;
+.custom-timeline-range--edge-right-highlight {
+  box-shadow: inset -2px 0 0 0 rgba(255, 255, 255, 0.65);
 }
-.custom-timeline-range-handle-right {
-  right: 0;
+/* Internal 2px accent highlight while dragging the edge */
+.custom-timeline-range--resize-left {
+  box-shadow: inset 2px 0 0 0 var(--accent);
 }
-.custom-timeline-range:hover .custom-timeline-range-handle {
-  background: rgba(0, 0, 0, 0.25);
+.custom-timeline-range--resize-right {
+  box-shadow: inset -2px 0 0 0 var(--accent);
 }
-.custom-timeline-range--handle-left-active .custom-timeline-range-handle-right {
-  display: none;
-}
-.custom-timeline-range--handle-left-active .custom-timeline-range-handle-left {
-  background: rgba(0, 0, 0, 0.45);
-}
-.custom-timeline-range--handle-right-active .custom-timeline-range-handle-left {
-  display: none;
-}
-.custom-timeline-range--handle-right-active .custom-timeline-range-handle-right {
-  background: rgba(0, 0, 0, 0.45);
-}
-.custom-timeline-range-handle-zone {
-  position: absolute;
-  cursor: ew-resize;
-  z-index: 1;
-  pointer-events: auto;
+.custom-timeline-event--hovered .custom-timeline-point {
+  opacity: 0.65;
 }
 .custom-timeline-scrollbar-container {
   width: 100%;

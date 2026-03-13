@@ -33,6 +33,7 @@ export interface CustomTimelineState {
   items: TimelineStateJSON["items"];
   readheadSec: number;
   selectedItemId: string | null;
+  draggingRangeId: string | null;
   readheadDraggable: boolean;
 }
 
@@ -45,6 +46,8 @@ export interface CustomTimelineCallbacks {
   onMoveEvent?: (itemId: string, startSec: number) => void;
   onMoveRange?: (itemId: string, newStartSec: number) => void;
   onResizeRange?: (itemId: string, startSec: number, endSec: number) => void;
+  onRangeDragStart?: (id: string) => void;
+  onRangeDragEnd?: () => void;
 }
 
 export interface CustomTimelineView {
@@ -239,6 +242,13 @@ export function createCustomTimelineView(
     scheduleUpdate();
   }, { passive: false });
 
+  const hoverStateRef: { current: { hoveredEventId: string | null; hoveredRangeEdge: { rangeId: string; side: "left" | "right" } | null } } = {
+    current: { hoveredEventId: null, hoveredRangeEdge: null },
+  };
+  const resizeStateRef: { current: { rangeId: string | null; edge: "left" | "right" | null } } = {
+    current: { rangeId: null, edge: null },
+  };
+
   setupTimelineInteractions({
     viewportWrap,
     rightContent,
@@ -252,8 +262,23 @@ export function createCustomTimelineView(
       onMoveEvent: callbacks.onMoveEvent,
       onMoveRange: callbacks.onMoveRange,
       onResizeRange: callbacks.onResizeRange,
+      onRangeDragStart: callbacks.onRangeDragStart,
+      onRangeDragEnd: callbacks.onRangeDragEnd,
     },
     scheduleUpdate,
+    getHoverState: () => hoverStateRef.current,
+    setHoverState: (state) => {
+      hoverStateRef.current = state;
+      scheduleUpdate();
+    },
+    onResizeStart: (rangeId, side) => {
+      resizeStateRef.current = { rangeId, edge: side };
+      scheduleUpdate();
+    },
+    onResizeEnd: () => {
+      resizeStateRef.current = { rangeId: null, edge: null };
+      scheduleUpdate();
+    },
   });
 
   // Readhead drag
@@ -300,7 +325,10 @@ export function createCustomTimelineView(
     visibleIds: string;
     contentKey: string;
     selectedItemId: string | null;
+    draggingRangeId: string | null;
     layersLength: number;
+    hoverKey: string;
+    resizeKey: string;
   } | null = null;
 
   function update(): void {
@@ -350,6 +378,10 @@ export function createCustomTimelineView(
       .map((i) => `${i.id}:${i.startSec}:${i.endSec ?? i.startSec}:${i.layerId}`)
       .sort()
       .join(",");
+    const hoverState = hoverStateRef.current;
+    const resizeState = resizeStateRef.current;
+    const hoverKey = `${hoverState.hoveredEventId ?? ""}|${hoverState.hoveredRangeEdge?.rangeId ?? ""}|${hoverState.hoveredRangeEdge?.side ?? ""}`;
+    const resizeKey = `${resizeState.rangeId ?? ""}|${resizeState.edge ?? ""}`;
     const layersChanged =
       lastLayersKey === null ||
       lastLayersKey.startSec !== startSec ||
@@ -358,7 +390,10 @@ export function createCustomTimelineView(
       lastLayersKey.visibleIds !== visibleIds ||
       lastLayersKey.contentKey !== contentKey ||
       lastLayersKey.selectedItemId !== state.selectedItemId ||
-      lastLayersKey.layersLength !== state.layers.length;
+      lastLayersKey.draggingRangeId !== state.draggingRangeId ||
+      lastLayersKey.layersLength !== state.layers.length ||
+      lastLayersKey.hoverKey !== hoverKey ||
+      lastLayersKey.resizeKey !== resizeKey;
     if (layersChanged && viewportWidthPx > 0) {
       renderVirtualizedLayers(
         layersContent,
@@ -368,7 +403,10 @@ export function createCustomTimelineView(
         viewport.pixelsPerSec,
         viewportWidthPx,
         LAYER_ROW_HEIGHT_PX,
-        state.selectedItemId
+        state.selectedItemId,
+        state.draggingRangeId,
+        hoverState,
+        resizeState
       );
       lastLayersKey = {
         startSec,
@@ -377,7 +415,10 @@ export function createCustomTimelineView(
         visibleIds,
         contentKey,
         selectedItemId: state.selectedItemId,
+        draggingRangeId: state.draggingRangeId,
         layersLength: state.layers.length,
+        hoverKey,
+        resizeKey,
       };
     }
 

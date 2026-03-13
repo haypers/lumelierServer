@@ -38,6 +38,7 @@ let layers: LayersArray = [];
 let items: ItemsArray = [];
 let readheadSec = 0;
 let selectedItemId: string | null = null;
+let draggingRangeId: string | null = null;
 let customTimelineView: CustomTimelineView | null = null;
 let nextLayerId = 1;
 let nextItemId = 1;
@@ -622,6 +623,7 @@ function ensureCustomTimelineCreated(): void {
       items,
       readheadSec,
       selectedItemId,
+      draggingRangeId,
       readheadDraggable: !timelineContentEl?.classList.contains("timeline-readhead-no-drag"),
     }),
     {
@@ -676,6 +678,14 @@ function ensureCustomTimelineCreated(): void {
           selectedItemId = itemId;
           scheduleDragUpdate(itemId);
         }
+      },
+      onRangeDragStart: (id) => {
+        draggingRangeId = id;
+        customTimelineView?.update();
+      },
+      onRangeDragEnd: () => {
+        draggingRangeId = null;
+        customTimelineView?.update();
       },
     }
   );

@@ -1,7 +1,12 @@
 import type { TimelineStateJSON } from "../types";
-import { renderRangeElement, type RangeItem } from "./range/render-range";
-import { RANGE_HANDLE_ZONE_WIDTH_PX } from "./range/constants";
+import { renderRangeElement, type RangeItem, type RangeRenderState } from "./range/render-range";
 import { renderEventElement, type EventItem } from "./event/render-event";
+import type { HoverState } from "./interactions";
+
+export interface ResizeState {
+  rangeId: string | null;
+  edge: "left" | "right" | null;
+}
 
 /**
  * Render virtualized layer rows: only items in visibleItems are in the DOM.
@@ -17,7 +22,10 @@ export function renderVirtualizedLayers(
   pixelsPerSec: number,
   viewportWidthPx: number,
   rowHeightPx: number,
-  selectedItemId: string | null
+  selectedItemId: string | null,
+  draggingRangeId: string | null,
+  hoverState: HoverState,
+  resizeState: ResizeState
 ): void {
   container.innerHTML = "";
   container.style.width = `${viewportWidthPx}px`;
@@ -40,38 +48,16 @@ export function renderVirtualizedLayers(
 
     ranges.forEach((it) => {
       const item = it as RangeItem;
-      const left = (item.startSec - startSec) * pixelsPerSec;
-      const endSecItem = item.endSec ?? item.startSec + 1;
-      const w = (endSecItem - item.startSec) * pixelsPerSec;
-      const halfZone = RANGE_HANDLE_ZONE_WIDTH_PX / 2;
-
+      const edgeState: RangeRenderState = {
+        highlightLeftEdge:
+          hoverState.hoveredRangeEdge?.rangeId === item.id && hoverState.hoveredRangeEdge?.side === "left",
+        highlightRightEdge:
+          hoverState.hoveredRangeEdge?.rangeId === item.id && hoverState.hoveredRangeEdge?.side === "right",
+        resizeEdge: resizeState.rangeId === item.id ? resizeState.edge : null,
+      };
       rowWrap.appendChild(
-        renderRangeElement(item, startSec, pixelsPerSec, selectedItemId)
+        renderRangeElement(item, startSec, pixelsPerSec, selectedItemId, draggingRangeId, edgeState)
       );
-
-      const zoneLeft = document.createElement("div");
-      zoneLeft.className = "custom-timeline-range-handle-zone custom-timeline-range-handle-zone-left";
-      zoneLeft.dataset.itemId = item.id;
-      zoneLeft.dataset.handle = "left";
-      zoneLeft.style.position = "absolute";
-      zoneLeft.style.left = `${left - halfZone}px`;
-      zoneLeft.style.top = "4px";
-      zoneLeft.style.width = `${RANGE_HANDLE_ZONE_WIDTH_PX}px`;
-      zoneLeft.style.height = "24px";
-      zoneLeft.style.zIndex = "1";
-      rowWrap.appendChild(zoneLeft);
-
-      const zoneRight = document.createElement("div");
-      zoneRight.className = "custom-timeline-range-handle-zone custom-timeline-range-handle-zone-right";
-      zoneRight.dataset.itemId = item.id;
-      zoneRight.dataset.handle = "right";
-      zoneRight.style.position = "absolute";
-      zoneRight.style.left = `${left + w - halfZone}px`;
-      zoneRight.style.top = "4px";
-      zoneRight.style.width = `${RANGE_HANDLE_ZONE_WIDTH_PX}px`;
-      zoneRight.style.height = "24px";
-      zoneRight.style.zIndex = "1";
-      rowWrap.appendChild(zoneRight);
     });
     events.forEach((it, i) => {
       rowWrap.appendChild(
@@ -81,7 +67,9 @@ export function renderVirtualizedLayers(
           pixelsPerSec,
           events[i + 1] as EventItem | undefined,
           viewportWidthPx,
-          selectedItemId
+          selectedItemId,
+          hoverState.hoveredEventId === (it as EventItem).id,
+          ranges.map((r) => ({ startSec: r.startSec, endSec: (r as RangeItem).endSec ?? r.startSec + 1 }))
         )
       );
     });

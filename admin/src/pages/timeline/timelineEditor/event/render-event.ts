@@ -15,20 +15,37 @@ export interface EventItem {
   color?: string;
 }
 
+export interface LayerRangeBound {
+  startSec: number;
+  endSec: number;
+}
+
 export function renderEventElement(
   item: EventItem,
   startSec: number,
   pixelsPerSec: number,
   nextEvent: EventItem | undefined,
   viewportWidthPx: number,
-  selectedItemId: string | null
+  selectedItemId: string | null,
+  hovered = false,
+  layerRanges: LayerRangeBound[] = []
 ): HTMLElement {
   const selected = item.id === selectedItemId;
   const left = (item.startSec - startSec) * pixelsPerSec;
-  const gapPx = nextEvent
-    ? (nextEvent.startSec - item.startSec) * pixelsPerSec
-    : viewportWidthPx - left;
-  const showLabel = gapPx >= MIN_PX_BEFORE_NEXT_TO_SHOW_LABEL;
+  const isInsideRange = layerRanges.some(
+    (r) => item.startSec >= r.startSec && item.startSec < r.endSec
+  );
+  const viewportRightSec = startSec + viewportWidthPx / pixelsPerSec;
+  const nextEventSec = nextEvent ? nextEvent.startSec : Infinity;
+  const firstRangeStartAfterEvent = layerRanges
+    .filter((r) => r.startSec > item.startSec)
+    .map((r) => r.startSec);
+  const firstObstacleSec = Math.min(nextEventSec, viewportRightSec, ...firstRangeStartAfterEvent);
+  const gapPx =
+    firstObstacleSec === Infinity
+      ? viewportWidthPx - left
+      : (firstObstacleSec - item.startSec) * pixelsPerSec;
+  const showLabel = !isInsideRange && gapPx >= MIN_PX_BEFORE_NEXT_TO_SHOW_LABEL;
   const maxLabelWidthPx = showLabel
     ? Math.min(LABEL_MAX_WIDTH_PX, Math.max(0, gapPx - EVENT_POINT_SIZE_PX - LABEL_DOT_GAP_PX - 2))
     : 0;
@@ -36,6 +53,7 @@ export function renderEventElement(
   const eventWrap = document.createElement("div");
   eventWrap.className = "custom-timeline-event";
   if (selected) eventWrap.classList.add("custom-timeline-point--selected");
+  if (hovered) eventWrap.classList.add("custom-timeline-event--hovered");
   eventWrap.style.position = "absolute";
   eventWrap.style.left = `${left - EVENT_POINT_SIZE_PX / 2}px`;
   eventWrap.style.top = "50%";
@@ -43,7 +61,6 @@ export function renderEventElement(
   eventWrap.style.display = "flex";
   eventWrap.style.alignItems = "center";
   eventWrap.style.gap = `${LABEL_DOT_GAP_PX}px`;
-  eventWrap.style.cursor = "pointer";
   eventWrap.style.zIndex = "1";
   eventWrap.dataset.itemId = item.id;
 

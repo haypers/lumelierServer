@@ -5,7 +5,12 @@ import {
   type ViewportItem,
   type TimelineViewportState,
 } from "./timeline-viewport";
-import { RANGE_MIN_WIDTH_PX } from "./range/constants";
+import { RANGE_MIN_WIDTH_PX, RANGE_HANDLE_HOVER_RADIUS_PX } from "./range/constants";
+
+export interface HoverState {
+  hoveredEventId: string | null;
+  hoveredRangeEdge: { rangeId: string; side: "left" | "right" } | null;
+}
 
 export interface TimelineInteractionsState {
   items: { id: string; kind: string; startSec: number; endSec?: number }[];
@@ -16,6 +21,8 @@ export interface TimelineInteractionsCallbacks {
   onMoveEvent?: (itemId: string, startSec: number) => void;
   onMoveRange?: (itemId: string, newStartSec: number) => void;
   onResizeRange?: (itemId: string, startSec: number, endSec: number) => void;
+  onRangeDragStart?: (id: string) => void;
+  onRangeDragEnd?: () => void;
 }
 
 export interface SetupTimelineInteractionsOptions {
@@ -28,6 +35,39 @@ export interface SetupTimelineInteractionsOptions {
   getState: () => TimelineInteractionsState;
   callbacks: TimelineInteractionsCallbacks;
   scheduleUpdate: () => void;
+  getHoverState: () => HoverState;
+  setHoverState: (state: HoverState) => void;
+  onResizeStart: (rangeId: string, side: "left" | "right") => void;
+  onResizeEnd: () => void;
+}
+
+/** Find the nearest range edge (left or right) in the row under clientY; 1D X distance only. */
+function getNearestRangeEdgeInRow(
+  clientX: number,
+  clientY: number,
+  layersContent: HTMLElement
+): { rangeId: string; side: "left" | "right"; distance: number } | null {
+  const rows = layersContent.querySelectorAll(".custom-timeline-layer-row-wrap");
+  for (const row of rows) {
+    const rect = row.getBoundingClientRect();
+    if (clientY < rect.top || clientY > rect.bottom) continue;
+    const ranges = row.querySelectorAll(".custom-timeline-range");
+    let best: { rangeId: string; side: "left" | "right"; distance: number } | null = null;
+    for (const rangeEl of ranges) {
+      const r = (rangeEl as HTMLElement).getBoundingClientRect();
+      const rangeId = (rangeEl as HTMLElement).dataset.itemId;
+      if (!rangeId) continue;
+      const distLeft = Math.abs(clientX - r.left);
+      const distRight = Math.abs(clientX - r.right);
+      const candidate =
+        distLeft <= distRight
+          ? { rangeId, side: "left" as const, distance: distLeft }
+          : { rangeId, side: "right" as const, distance: distRight };
+      if (best === null || candidate.distance < best.distance) best = candidate;
+    }
+    return best;
+  }
+  return null;
 }
 
 export function setupTimelineInteractions(options: SetupTimelineInteractionsOptions): void {
@@ -41,6 +81,10 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     getState,
     callbacks,
     scheduleUpdate,
+    getHoverState,
+    setHoverState,
+    onResizeStart,
+    onResizeEnd,
   } = options;
 
   let panning = false;
@@ -72,56 +116,41 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
       didEventDrag = false;
       return;
     }
-    const zoneEl = getNearestHandleZoneAt(e.clientX, e.clientY);
-    if (zoneEl && callbacks.onResizeRange) {
-      const rangeItemId = zoneEl.getAttribute("data-item-id");
-      const side = zoneEl.getAttribute("data-handle") as "left" | "right" | null;
-      if (rangeItemId && (side === "left" || side === "right")) {
-        const item = getState().items.find((it) => it.id === rangeItemId);
+    if (!eventItemId && callbacks.onResizeRange) {
+      const nearest = getNearestRangeEdgeInRow(e.clientX, e.clientY, layersContent);
+      if (
+        nearest &&
+        nearest.distance <= RANGE_HANDLE_HOVER_RADIUS_PX
+      ) {
+        const item = getState().items.find((it) => it.id === nearest.rangeId);
         if (item && item.kind === "range") {
           const endSec = item.endSec ?? item.startSec + 1;
           e.preventDefault();
-          resizeHandleSide = side;
-          resizeItemId = rangeItemId;
+          resizeHandleSide = nearest.side;
+          resizeItemId = nearest.rangeId;
           resizeStartX = e.clientX;
           resizeStartSec = item.startSec;
           resizeEndSec = endSec;
           didRangeResize = false;
-          callbacks.onSelectItem(rangeItemId);
+          callbacks.onSelectItem(nearest.rangeId);
+          onResizeStart(nearest.rangeId, nearest.side);
           return;
         }
       }
     }
-    const handleEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range-handle");
     const rangeEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range");
     const rangeItemId = rangeEl instanceof HTMLElement ? rangeEl.dataset.itemId : undefined;
-    if (handleEl && rangeItemId && callbacks.onResizeRange) {
-      const item = getState().items.find((it) => it.id === rangeItemId);
-      if (item && item.kind === "range") {
-        const endSec = item.endSec ?? item.startSec + 1;
-        const side = handleEl.getAttribute("data-handle") as "left" | "right" | null;
-        if (side === "left" || side === "right") {
-          e.preventDefault();
-          resizeHandleSide = side;
-          resizeItemId = rangeItemId;
-          resizeStartX = e.clientX;
-          resizeStartSec = item.startSec;
-          resizeEndSec = endSec;
-          didRangeResize = false;
-          callbacks.onSelectItem(rangeItemId);
-          return;
-        }
-      }
-    }
     if (rangeItemId && callbacks.onMoveRange) {
       const item = getState().items.find((it) => it.id === rangeItemId);
       if (item && item.kind === "range") {
         const endSec = item.endSec ?? item.startSec + 1;
+        callbacks.onSelectItem(rangeItemId);
         rangeDragItemId = rangeItemId;
         rangeDragStartX = e.clientX;
         rangeDragStartSec = item.startSec;
         rangeDragDurationSec = endSec - item.startSec;
         didRangeDrag = false;
+        callbacks.onRangeDragStart?.(rangeItemId);
         return;
       }
     }
@@ -196,6 +225,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
   document.addEventListener("mouseup", () => {
     if (resizeHandleSide !== null) {
       if (resizeItemId != null) didRangeResize = true;
+      onResizeEnd();
       resizeHandleSide = null;
       resizeItemId = null;
     }
@@ -206,6 +236,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     }
     if (rangeDragItemId != null) {
       if (rangeDragging) didRangeDrag = true;
+      callbacks.onRangeDragEnd?.();
       rangeDragItemId = null;
       rangeDragging = false;
     }
@@ -219,6 +250,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
   document.addEventListener("mouseleave", () => {
     if (resizeHandleSide !== null) {
       if (resizeItemId != null) didRangeResize = true;
+      onResizeEnd();
       resizeHandleSide = null;
       resizeItemId = null;
     }
@@ -229,6 +261,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     }
     if (rangeDragItemId != null) {
       if (rangeDragging) didRangeDrag = true;
+      callbacks.onRangeDragEnd?.();
       rangeDragItemId = null;
       rangeDragging = false;
     }
@@ -239,61 +272,57 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     }
   });
 
-  function getRangeForHandleZone(zoneEl: HTMLElement): HTMLElement | null {
-    const rowWrap = zoneEl.closest(".custom-timeline-layer-row-wrap");
-    if (!rowWrap) return null;
-    const itemId = zoneEl.getAttribute("data-item-id");
-    if (!itemId) return null;
-    return rowWrap.querySelector(`.custom-timeline-range[data-item-id="${itemId}"]`);
-  }
-
-  /** Same logic as mousemove: pick the nearest handle zone at (clientX, clientY) so we drag the highlighted handle. */
-  function getNearestHandleZoneAt(clientX: number, clientY: number): HTMLElement | null {
-    const zones = Array.from(
-      document.elementsFromPoint(clientX, clientY)
-    ).filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains("custom-timeline-range-handle-zone"));
-    if (zones.length === 0) return null;
-    if (zones.length === 1) return zones[0];
-    let best = zones[0];
-    let bestDist = Infinity;
-    for (const z of zones) {
-      const r = z.getBoundingClientRect();
-      const centerX = r.left + r.width / 2;
-      const centerY = r.top + r.height / 2;
-      const d = (clientX - centerX) ** 2 + (clientY - centerY) ** 2;
-      if (d < bestDist) {
-        bestDist = d;
-        best = z;
-      }
-    }
-    return best;
-  }
-
-  let lastActiveHandleRange: HTMLElement | null = null;
-  let lastActiveHandleSide: "left" | "right" | null = null;
-
   layersContent.addEventListener("mousemove", (e) => {
-    const activeZone = getNearestHandleZoneAt(e.clientX, e.clientY);
-    const side = activeZone?.getAttribute("data-handle") as "left" | "right" | null;
-    const range = activeZone && (side === "left" || side === "right") ? getRangeForHandleZone(activeZone) : null;
-    if (range !== lastActiveHandleRange || side !== lastActiveHandleSide) {
-      if (lastActiveHandleRange) {
-        lastActiveHandleRange.classList.remove("custom-timeline-range--handle-left-active", "custom-timeline-range--handle-right-active");
+    if (resizeHandleSide != null || rangeDragItemId != null || eventDragItemId != null) return;
+    const under = document.elementsFromPoint(e.clientX, e.clientY);
+    const eventEl = under.find((el) => el instanceof HTMLElement && el.classList?.contains("custom-timeline-event"));
+    if (eventEl instanceof HTMLElement) {
+      const eventId = eventEl.dataset.itemId ?? null;
+      const cur = getHoverState();
+      if (cur.hoveredEventId !== eventId || cur.hoveredRangeEdge !== null) {
+        setHoverState({ hoveredEventId: eventId, hoveredRangeEdge: null });
+        scheduleUpdate();
       }
-      lastActiveHandleRange = range;
-      lastActiveHandleSide = side;
-      if (range && side) {
-        range.classList.add(side === "left" ? "custom-timeline-range--handle-left-active" : "custom-timeline-range--handle-right-active");
-      }
+      viewportWrap.style.cursor = "pointer";
+      return;
     }
+    const nearest = getNearestRangeEdgeInRow(e.clientX, e.clientY, layersContent);
+    if (nearest && nearest.distance <= RANGE_HANDLE_HOVER_RADIUS_PX) {
+      const nextHover = { hoveredEventId: null as string | null, hoveredRangeEdge: { rangeId: nearest.rangeId, side: nearest.side } };
+      const cur = getHoverState();
+      if (
+        cur.hoveredEventId !== null ||
+        cur.hoveredRangeEdge?.rangeId !== nextHover.hoveredRangeEdge?.rangeId ||
+        cur.hoveredRangeEdge?.side !== nextHover.hoveredRangeEdge?.side
+      ) {
+        setHoverState(nextHover);
+        scheduleUpdate();
+      }
+      viewportWrap.style.cursor = "ew-resize";
+      return;
+    }
+    const rangeEl = under.find((el) => el instanceof HTMLElement && el.classList?.contains("custom-timeline-range"));
+    if (rangeEl instanceof HTMLElement) {
+      const cur = getHoverState();
+      if (cur.hoveredEventId !== null || cur.hoveredRangeEdge !== null) {
+        setHoverState({ hoveredEventId: null, hoveredRangeEdge: null });
+        scheduleUpdate();
+      }
+      viewportWrap.style.cursor = "pointer";
+      return;
+    }
+    const cur = getHoverState();
+    if (cur.hoveredEventId !== null || cur.hoveredRangeEdge !== null) {
+      setHoverState({ hoveredEventId: null, hoveredRangeEdge: null });
+      scheduleUpdate();
+    }
+    viewportWrap.style.cursor = "default";
   });
 
   layersContent.addEventListener("mouseleave", () => {
-    if (lastActiveHandleRange) {
-      lastActiveHandleRange.classList.remove("custom-timeline-range--handle-left-active", "custom-timeline-range--handle-right-active");
-      lastActiveHandleRange = null;
-      lastActiveHandleSide = null;
-    }
+    setHoverState({ hoveredEventId: null, hoveredRangeEdge: null });
+    viewportWrap.style.cursor = "";
+    scheduleUpdate();
   });
 
   layersContent.addEventListener("click", (e) => {
@@ -320,6 +349,8 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
         return;
       }
       callbacks.onSelectItem(rangeItemId);
+      return;
     }
+    callbacks.onSelectItem(null);
   });
 }
