@@ -9,6 +9,7 @@ import {
   zoomAtCursor,
   type ViewportItem,
 } from "./timeline-viewport";
+import { getLayerIdUnderClientY as getLayerIdUnderClientYUtil } from "./layer-from-position";
 import { renderRuler as renderRulerTicks, getTickStepForRange } from "./timeline-ruler";
 import { getVisibleItems } from "./timeline-visible-events";
 import { renderVirtualizedLayers } from "./timeline-layers-render";
@@ -57,6 +58,14 @@ export interface CustomTimelineView {
   /** Schedule at most one update on the next frame (use for scroll, drag, resize to avoid jitter). */
   scheduleUpdate: () => void;
   getVisibleRange: () => { startSec: number; endSec: number };
+  /** Layer id under client Y (for asset drag onto timeline). */
+  getLayerIdUnderClientY: (clientY: number) => string | null;
+  /** Start sec corresponding to client X (clamped to scroll range). */
+  getStartSecFromClientX: (clientX: number) => number;
+  /** Start range drag from external source (e.g. asset drop); item must already exist. */
+  startExternalRangeDrag: (itemId: string, clientX: number, clientY: number) => void;
+  /** Duration in sec for ranges with no media duration (e.g. image): 15% of viewport width in time. */
+  getDefaultDurationForNoMediaSec: () => number;
 }
 
 function loadStoredViewport(
@@ -310,6 +319,9 @@ export function createCustomTimelineView(
   };
   const editingRangeIdRef: { current: string | null } = { current: null };
 
+  let startExternalRangeDragImpl: ((itemId: string, clientX: number, clientY: number) => void) | null =
+    null;
+
   setupTimelineInteractions({
     viewportWrap,
     rightContent,
@@ -347,6 +359,9 @@ export function createCustomTimelineView(
     },
     layerRowHeightPx: LAYER_ROW_HEIGHT_PX,
     onViewportChange: schedulePersistViewport,
+    onRegisterExternalRangeDrag: (fn) => {
+      startExternalRangeDragImpl = fn;
+    },
   });
 
   // Readhead drag
@@ -530,9 +545,37 @@ export function createCustomTimelineView(
   resizeObserver.observe(viewportWrap);
   resizeObserver.observe(rightCol);
 
+  function getLayerIdUnderClientY(clientY: number): string | null {
+    return getLayerIdUnderClientYUtil(
+      clientY,
+      layersContent,
+      getState().layers,
+      LAYER_ROW_HEIGHT_PX
+    );
+  }
+
+  function getStartSecFromClientX(clientX: number): number {
+    const rect = rightContent.getBoundingClientRect();
+    const startSec = viewport.startSec + (clientX - rect.left) / viewport.pixelsPerSec;
+    const scrollRange = getScrollRangeRightSec(viewport, itemsAsViewportItems());
+    return Math.max(0, Math.min(scrollRange, startSec));
+  }
+
+  function getDefaultDurationForNoMediaSec(): number {
+    if (viewport.pixelsPerSec <= 0 || viewport.viewportWidthPx <= 0) return 1;
+    const sec = (0.15 * viewport.viewportWidthPx) / viewport.pixelsPerSec;
+    return Math.max(1, sec);
+  }
+
   return {
     update,
     scheduleUpdate,
     getVisibleRange: () => getVisibleRange(viewport),
+    getLayerIdUnderClientY,
+    getStartSecFromClientX,
+    startExternalRangeDrag: (itemId: string, clientX: number, clientY: number) => {
+      startExternalRangeDragImpl?.(itemId, clientX, clientY);
+    },
+    getDefaultDurationForNoMediaSec,
   };
 }

@@ -10,7 +10,11 @@ import uploadingIcon from "../../../icons/uploading.svg?raw";
 import uploadedIcon from "../../../icons/uploaded.svg?raw";
 import trashIcon from "../../../icons/trash.svg?raw";
 import { attachTooltipWhen } from "../../../components/popup-tooltip";
-import { createDragHandleCell, type ExtensionKind } from "./asset-drag";
+import {
+  createDragHandleCell,
+  type ExtensionKind,
+  type AssetDragCallbacks,
+} from "./asset-drag";
 
 const ACCEPT_ATTR =
   ".mp3,.mp4,.wav,.mov,.aac,.ogg,.png,.jpeg,.jpg,.bmp,.webm,.mkv,.m4v,.avi";
@@ -71,7 +75,8 @@ function renderFileList(
   files: TimelineMediaFile[],
   showId: string,
   uploadingState: Map<string, UploadProgress>,
-  onDeleteSuccess: (data: TimelineMediaListResponse) => void
+  onDeleteSuccess: (data: TimelineMediaListResponse) => void,
+  getAssetDragCallbacks?: () => AssetDragCallbacks
 ): void {
   for (const file of files) {
     const row = document.createElement("div");
@@ -81,7 +86,13 @@ function renderFileList(
     const lastDot = file.name.lastIndexOf(".");
     const extensionKind: ExtensionKind =
       lastDot > 0 ? getExtensionKind(file.name.slice(lastDot + 1)) : null;
-    const dragHandleCell = createDragHandleCell(isUploading, file.name, extensionKind);
+    const dragHandleCell = createDragHandleCell(
+      isUploading,
+      file.name,
+      extensionKind,
+      getAssetDragCallbacks,
+      file.duration_sec
+    );
 
     const nameCell = document.createElement("div");
     nameCell.className = "assets-file-name-cell";
@@ -233,7 +244,15 @@ function createListHeader(): HTMLElement {
   return row;
 }
 
-export function renderAssetsPanel(container: HTMLElement, showId: string | null): void {
+export interface RenderAssetsPanelOptions {
+  getAssetDragCallbacks?: () => AssetDragCallbacks;
+}
+
+export function renderAssetsPanel(
+  container: HTMLElement,
+  showId: string | null,
+  options?: RenderAssetsPanelOptions
+): void {
   container.innerHTML = "";
   if (showId === null) {
     const empty = document.createElement("div");
@@ -301,7 +320,14 @@ export function renderAssetsPanel(container: HTMLElement, showId: string | null)
       empty.textContent = "No Assets in this project yet.";
       listEl.appendChild(empty);
     } else {
-      renderFileList(listEl, displayFiles, sid, uploadingState, applyList);
+      renderFileList(
+        listEl,
+        displayFiles,
+        sid,
+        uploadingState,
+        applyList,
+        options?.getAssetDragCallbacks
+      );
     }
   }
 

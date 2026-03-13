@@ -48,6 +48,8 @@ export interface SetupTimelineInteractionsOptions {
   layerRowHeightPx: number;
   /** Called when viewport position/zoom changes (e.g. pan by drag). Use to persist viewport to storage. */
   onViewportChange?: () => void;
+  /** Called once with startExternalRangeDrag so the view can hand off asset-drag to timeline range drag. */
+  onRegisterExternalRangeDrag?: (fn: (itemId: string, clientX: number, clientY: number) => void) => void;
 }
 
 /** Find the nearest range edge (left or right) in the row under clientY; 1D X distance only. */
@@ -97,7 +99,34 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     setEditingRangeId,
     layerRowHeightPx,
     onViewportChange,
+    onRegisterExternalRangeDrag,
   } = options;
+
+  function startExternalRangeDrag(itemId: string, clientX: number, _clientY: number): void {
+    const item = getState().items.find((i) => i.id === itemId);
+    if (!item || item.kind !== "range") return;
+    const endSec = item.endSec ?? item.startSec + 1;
+    const durationSec = endSec - item.startSec;
+    const rect = rightContent.getBoundingClientRect();
+    const startSec = viewport.startSec + (clientX - rect.left) / viewport.pixelsPerSec;
+    const scrollRange = getScrollRangeRightSec(viewport, itemsAsViewportItems());
+    const clampedStartSec = Math.max(0, Math.min(scrollRange - durationSec, startSec));
+    rangeDragItemId = itemId;
+    rangeDragStartX = clientX;
+    rangeDragStartSec = clampedStartSec;
+    rangeDragDurationSec = durationSec;
+    rangeDragging = true;
+    didRangeDrag = false;
+    callbacks.onSelectItem(itemId);
+    callbacks.onRangeDragStart?.(itemId);
+    setEditingRangeId(itemId);
+    if (callbacks.onMoveRange) {
+      callbacks.onMoveRange(itemId, clampedStartSec);
+    }
+    scheduleUpdate();
+  }
+
+  onRegisterExternalRangeDrag?.(startExternalRangeDrag);
 
   let panning = false;
   let panStartClientX = 0;

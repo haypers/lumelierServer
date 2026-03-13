@@ -15,6 +15,7 @@ import type { DetailsPanelUpdates } from "./details-panel";
 import { updateDetailsPanel } from "./details-panel";
 import { renderPreviewPanel } from "./preview";
 import { renderAssetsPanel } from "./assets";
+import { createAssetDropOnTimelineHandler } from "./asset-drop-onto-timeline";
 import {
   exportState,
   importState,
@@ -180,11 +181,18 @@ function getDefaultStartSec(): number {
   return range ? (range.startSec + range.endSec) / 2 : 0;
 }
 
-function addRange(layerId?: string): string {
+function addRange(
+  layerId?: string,
+  startSec?: number,
+  durationSec?: number,
+  filePath?: string,
+  rangeType?: "Image" | "Video" | "Audio"
+): string {
   ensureGroups();
   const gid = layerId ?? layers[0].id;
-  const start = getDefaultStartSec();
-  const end = start + 5;
+  const start = startSec ?? getDefaultStartSec();
+  const duration = durationSec ?? 5;
+  const end = start + duration;
   const id = `item-${nextItemId++}`;
   items.push({
     id,
@@ -193,8 +201,8 @@ function addRange(layerId?: string): string {
     startSec: start,
     endSec: end,
     label: `Range ${id}`,
-    rangeType: "Audio",
-    filePath: "",
+    rangeType: rangeType ?? "Audio",
+    filePath: filePath ?? "",
   });
   customTimelineView?.update();
   scheduleAutosave();
@@ -705,11 +713,13 @@ function ensureCustomTimelineCreated(): void {
         rangeEditingSnapshot = null;
         if (editingId == null || snapshot == null) {
           customTimelineView?.update();
+          refreshDetailsPanel(selectedItemId ?? undefined);
           return;
         }
         const editingItem = items.find((i) => i.id === editingId);
         if (editingItem?.kind !== "range") {
           customTimelineView?.update();
+          refreshDetailsPanel(selectedItemId ?? undefined);
           return;
         }
         const editStart = editingItem.startSec;
@@ -736,7 +746,7 @@ function ensureCustomTimelineCreated(): void {
             "TODO: allow trimming a range into two ranges by dragging a smaller range into it."
           );
           customTimelineView?.update();
-          refreshDetailsPanel();
+          refreshDetailsPanel(editingId);
           scheduleAutosave();
           return;
         }
@@ -759,8 +769,11 @@ function ensureCustomTimelineCreated(): void {
             items = items.filter((i) => i.id !== t.id);
           }
         }
+        if (!items.some((i) => i.id === editingId)) {
+          selectedItemId = null;
+        }
         customTimelineView?.update();
-        refreshDetailsPanel();
+        refreshDetailsPanel(selectedItemId ?? undefined);
         scheduleAutosave();
       },
       onMoveItemToLayer: (itemId, layerId) => {
@@ -1055,7 +1068,16 @@ export function render(container: HTMLElement, showId: string | null): void {
           getContent: () => {
             const el = document.createElement("div");
             el.className = "timeline-tab-content timeline-tab-content--assets";
-            renderAssetsPanel(el, currentShowId);
+            ensureCustomTimelineCreated();
+            renderAssetsPanel(el, currentShowId, {
+              getAssetDragCallbacks: () =>
+                createAssetDropOnTimelineHandler({
+                  getView: () => customTimelineView,
+                  addRange: (layerId, startSec, durationSec, filePath, rangeType) =>
+                    addRange(layerId, startSec, durationSec, filePath, rangeType),
+                  ensureTimelineCreated: ensureCustomTimelineCreated,
+                }),
+            });
             return el;
           },
         },

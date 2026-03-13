@@ -351,7 +351,7 @@
 .assets-dragging-clip {
   position: fixed;
   width: 120px;
-  height: 32px;
+  height: 20px;
   pointer-events: none;
   z-index: 9999;
   box-sizing: border-box;
