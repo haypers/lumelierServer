@@ -39,7 +39,7 @@ export function renderVirtualizedLayers(
 
     ranges.forEach((it) => {
       rowWrap.appendChild(
-        renderRangeElement(it as RangeItem, startSec, pixelsPerSec, viewportWidthPx, selectedItemId)
+        renderRangeElement(it as RangeItem, startSec, pixelsPerSec, selectedItemId)
       );
     });
     events.forEach((it, i) => {

@@ -16,7 +16,6 @@ export function renderRangeElement(
   item: RangeItem,
   startSec: number,
   pixelsPerSec: number,
-  viewportWidthPx: number,
   selectedItemId: string | null
 ): HTMLElement {
   const selected = item.id === selectedItemId;
@@ -29,10 +28,10 @@ export function renderRangeElement(
   const range = document.createElement("div");
   range.className = "custom-timeline-range" + (selected ? " custom-timeline-range--selected" : "");
   range.style.position = "absolute";
-  range.style.left = `${Math.max(0, left)}px`;
+  range.style.left = `${left}px`;
   range.style.top = "4px";
   range.style.height = "24px";
-  range.style.width = `${Math.min(w, viewportWidthPx - Math.max(0, left))}px`;
+  range.style.width = `${w}px`;
   range.style.borderRadius = "4px";
   range.style.background = bgColor;
   range.style.border = `1px solid ${bgColor}`;
