@@ -20,10 +20,13 @@ export interface LayerInfo {
 
 export interface DetailsPanelUpdates {
   startSec?: number;
+  endSec?: number;
   layerId?: string;
   label?: string;
   effectType?: string;
   color?: string;
+  rangeType?: "Image" | "Video" | "Audio";
+  filePath?: string;
 }
 
 export type UpdateItemFn = (id: string, updates: DetailsPanelUpdates) => void;
@@ -31,6 +34,9 @@ export type GetLayersFn = () => LayerInfo[];
 
 /** Event type options for the dropdown. Only one for now. */
 export const EVENT_TYPE_OPTIONS = ["Set Color Broadcast"] as const;
+
+/** Range type options for the dropdown. */
+export const RANGE_TYPE_OPTIONS = ["Audio", "Video", "Image"] as const;
 
 /** Called to refresh the details panel; pass current itemId to re-render that item (e.g. after changing event type). */
 export type OnDetailsUpdatedFn = (currentItemId?: string) => void;
@@ -64,9 +70,10 @@ export function updateDetailsPanel(
 
   const payload = item.payload ?? { kind: "event" as const };
   const startSec = dateToSecFloat(item.start);
+  const endSec = item.end != null ? dateToSecFloat(item.end) : startSec + 5;
   const layers = getLayers();
 
-  h3.textContent = payload.kind === "clip" ? "Clip details" : "Event details";
+  h3.textContent = payload.kind === "range" ? "Range details" : "Event details";
 
   const eventTypeOptions =
     `<option value="" ${payload.effectType == null || payload.effectType === "" ? "selected" : ""}>—</option>` +
@@ -96,6 +103,12 @@ export function updateDetailsPanel(
   </div>`
       : "";
 
+  const rangeTypeOptions =
+    RANGE_TYPE_OPTIONS.map(
+      (t) =>
+        `<option value="${escapeAttr(t)}" ${t === (payload.rangeType ?? "Audio") ? "selected" : ""}>${escapeHtml(t)}</option>`
+    ).join("");
+
   body.innerHTML = `
     <dl class="detail-grid">
       <dt>ID</dt><dd class="detail-readonly">${escapeHtml(String(item.id))}</dd>
@@ -105,13 +118,32 @@ export function updateDetailsPanel(
         <input type="number" class="detail-input detail-start" step="any" min="0" value="${startSec}" aria-label="Start time in seconds" />
         <span class="detail-unit">s</span>
       </dd>
+      ${payload.kind === "range" ? `
+      <dt>End</dt>
+      <dd>
+        <input type="number" class="detail-input detail-end" step="any" min="0" value="${endSec}" aria-label="End time in seconds" />
+        <span class="detail-unit">s</span>
+      </dd>
+      ` : ""}
       <dt>Layer</dt>
       <dd class="detail-layer-wrap"></dd>
       <dt>Name</dt>
       <dd>
         <input type="text" class="detail-input detail-label" value="${escapeAttr(payload.label ?? "")}" aria-label="Name" />
       </dd>
-      ${payload.kind === "event" ? `
+      ${payload.kind === "range" ? `
+      <dt>Range type</dt>
+      <dd>
+        <select class="detail-input detail-range-type" aria-label="Range type">
+          ${rangeTypeOptions}
+        </select>
+      </dd>
+      <dt>File path</dt>
+      <dd>
+        <input type="text" class="detail-input detail-file-path" value="${escapeAttr(payload.filePath ?? "")}" aria-label="File path" placeholder="Path to media file" />
+      </dd>
+    </dl>
+      ` : payload.kind === "event" ? `
       <dt>Event Type</dt>
       <dd>
         <select class="detail-input detail-effect-type" aria-label="Event type">
@@ -137,6 +169,9 @@ export function updateDetailsPanel(
 
   const startInput = body.querySelector(".detail-start") as HTMLInputElement;
   const labelInput = body.querySelector(".detail-label") as HTMLInputElement;
+  const endInput = body.querySelector(".detail-end") as HTMLInputElement | null;
+  const rangeTypeSelect = body.querySelector(".detail-range-type") as HTMLSelectElement | null;
+  const filePathInput = body.querySelector(".detail-file-path") as HTMLInputElement | null;
   const effectSelect = body.querySelector(".detail-effect-type") as HTMLSelectElement | null;
 
   function applyStart(): void {
@@ -148,6 +183,31 @@ export function updateDetailsPanel(
 
   function applyLabel(): void {
     updateItem(itemIdStr, { label: labelInput.value.trim() || undefined });
+  }
+
+  function applyEnd(): void {
+    if (endInput) {
+      const val = parseFloat(endInput.value);
+      if (!Number.isNaN(val) && val >= 0) {
+        updateItem(itemIdStr, { endSec: val });
+      }
+    }
+  }
+
+  function applyRangeType(): void {
+    if (rangeTypeSelect) {
+      const val = rangeTypeSelect.value as "Image" | "Video" | "Audio";
+      if (val === "Image" || val === "Video" || val === "Audio") {
+        updateItem(itemIdStr, { rangeType: val });
+        onUpdated?.(itemIdStr);
+      }
+    }
+  }
+
+  function applyFilePath(): void {
+    if (filePathInput) {
+      updateItem(itemIdStr, { filePath: filePathInput.value.trim() || undefined });
+    }
   }
 
   function applyEffectType(): void {
@@ -176,6 +236,17 @@ export function updateDetailsPanel(
   startInput.addEventListener("blur", applyStart);
   labelInput.addEventListener("change", applyLabel);
   labelInput.addEventListener("blur", applyLabel);
+  if (endInput) {
+    endInput.addEventListener("change", applyEnd);
+    endInput.addEventListener("blur", applyEnd);
+  }
+  if (rangeTypeSelect) {
+    rangeTypeSelect.addEventListener("change", applyRangeType);
+  }
+  if (filePathInput) {
+    filePathInput.addEventListener("change", applyFilePath);
+    filePathInput.addEventListener("blur", applyFilePath);
+  }
   if (effectSelect) {
     effectSelect.addEventListener("change", applyEffectType);
   }

@@ -1,5 +1,12 @@
 import type { TimelineStateJSON } from "../types";
 
+/** Bar background color by range type (match asset tab pills). */
+const RANGE_TYPE_BG: Record<"Audio" | "Video" | "Image", string> = {
+  Audio: "var(--asset-pill-audio)",
+  Video: "var(--asset-pill-video)",
+  Image: "var(--asset-pill-image)",
+};
+
 const EVENT_POINT_SIZE_PX = 12;
 const MIN_PX_BEFORE_NEXT_TO_SHOW_LABEL = 40;
 const LABEL_DOT_GAP_PX = 4;
@@ -12,7 +19,7 @@ export interface RenderLayersCallbacks {
 /**
  * Render virtualized layer rows: only items in visibleItems are in the DOM.
  * Positions are (item.startSec - startSec) * pixelsPerSec.
- * Events: circle marker + label; selected: white 1px outline. Clips: bars.
+ * Events: circle marker + label; selected: white 1px outline. Ranges: bars with label inside.
  */
 export function renderVirtualizedLayers(
   container: HTMLElement,
@@ -83,10 +90,12 @@ export function renderVirtualizedLayers(
           eventWrap.appendChild(labelSpan);
         }
         rowWrap.appendChild(eventWrap);
-      } else {
+      } else if (it.kind === "range") {
         const left = (it.startSec - startSec) * pixelsPerSec;
         const endSecItem = it.endSec ?? it.startSec + 1;
         const w = (endSecItem - it.startSec) * pixelsPerSec;
+        const rangeType = it.rangeType ?? "Audio";
+        const bgColor = RANGE_TYPE_BG[rangeType];
         const range = document.createElement("div");
         range.className = "custom-timeline-range" + (selected ? " custom-timeline-range--selected" : "");
         range.style.position = "absolute";
@@ -95,10 +104,23 @@ export function renderVirtualizedLayers(
         range.style.height = "24px";
         range.style.width = `${Math.min(w, viewportWidthPx - Math.max(0, left))}px`;
         range.style.borderRadius = "4px";
-        range.style.background = "rgba(74, 125, 199, 0.35)";
-        range.style.border = "1px solid var(--accent)";
+        range.style.background = bgColor;
+        range.style.border = `1px solid ${bgColor}`;
         range.style.cursor = "pointer";
+        range.style.display = "flex";
+        range.style.alignItems = "center";
+        range.style.overflow = "hidden";
+        range.style.paddingLeft = "6px";
+        range.style.paddingRight = "6px";
         range.dataset.itemId = it.id;
+        const labelSpan = document.createElement("span");
+        labelSpan.className = "custom-timeline-range-label";
+        labelSpan.textContent = it.label ?? it.id;
+        labelSpan.style.overflow = "hidden";
+        labelSpan.style.textOverflow = "ellipsis";
+        labelSpan.style.whiteSpace = "nowrap";
+        labelSpan.style.minWidth = "0";
+        range.appendChild(labelSpan);
         range.addEventListener("click", (e) => {
           e.stopPropagation();
           callbacks.onSelectItem(it.id);

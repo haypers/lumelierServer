@@ -165,7 +165,7 @@ function getDefaultStartSec(): number {
   return range ? (range.startSec + range.endSec) / 2 : 0;
 }
 
-function addClip(layerId?: string): string {
+function addRange(layerId?: string): string {
   ensureGroups();
   const gid = layerId ?? layers[0].id;
   const start = getDefaultStartSec();
@@ -174,11 +174,12 @@ function addClip(layerId?: string): string {
   items.push({
     id,
     layerId: gid,
-    kind: "clip",
+    kind: "range",
     startSec: start,
     endSec: end,
-    label: `Clip ${id}`,
-    effectType: "fade",
+    label: `Range ${id}`,
+    rangeType: "Audio",
+    filePath: "",
   });
   customTimelineView?.update();
   scheduleAutosave();
@@ -242,15 +243,27 @@ function updateItemInTimeline(id: string, updates: DetailsPanelUpdates): void {
   if (updates.startSec !== undefined) {
     const sec = Number(updates.startSec);
     if (!Number.isNaN(sec) && sec >= 0) {
-      const dur = item.kind === "clip" && item.endSec != null ? item.endSec - item.startSec : 0;
+      const dur = item.kind === "range" && item.endSec != null ? item.endSec - item.startSec : 0;
       item.startSec = sec;
-      if (item.kind === "clip") item.endSec = sec + dur;
+      if (item.kind === "range") item.endSec = sec + dur;
+    }
+  }
+  if (updates.endSec !== undefined) {
+    const sec = Number(updates.endSec);
+    if (!Number.isNaN(sec) && sec >= 0 && item.kind === "range") {
+      item.endSec = sec;
     }
   }
   if (updates.layerId !== undefined) item.layerId = updates.layerId;
   if (updates.label !== undefined) item.label = updates.label || undefined;
   if (updates.effectType !== undefined) item.effectType = updates.effectType || undefined;
   if (updates.color !== undefined) item.color = updates.color || undefined;
+  if (updates.rangeType !== undefined && item.kind === "range") {
+    item.rangeType = updates.rangeType;
+  }
+  if (updates.filePath !== undefined && item.kind === "range") {
+    item.filePath = updates.filePath;
+  }
   customTimelineView?.update();
   scheduleAutosave();
 }
@@ -278,7 +291,7 @@ function getReadheadSecClamped(): number {
   return Math.max(0, readheadSec);
 }
 
-/** Default state for "Create New Show": one layer, one event at 5s (no clip). */
+/** Default state for "Create New Show": one layer, one event at 5s (no range). */
 function getDefaultNewShowState(): TimelineStateJSON {
   return {
     version: 1,
@@ -497,13 +510,15 @@ function getItemForDetails(id: string): import("./details-panel").DetailsPanelIt
   return {
     id: it.id,
     start: timeToDate(it.startSec),
-    end: it.kind === "clip" && it.endSec != null ? timeToDate(it.endSec) : undefined,
+    end: it.kind === "range" && it.endSec != null ? timeToDate(it.endSec) : undefined,
     group: it.layerId,
     payload: {
       kind: it.kind,
       label: it.label,
       effectType: it.effectType,
       color: it.color,
+      rangeType: it.kind === "range" ? it.rangeType : undefined,
+      filePath: it.kind === "range" ? it.filePath : undefined,
     },
   };
 }
@@ -842,6 +857,7 @@ export function render(container: HTMLElement, showId: string | null): void {
               <div class="timeline-toolbar-right" id="timeline-toolbar-right">
                 <button type="button" class="btn btn-icon-label" data-action="split-devices-tracks" aria-label="Split Devices Into Tracks">${treeIcon}Split Devices Into Tracks</button>
                 <button type="button" class="btn btn-primary" data-action="import-from-video">Import from video</button>
+                <button type="button" class="btn btn-primary" data-action="add-range">Add Range</button>
                 <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
                 <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
               </div>
@@ -1104,8 +1120,8 @@ export function render(container: HTMLElement, showId: string | null): void {
           }
           break;
         }
-        case "add-clip":
-          addClip();
+        case "add-range":
+          addRange();
           customTimelineView?.update();
           break;
         case "import-from-video":

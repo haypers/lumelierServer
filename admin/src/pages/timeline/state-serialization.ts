@@ -20,10 +20,12 @@ export function exportState(
       layerId: it.layerId,
       kind: it.kind,
       startSec: it.startSec,
-      endSec: it.kind === "clip" ? it.endSec : undefined,
+      endSec: it.kind === "range" ? it.endSec : undefined,
       label: it.label,
       effectType: it.effectType,
       color: it.color,
+      rangeType: it.kind === "range" ? it.rangeType : undefined,
+      filePath: it.kind === "range" ? it.filePath : undefined,
     })),
     readheadSec: getReadheadSec(),
   };
@@ -47,16 +49,29 @@ export function importState(
   setRequestsGPS(state.requestsGPS === true);
   setLayers(state.layers.map((l) => ({ id: l.id, label: l.label })));
   setItems(
-    state.items.map((it) => ({
-      id: it.id,
-      layerId: it.layerId,
-      kind: it.kind,
-      startSec: it.startSec,
-      endSec: it.endSec,
-      label: it.label,
-      effectType: it.effectType,
-      color: it.color,
-    }))
+    state.items.map((it) => {
+      const raw = it as {
+        kind: string;
+        rangeType?: "Image" | "Video" | "Audio";
+        filePath?: string;
+      };
+      const kind = raw.kind === "clip" ? "range" : it.kind;
+      const rangeType =
+        kind === "range" ? (raw.rangeType ?? "Audio") : undefined;
+      const filePath = kind === "range" ? raw.filePath : undefined;
+      return {
+        id: it.id,
+        layerId: it.layerId,
+        kind,
+        startSec: it.startSec,
+        endSec: it.endSec,
+        label: it.label,
+        effectType: it.effectType,
+        color: it.color,
+        rangeType,
+        filePath,
+      };
+    })
   );
   const maxId = state.items.reduce((acc, it) => {
     const n = parseInt(it.id.replace(/\D/g, ""), 10);
