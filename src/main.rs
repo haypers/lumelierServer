@@ -38,8 +38,12 @@ fn local_ip() -> Option<String> {
     Some(addr.ip().to_string())
 }
 
-/// Base URL for the client app (main server). Used for live-join-url.
+/// Base URL for the client app (main server). Used for live-join-url (QR code, share link).
+/// Set LUMELIER_PUBLIC_URL when behind a reverse proxy (e.g. https://app.lumelier.com).
 fn client_base_url() -> String {
+    if let Ok(url) = std::env::var("LUMELIER_PUBLIC_URL") {
+        return url.trim_end_matches('/').to_string();
+    }
     let host = local_ip().unwrap_or_else(|| "127.0.0.1".to_string());
     format!("http://{}:{}", host, PORT)
 }

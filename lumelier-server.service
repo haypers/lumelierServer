@@ -1,0 +1,24 @@
+# Lumelier app + admin server (Rust binary). Install after building:
+#   sudo cp /home/haypers/myServer/lumelierServer/lumelier-server.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable lumelier-server
+#   sudo systemctl start lumelier-server
+# Build first (from repo root): ./prodAll.sh  or  cd client && npm run build && cd ../admin && npm run build && cd .. && cargo build --release -p lumelier-server -p lumelier-simulated-server
+
+[Unit]
+Description=Lumelier server (app port 3002, admin port 3010)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=haypers
+Group=haypers
+WorkingDirectory=/home/haypers/myServer/lumelierServer
+ExecStart=/home/haypers/myServer/lumelierServer/target/release/lumelier-server
+Environment=LUMELIER_PUBLIC_URL=https://app.lumelier.com
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
