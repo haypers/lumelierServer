@@ -668,6 +668,15 @@ function ensureCustomTimelineCreated(): void {
           scheduleDragUpdate(itemId);
         }
       },
+      onResizeRange: (itemId, startSec, endSec) => {
+        const item = items.find((i) => i.id === itemId);
+        if (item?.kind === "range") {
+          item.startSec = startSec;
+          item.endSec = endSec;
+          selectedItemId = itemId;
+          scheduleDragUpdate(itemId);
+        }
+      },
     }
   );
   requestAnimationFrame(() => {

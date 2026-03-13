@@ -44,6 +44,7 @@ export interface CustomTimelineCallbacks {
   onReadheadChange: (sec: number) => void;
   onMoveEvent?: (itemId: string, startSec: number) => void;
   onMoveRange?: (itemId: string, newStartSec: number) => void;
+  onResizeRange?: (itemId: string, startSec: number, endSec: number) => void;
 }
 
 export interface CustomTimelineView {
@@ -250,6 +251,7 @@ export function createCustomTimelineView(
       onSelectItem: callbacks.onSelectItem,
       onMoveEvent: callbacks.onMoveEvent,
       onMoveRange: callbacks.onMoveRange,
+      onResizeRange: callbacks.onResizeRange,
     },
     scheduleUpdate,
   });
@@ -345,7 +347,7 @@ export function createCustomTimelineView(
 
     const visibleIds = visibleItems.map((i) => i.id).sort().join(",");
     const contentKey = visibleItems
-      .map((i) => `${i.id}:${i.startSec}:${i.layerId}`)
+      .map((i) => `${i.id}:${i.startSec}:${i.endSec ?? i.startSec}:${i.layerId}`)
       .sort()
       .join(",");
     const layersChanged =

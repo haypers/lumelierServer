@@ -801,6 +801,24 @@
   outline: 1px solid white;
   outline-offset: 1px;
 }
+.custom-timeline-range-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  cursor: ew-resize;
+  z-index: 1;
+  pointer-events: auto;
+}
+.custom-timeline-range-handle-left {
+  left: 0;
+}
+.custom-timeline-range-handle-right {
+  right: 0;
+}
+.custom-timeline-range:hover .custom-timeline-range-handle {
+  background: rgba(0, 0, 0, 0.25);
+}
 .custom-timeline-scrollbar-container {
   width: 100%;
 }

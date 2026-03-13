@@ -5,6 +5,7 @@ import {
   type ViewportItem,
   type TimelineViewportState,
 } from "./timeline-viewport";
+import { RANGE_MIN_WIDTH_PX } from "./range/constants";
 
 export interface TimelineInteractionsState {
   items: { id: string; kind: string; startSec: number; endSec?: number }[];
@@ -14,6 +15,7 @@ export interface TimelineInteractionsCallbacks {
   onSelectItem: (id: string | null) => void;
   onMoveEvent?: (itemId: string, startSec: number) => void;
   onMoveRange?: (itemId: string, newStartSec: number) => void;
+  onResizeRange?: (itemId: string, startSec: number, endSec: number) => void;
 }
 
 export interface SetupTimelineInteractionsOptions {
@@ -54,6 +56,12 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
   let rangeDragDurationSec = 0;
   let rangeDragging = false;
   let didRangeDrag = false;
+  let resizeHandleSide: "left" | "right" | null = null;
+  let resizeItemId: string | null = null;
+  let resizeStartX = 0;
+  let resizeStartSec = 0;
+  let resizeEndSec = 0;
+  let didRangeResize = false;
 
   viewportWrap.addEventListener("mousedown", (e) => {
     const eventEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-event");
@@ -64,8 +72,27 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
       didEventDrag = false;
       return;
     }
+    const handleEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range-handle");
     const rangeEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range");
     const rangeItemId = rangeEl instanceof HTMLElement ? rangeEl.dataset.itemId : undefined;
+    if (handleEl && rangeItemId && callbacks.onResizeRange) {
+      const item = getState().items.find((it) => it.id === rangeItemId);
+      if (item && item.kind === "range") {
+        const endSec = item.endSec ?? item.startSec + 1;
+        const side = handleEl.getAttribute("data-handle") as "left" | "right" | null;
+        if (side === "left" || side === "right") {
+          e.preventDefault();
+          resizeHandleSide = side;
+          resizeItemId = rangeItemId;
+          resizeStartX = e.clientX;
+          resizeStartSec = item.startSec;
+          resizeEndSec = endSec;
+          didRangeResize = false;
+          callbacks.onSelectItem(rangeItemId);
+          return;
+        }
+      }
+    }
     if (rangeItemId && callbacks.onMoveRange) {
       const item = getState().items.find((it) => it.id === rangeItemId);
       if (item && item.kind === "range") {
@@ -89,6 +116,22 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
   });
 
   document.addEventListener("mousemove", (e) => {
+    const minDurationSec = RANGE_MIN_WIDTH_PX / viewport.pixelsPerSec;
+    if (resizeHandleSide !== null && resizeItemId != null && callbacks.onResizeRange) {
+      const deltaPx = e.clientX - resizeStartX;
+      const deltaSec = deltaPx / viewport.pixelsPerSec;
+      if (resizeHandleSide === "left") {
+        let newStartSec = resizeStartSec + deltaSec;
+        newStartSec = Math.max(0, Math.min(resizeEndSec - minDurationSec, newStartSec));
+        callbacks.onResizeRange(resizeItemId, newStartSec, resizeEndSec);
+      } else {
+        const scrollRange = getScrollRangeRightSec(viewport, itemsAsViewportItems());
+        let newEndSec = resizeEndSec + deltaSec;
+        newEndSec = Math.max(resizeStartSec + minDurationSec, Math.min(scrollRange, newEndSec));
+        callbacks.onResizeRange(resizeItemId, resizeStartSec, newEndSec);
+      }
+      return;
+    }
     if (eventDragItemId != null && callbacks.onMoveEvent) {
       if (!eventDragging && Math.abs(e.clientX - eventDragStartX) >= 5) {
         eventDragging = true;
@@ -131,6 +174,11 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
   });
 
   document.addEventListener("mouseup", () => {
+    if (resizeHandleSide !== null) {
+      if (resizeItemId != null) didRangeResize = true;
+      resizeHandleSide = null;
+      resizeItemId = null;
+    }
     if (eventDragItemId != null) {
       if (eventDragging) didEventDrag = true;
       eventDragItemId = null;
@@ -149,6 +197,11 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
   });
 
   document.addEventListener("mouseleave", () => {
+    if (resizeHandleSide !== null) {
+      if (resizeItemId != null) didRangeResize = true;
+      resizeHandleSide = null;
+      resizeItemId = null;
+    }
     if (eventDragItemId != null) {
       if (eventDragging) didEventDrag = true;
       eventDragItemId = null;
@@ -184,8 +237,9 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     if (rangeItemId) {
       e.preventDefault();
       e.stopPropagation();
-      if (didRangeDrag) {
+      if (didRangeDrag || didRangeResize) {
         didRangeDrag = false;
+        didRangeResize = false;
         return;
       }
       callbacks.onSelectItem(rangeItemId);

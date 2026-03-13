@@ -1,5 +1,5 @@
 import type { RangeType } from "../../types";
-import { RANGE_TYPE_BG } from "./constants";
+import { RANGE_TYPE_BG, RANGE_HANDLE_WIDTH_PX } from "./constants";
 
 export interface RangeItem {
   id: string;
@@ -39,8 +39,8 @@ export function renderRangeElement(
   range.style.display = "flex";
   range.style.alignItems = "center";
   range.style.overflow = "hidden";
-  range.style.paddingLeft = "6px";
-  range.style.paddingRight = "6px";
+  range.style.paddingLeft = `${RANGE_HANDLE_WIDTH_PX}px`;
+  range.style.paddingRight = `${RANGE_HANDLE_WIDTH_PX}px`;
   range.dataset.itemId = item.id;
 
   const labelSpan = document.createElement("span");
@@ -51,6 +51,16 @@ export function renderRangeElement(
   labelSpan.style.whiteSpace = "nowrap";
   labelSpan.style.minWidth = "0";
   range.appendChild(labelSpan);
+
+  const handleLeft = document.createElement("div");
+  handleLeft.className = "custom-timeline-range-handle custom-timeline-range-handle-left";
+  handleLeft.dataset.handle = "left";
+  range.appendChild(handleLeft);
+
+  const handleRight = document.createElement("div");
+  handleRight.className = "custom-timeline-range-handle custom-timeline-range-handle-right";
+  handleRight.dataset.handle = "right";
+  range.appendChild(handleRight);
 
   return range;
 }
