@@ -83,3 +83,73 @@ cd client && npm run build && cd ..   # client
 cd admin && npm run build && cd ..   # admin
 cargo run
 ```
+
+---
+
+## Hosting on app.lumelier.com
+
+Putting the app and admin behind Caddy at **app.lumelier.com** and **admin.lumelier.com** (e.g. on a myServer box).
+
+### DNS records
+
+At your DNS provider for **lumelier.com** add:
+
+| Type  | Name   | Value                     |
+|-------|--------|---------------------------|
+| **A** | `app`  | `<your-server-public-IP>` |
+| **A** | `admin`| `<same-IP>`               |
+
+Or use **CNAME**: `app` and `admin` → `lumelier.com` (if lumelier.com already points at this server).
+
+### Prerequisites on the server
+
+- **Rust 1.85+** (e.g. `rustup`). **Node/npm** for building client and admin.
+- **ffmpeg** (optional): `sudo apt install ffmpeg` for asset duration in the admin Assets tab.
+
+### Build and run (first time)
+
+From the repo root on the server:
+
+```bash
+./prodAll.sh
+```
+
+This builds client + admin and the release binary. Listens on **3002** (app) and **3010** (admin).
+
+To run as a **systemd service** (survives reboots):
+
+```bash
+sudo cp /path/to/lumelierServer/lumelier-server.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable lumelier-server
+sudo systemctl start lumelier-server
+```
+
+The service sets `LUMELIER_PUBLIC_URL=https://app.lumelier.com` so live-join URLs and QR codes use the public HTTPS URL.
+
+### Caddy (reverse proxy)
+
+The myServer **unified Caddyfile** should have:
+
+- **app.lumelier.com** → `localhost:3002`
+- **admin.lumelier.com** → `localhost:3010`
+
+Deploy: `sudo cp ~/myServer/unified-caddyfile.conf /etc/caddy/Caddyfile && sudo systemctl reload caddy`. Caddy will get TLS certs once DNS points at the server.
+
+### Checklist
+
+1. **DNS**: A (or CNAME) for `app` and `admin` → server IP.
+2. **Build**: `./prodAll.sh`
+3. **Service**: Install and start `lumelier-server.service`.
+4. **Caddy**: Deploy unified Caddyfile and reload.
+5. **Use**: https://app.lumelier.com (client), https://admin.lumelier.com (admin). Create a user in the admin first.
+
+### Ports used
+
+| Port  | Purpose                                              |
+|-------|------------------------------------------------------|
+| 3002  | Main app (client + API)                              |
+| 3010  | Admin panel                                          |
+| 3003  | Simulated client server (optional; runAll.sh / dev)  |
+
+Only 3002 and 3010 need to be reachable by Caddy on localhost.
