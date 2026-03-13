@@ -867,7 +867,8 @@ export function render(container: HTMLElement, showId: string | null): void {
   const loadingEl = container.querySelector("#timeline-loading");
   const bottomRowEl = container.querySelector("#timeline-bottom-row") as HTMLElement | null;
 
-  /* Build bottom row: resizable split with details (left) and preview (right) */
+  /* Build bottom row: resizable split with details (left) and preview (right).
+   * Storage keys include showId so tab selection and split sizes are persisted per show. */
   if (bottomRowEl) {
     const detailsSection = document.createElement("section");
     detailsSection.className = "timeline-details-panel";
@@ -883,7 +884,7 @@ export function render(container: HTMLElement, showId: string | null): void {
     bottomRightSection.setAttribute("aria-label", "Preview and assets");
 
     const { container: tabbedContainer } = createTabbedPane({
-      storageKey: "timeline-bottom-right-tabs",
+      storageKey: `lumelier-timeline:${showId}:bottom-right-tabs`,
       tabs: [
         {
           id: "preview",
@@ -891,7 +892,7 @@ export function render(container: HTMLElement, showId: string | null): void {
           getContent: () => {
             const el = document.createElement("div");
             el.className = "timeline-tab-content timeline-tab-content--preview";
-            renderPreviewPanel(el);
+            renderPreviewPanel(el, showId);
             return el;
           },
         },
@@ -912,7 +913,7 @@ export function render(container: HTMLElement, showId: string | null): void {
       size: 50,
       min: 15,
       max: 85,
-      storageKey: "timeline-details-preview-split",
+      storageKey: `lumelier-timeline:${showId}:details-preview-split`,
     });
     panelA.appendChild(detailsSection);
     bottomRightSection.appendChild(tabbedContainer);
@@ -926,7 +927,7 @@ export function render(container: HTMLElement, showId: string | null): void {
       size: 50,
       min: 20,
       max: 85,
-      storageKey: "timeline-vertical-split",
+      storageKey: `lumelier-timeline:${showId}:vertical-split`,
     });
     topPanel.appendChild(timelineWrap);
     bottomPanel.appendChild(bottomRowEl);

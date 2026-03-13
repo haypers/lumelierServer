@@ -10,7 +10,29 @@ const MIN_DIM = 5;
 const MAX_DIM = 40;
 const DEFAULT_DIM = 10;
 
-export function renderPreviewPanel(container: HTMLElement): void {
+const STORAGE_KEY_PREFIX = "lumelier-timeline:";
+const STORAGE_KEY_SUFFIX = ":preview-array-dim";
+
+function loadStoredDim(showId: string): number | null {
+  try {
+    const v = localStorage.getItem(STORAGE_KEY_PREFIX + showId + STORAGE_KEY_SUFFIX);
+    if (v == null) return null;
+    const n = parseInt(v, 10);
+    return Number.isFinite(n) && n >= MIN_DIM && n <= MAX_DIM ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveDim(showId: string, dim: number): void {
+  try {
+    localStorage.setItem(STORAGE_KEY_PREFIX + showId + STORAGE_KEY_SUFFIX, String(dim));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function renderPreviewPanel(container: HTMLElement, showId: string | null = null): void {
   container.innerHTML = "";
   const wrapper = document.createElement("div");
   wrapper.className = "timeline-preview-widget";
@@ -21,12 +43,15 @@ export function renderPreviewPanel(container: HTMLElement): void {
   const sliderWrap = document.createElement("div");
   sliderWrap.className = "timeline-preview-slider-wrap";
 
+  const storedDim = showId ? loadStoredDim(showId) : null;
+  const initialDim = storedDim ?? DEFAULT_DIM;
+
   const sliderInput = document.createElement("input");
   sliderInput.type = "range";
   sliderInput.min = String(MIN_DIM);
   sliderInput.max = String(MAX_DIM);
   sliderInput.step = "1";
-  sliderInput.value = String(DEFAULT_DIM);
+  sliderInput.value = String(initialDim);
   sliderInput.className = "timeline-preview-array-slider";
   sliderInput.setAttribute("aria-label", "Array dimensions (grid size)");
 
@@ -43,7 +68,7 @@ export function renderPreviewPanel(container: HTMLElement): void {
   wrapper.appendChild(gridArea);
   container.appendChild(wrapper);
 
-  let dimension = DEFAULT_DIM;
+  let dimension = initialDim;
 
   function renderGrid(): void {
     const side = dimension;
@@ -65,6 +90,7 @@ export function renderPreviewPanel(container: HTMLElement): void {
     if (Number.isFinite(n) && n >= MIN_DIM && n <= MAX_DIM) {
       dimension = n;
       renderGrid();
+      if (showId) saveDim(showId, n);
     }
   }
 
