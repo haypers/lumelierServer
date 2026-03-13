@@ -1,0 +1,39 @@
+/* Shared layer/track picker (details panel + track-assignments Set Track row) */
+.timeline-details-panel .detail-layer-wrap .layer-track-picker {
+  max-width: 200px;
+}
+.layer-track-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  width: 100%;
+  min-width: 0;
+}
+.layer-track-picker__select {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.layer-track-picker__select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.layer-track-picker__num {
+  width: 56px;
+  max-width: 56px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.layer-track-picker__num:focus {
+  outline: none;
+  border-color: var(--accent);
+}

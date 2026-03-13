@@ -1,4 +1,4 @@
-import "./styles.css";
+import "./styles/index.css";
 import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
 import circleCheckIcon from "../../icons/circle-check.svg?raw";
 import pauseIcon from "../../icons/pause.svg?raw";

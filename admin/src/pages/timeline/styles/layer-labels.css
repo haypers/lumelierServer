@@ -1,0 +1,91 @@
+/* Layer label row (shared by custom timeline left column) */
+.timeline-layer-label,
+.custom-timeline-layer-label-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  min-height: 32px;
+  max-height: 32px;
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+.custom-timeline-layer-label-row {
+  border-bottom: 1px solid var(--border);
+}
+.timeline-layer-label-name,
+.timeline-layer-label-input {
+  width: 0;
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+.timeline-layer-label-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: text;
+  font-size: 13px;
+}
+.timeline-layer-label-name:hover {
+  color: var(--accent);
+}
+.timeline-layer-label-input {
+  padding: 2px 6px;
+  font-size: 13px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  color: var(--text);
+  outline: none;
+}
+.timeline-layer-label-remove {
+  flex-shrink: 0;
+  visibility: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius);
+  background: transparent;
+  cursor: pointer;
+  color: #e87a7a;
+  position: relative;
+}
+.timeline-layer-label-remove:hover {
+  background: rgba(232, 122, 122, 0.2);
+}
+.timeline-layer-label-remove svg {
+  width: 14px;
+  height: 14px;
+}
+.timeline-layer-label:hover .timeline-layer-label-remove,
+.custom-timeline-layer-label-row:hover .timeline-layer-label-remove {
+  visibility: visible;
+}
+.timeline-layer-label--only-one .timeline-layer-label-remove {
+  visibility: hidden !important;
+  pointer-events: none;
+}
+.timeline-add-layer-btn {
+  padding: 6px 10px;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.timeline-add-layer-btn:hover {
+  background: var(--accent-current);
+  border-color: var(--accent);
+}
+.timeline-content--broadcast .timeline-layer-label-remove {
+  display: none !important;
+}
