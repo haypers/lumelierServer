@@ -1,5 +1,6 @@
 import type { TimelineStateJSON } from "../types";
 import { renderRangeElement, type RangeItem } from "./range/render-range";
+import { RANGE_HANDLE_ZONE_WIDTH_PX } from "./range/constants";
 import { renderEventElement, type EventItem } from "./event/render-event";
 
 /**
@@ -38,9 +39,39 @@ export function renderVirtualizedLayers(
     const events = layerItems.filter((it): it is typeof it & { kind: "event" } => it.kind === "event");
 
     ranges.forEach((it) => {
+      const item = it as RangeItem;
+      const left = (item.startSec - startSec) * pixelsPerSec;
+      const endSecItem = item.endSec ?? item.startSec + 1;
+      const w = (endSecItem - item.startSec) * pixelsPerSec;
+      const halfZone = RANGE_HANDLE_ZONE_WIDTH_PX / 2;
+
       rowWrap.appendChild(
-        renderRangeElement(it as RangeItem, startSec, pixelsPerSec, selectedItemId)
+        renderRangeElement(item, startSec, pixelsPerSec, selectedItemId)
       );
+
+      const zoneLeft = document.createElement("div");
+      zoneLeft.className = "custom-timeline-range-handle-zone custom-timeline-range-handle-zone-left";
+      zoneLeft.dataset.itemId = item.id;
+      zoneLeft.dataset.handle = "left";
+      zoneLeft.style.position = "absolute";
+      zoneLeft.style.left = `${left - halfZone}px`;
+      zoneLeft.style.top = "4px";
+      zoneLeft.style.width = `${RANGE_HANDLE_ZONE_WIDTH_PX}px`;
+      zoneLeft.style.height = "24px";
+      zoneLeft.style.zIndex = "1";
+      rowWrap.appendChild(zoneLeft);
+
+      const zoneRight = document.createElement("div");
+      zoneRight.className = "custom-timeline-range-handle-zone custom-timeline-range-handle-zone-right";
+      zoneRight.dataset.itemId = item.id;
+      zoneRight.dataset.handle = "right";
+      zoneRight.style.position = "absolute";
+      zoneRight.style.left = `${left + w - halfZone}px`;
+      zoneRight.style.top = "4px";
+      zoneRight.style.width = `${RANGE_HANDLE_ZONE_WIDTH_PX}px`;
+      zoneRight.style.height = "24px";
+      zoneRight.style.zIndex = "1";
+      rowWrap.appendChild(zoneRight);
     });
     events.forEach((it, i) => {
       rowWrap.appendChild(

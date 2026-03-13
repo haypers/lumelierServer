@@ -72,6 +72,26 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
       didEventDrag = false;
       return;
     }
+    const zoneEl = getNearestHandleZoneAt(e.clientX, e.clientY);
+    if (zoneEl && callbacks.onResizeRange) {
+      const rangeItemId = zoneEl.getAttribute("data-item-id");
+      const side = zoneEl.getAttribute("data-handle") as "left" | "right" | null;
+      if (rangeItemId && (side === "left" || side === "right")) {
+        const item = getState().items.find((it) => it.id === rangeItemId);
+        if (item && item.kind === "range") {
+          const endSec = item.endSec ?? item.startSec + 1;
+          e.preventDefault();
+          resizeHandleSide = side;
+          resizeItemId = rangeItemId;
+          resizeStartX = e.clientX;
+          resizeStartSec = item.startSec;
+          resizeEndSec = endSec;
+          didRangeResize = false;
+          callbacks.onSelectItem(rangeItemId);
+          return;
+        }
+      }
+    }
     const handleEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range-handle");
     const rangeEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range");
     const rangeItemId = rangeEl instanceof HTMLElement ? rangeEl.dataset.itemId : undefined;
@@ -216,6 +236,63 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
       panning = false;
       rulerWrap.classList.remove("custom-timeline-pan-cursor");
       viewportWrap.classList.remove("custom-timeline-pan-cursor");
+    }
+  });
+
+  function getRangeForHandleZone(zoneEl: HTMLElement): HTMLElement | null {
+    const rowWrap = zoneEl.closest(".custom-timeline-layer-row-wrap");
+    if (!rowWrap) return null;
+    const itemId = zoneEl.getAttribute("data-item-id");
+    if (!itemId) return null;
+    return rowWrap.querySelector(`.custom-timeline-range[data-item-id="${itemId}"]`);
+  }
+
+  /** Same logic as mousemove: pick the nearest handle zone at (clientX, clientY) so we drag the highlighted handle. */
+  function getNearestHandleZoneAt(clientX: number, clientY: number): HTMLElement | null {
+    const zones = Array.from(
+      document.elementsFromPoint(clientX, clientY)
+    ).filter((el): el is HTMLElement => el instanceof HTMLElement && el.classList.contains("custom-timeline-range-handle-zone"));
+    if (zones.length === 0) return null;
+    if (zones.length === 1) return zones[0];
+    let best = zones[0];
+    let bestDist = Infinity;
+    for (const z of zones) {
+      const r = z.getBoundingClientRect();
+      const centerX = r.left + r.width / 2;
+      const centerY = r.top + r.height / 2;
+      const d = (clientX - centerX) ** 2 + (clientY - centerY) ** 2;
+      if (d < bestDist) {
+        bestDist = d;
+        best = z;
+      }
+    }
+    return best;
+  }
+
+  let lastActiveHandleRange: HTMLElement | null = null;
+  let lastActiveHandleSide: "left" | "right" | null = null;
+
+  layersContent.addEventListener("mousemove", (e) => {
+    const activeZone = getNearestHandleZoneAt(e.clientX, e.clientY);
+    const side = activeZone?.getAttribute("data-handle") as "left" | "right" | null;
+    const range = activeZone && (side === "left" || side === "right") ? getRangeForHandleZone(activeZone) : null;
+    if (range !== lastActiveHandleRange || side !== lastActiveHandleSide) {
+      if (lastActiveHandleRange) {
+        lastActiveHandleRange.classList.remove("custom-timeline-range--handle-left-active", "custom-timeline-range--handle-right-active");
+      }
+      lastActiveHandleRange = range;
+      lastActiveHandleSide = side;
+      if (range && side) {
+        range.classList.add(side === "left" ? "custom-timeline-range--handle-left-active" : "custom-timeline-range--handle-right-active");
+      }
+    }
+  });
+
+  layersContent.addEventListener("mouseleave", () => {
+    if (lastActiveHandleRange) {
+      lastActiveHandleRange.classList.remove("custom-timeline-range--handle-left-active", "custom-timeline-range--handle-right-active");
+      lastActiveHandleRange = null;
+      lastActiveHandleSide = null;
     }
   });
 

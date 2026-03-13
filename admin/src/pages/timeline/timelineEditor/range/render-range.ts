@@ -25,6 +25,11 @@ export function renderRangeElement(
   const rangeType = item.rangeType ?? "Audio";
   const bgColor = RANGE_TYPE_BG[rangeType];
 
+  const handleWidthPx = Math.min(
+    RANGE_HANDLE_WIDTH_PX,
+    Math.max(0, Math.floor(w / 2))
+  );
+
   const range = document.createElement("div");
   range.className = "custom-timeline-range" + (selected ? " custom-timeline-range--selected" : "");
   range.style.position = "absolute";
@@ -39,8 +44,8 @@ export function renderRangeElement(
   range.style.display = "flex";
   range.style.alignItems = "center";
   range.style.overflow = "hidden";
-  range.style.paddingLeft = `${RANGE_HANDLE_WIDTH_PX}px`;
-  range.style.paddingRight = `${RANGE_HANDLE_WIDTH_PX}px`;
+  range.style.paddingLeft = `${handleWidthPx}px`;
+  range.style.paddingRight = `${handleWidthPx}px`;
   range.dataset.itemId = item.id;
 
   const labelSpan = document.createElement("span");
@@ -55,11 +60,13 @@ export function renderRangeElement(
   const handleLeft = document.createElement("div");
   handleLeft.className = "custom-timeline-range-handle custom-timeline-range-handle-left";
   handleLeft.dataset.handle = "left";
+  handleLeft.style.width = `${handleWidthPx}px`;
   range.appendChild(handleLeft);
 
   const handleRight = document.createElement("div");
   handleRight.className = "custom-timeline-range-handle custom-timeline-range-handle-right";
   handleRight.dataset.handle = "right";
+  handleRight.style.width = `${handleWidthPx}px`;
   range.appendChild(handleRight);
 
   return range;

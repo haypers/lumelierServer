@@ -805,7 +805,7 @@
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 8px;
+  min-width: 0;
   cursor: ew-resize;
   z-index: 1;
   pointer-events: auto;
@@ -818,6 +818,24 @@
 }
 .custom-timeline-range:hover .custom-timeline-range-handle {
   background: rgba(0, 0, 0, 0.25);
+}
+.custom-timeline-range--handle-left-active .custom-timeline-range-handle-right {
+  display: none;
+}
+.custom-timeline-range--handle-left-active .custom-timeline-range-handle-left {
+  background: rgba(0, 0, 0, 0.45);
+}
+.custom-timeline-range--handle-right-active .custom-timeline-range-handle-left {
+  display: none;
+}
+.custom-timeline-range--handle-right-active .custom-timeline-range-handle-right {
+  background: rgba(0, 0, 0, 0.45);
+}
+.custom-timeline-range-handle-zone {
+  position: absolute;
+  cursor: ew-resize;
+  z-index: 1;
+  pointer-events: auto;
 }
 .custom-timeline-scrollbar-container {
   width: 100%;
