@@ -857,7 +857,7 @@ body {
   background: var(--border);
 }
 
-/* Shared empty state when a show is required (timeline, venue map, dashboard, etc.) */
+/* Shared empty state when a show is required (timeline, venue map, etc.) */
 .show-required-empty-state {
   flex: 1;
   min-height: 0;

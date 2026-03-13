@@ -25,6 +25,8 @@ function getExtensionKind(ext: string): "audio" | "video" | "image" | null {
 interface TimelineMediaFile {
   name: string;
   size_bytes: number;
+  /** Duration in seconds for audio/video; absent for images or when unknown. */
+  duration_sec?: number;
 }
 
 interface TimelineMediaListResponse {
@@ -35,6 +37,13 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDuration(sec: number | undefined): string {
+  if (sec == null || !Number.isFinite(sec) || sec < 0) return "—";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
 function renderFileList(
@@ -70,6 +79,14 @@ function renderFileList(
       }
     }
 
+    const statusCell = document.createElement("div");
+    statusCell.className = "assets-file-status-cell";
+    // Placeholder for future: uploading, saved, loaded locally, etc.
+
+    const durationCell = document.createElement("div");
+    durationCell.className = "assets-file-duration-cell";
+    durationCell.textContent = formatDuration(file.duration_sec);
+
     const sizeSpan = document.createElement("span");
     sizeSpan.className = "assets-file-size";
     sizeSpan.textContent = formatSize(file.size_bytes);
@@ -98,10 +115,38 @@ function renderFileList(
     });
 
     row.appendChild(nameCell);
+    row.appendChild(statusCell);
+    row.appendChild(durationCell);
     row.appendChild(sizeSpan);
     row.appendChild(downloadBtn);
     listEl.appendChild(row);
   }
+}
+
+function createListHeader(): HTMLElement {
+  const row = document.createElement("div");
+  row.className = "assets-file-header";
+  const name = document.createElement("div");
+  name.className = "assets-file-header__name";
+  name.textContent = "Name";
+  const status = document.createElement("div");
+  status.className = "assets-file-header__status";
+  status.textContent = "Status";
+  const duration = document.createElement("div");
+  duration.className = "assets-file-header__duration";
+  duration.textContent = "Duration";
+  const size = document.createElement("div");
+  size.className = "assets-file-header__size";
+  size.textContent = "Size";
+  const download = document.createElement("div");
+  download.className = "assets-file-header__download";
+  download.setAttribute("aria-hidden", "true");
+  row.appendChild(name);
+  row.appendChild(status);
+  row.appendChild(duration);
+  row.appendChild(size);
+  row.appendChild(download);
+  return row;
 }
 
 export function renderAssetsPanel(container: HTMLElement, showId: string | null): void {
@@ -196,6 +241,9 @@ export function renderAssetsPanel(container: HTMLElement, showId: string | null)
   toolbar.appendChild(fileInput);
   toolbar.appendChild(uploadBtn);
   toolbar.appendChild(refreshBtn);
+
+  const headerRow = createListHeader();
+  listContainer.appendChild(headerRow);
   listContainer.appendChild(listEl);
   wrap.appendChild(toolbar);
   wrap.appendChild(listContainer);

@@ -69,7 +69,7 @@ npm run build
 cd ..
 ```
 
-Then run the server; open **http://localhost:3010** (or **http://\<local-ip\>:3010**). You’ll see a gate screen with a “Proceed” button. Clicking it sets a localStorage token and shows the dashboard. Auth is a placeholder (localStorage only) so you can swap in real auth later.
+Then run the server; open **http://localhost:3010** (or **http://\<local-ip\>:3010**). You’ll see a gate screen with a “Proceed” button. Clicking it sets a localStorage token and shows the timeline. Auth is a placeholder (localStorage only) so you can swap in real auth later.
 
 ## After changing the client or admin
 

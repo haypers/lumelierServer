@@ -87,9 +87,50 @@
 .assets-file-list {
   display: flex;
   flex-direction: column;
-  border-top: 1px solid var(--border);
   min-height: 0;
   flex: 1 1 0;
+}
+
+/* Header row: same column layout as file rows; single border below (no double border with list). */
+.assets-file-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 12px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  background: var(--bg);
+}
+
+.assets-file-header__name {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.assets-file-header__status {
+  flex: 0 0 auto;
+  width: 4.5em;
+}
+
+.assets-file-header__duration {
+  flex: 0 0 auto;
+  width: 4em;
+  text-align: right;
+}
+
+.assets-file-header__size {
+  flex: 0 0 auto;
+  min-width: 4em;
+  text-align: right;
+}
+
+.assets-file-header__download {
+  flex: 0 0 auto;
+  width: 28px;
+  min-width: 28px;
 }
 
 .assets-list-empty {
@@ -124,6 +165,21 @@
   align-items: center;
   gap: 6px;
   overflow: hidden;
+}
+
+.assets-file-status-cell {
+  flex: 0 0 auto;
+  width: 4.5em;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.assets-file-duration-cell {
+  flex: 0 0 auto;
+  width: 4em;
+  color: var(--text-muted);
+  font-size: 12px;
+  text-align: right;
 }
 
 .assets-file-name-base {

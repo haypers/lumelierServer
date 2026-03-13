@@ -16,7 +16,6 @@ import {
   fetchLiveStateFromServer,
   scheduleNextLiveStatePoll,
 } from "./show-management";
-import { render as renderDashboard } from "../pages/dashboard";
 import { render as renderTimeline } from "../pages/timeline";
 import { render as renderConnectedDevicesList } from "../pages/connected-devices-list";
 import { render as renderVenueMap } from "../pages/venue-map";
@@ -45,7 +44,6 @@ function renderPageContent(path: RoutePath): void {
   if (!main) return;
   const showIdFromPath = getShowIdFromPath();
   const isShowRoute =
-    path === "/dashboard" ||
     path === "/timeline" ||
     path === "/connectedDevicesList" ||
     path === "/venueMap" ||
@@ -55,8 +53,6 @@ function renderPageContent(path: RoutePath): void {
     return renderShowNotFound(main);
   }
   switch (path) {
-    case "/dashboard":
-      return renderDashboard(main, getShowIdFromPath());
     case "/timeline":
       return renderTimeline(main, getShowIdFromPath());
     case "/connectedDevicesList":
@@ -79,8 +75,8 @@ function renderApp(username: string): void {
   if (!app) return;
   const { path } = parsePath();
   const raw = window.location.pathname.replace(/\/$/, "") || "/";
-  if (raw === "/" && path === "/dashboard") {
-    window.history.replaceState(null, "", "/dashboard");
+  if (raw === "/" && path === "/timeline") {
+    window.history.replaceState(null, "", "/timeline");
   }
   renderHeader(app, path, username);
   renderPageContent(path);
@@ -109,7 +105,7 @@ function render(): void {
   fetch("/api/auth/me", { credentials: "include" })
     .then(async (res) => {
       if (!res.ok) {
-        const redirect = encodeURIComponent(window.location.pathname || "/dashboard");
+        const redirect = encodeURIComponent(window.location.pathname || "/timeline");
         window.location.href = `/login?redirect=${redirect}`;
         return;
       }

@@ -55,7 +55,7 @@ export function render(container: HTMLElement): void {
         body: JSON.stringify({ username, password }),
       });
       if (res.ok) {
-        const redirect = new URLSearchParams(window.location.search).get("redirect") || "/dashboard";
+        const redirect = new URLSearchParams(window.location.search).get("redirect") || "/timeline";
         window.location.href = redirect;
         return;
       }

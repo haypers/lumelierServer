@@ -140,7 +140,7 @@ async fn main() {
         }
     }
 
-    /// Serves the admin SPA for show routes (e.g. /dashboard/:show_id). Always returns the SPA so the
+    /// Serves the admin SPA for show routes (e.g. /timeline/:show_id). Always returns the SPA so the
     /// client can load and show a styled 404 when the show does not exist or the user has no access.
     async fn serve_admin_index_if_show_access() -> impl IntoResponse {
         serve_admin_index().await.into_response()
@@ -220,10 +220,6 @@ async fn main() {
         .route("/api/auth/me", get(auth::get_me::<api::AdminAppState>))
         .nest("/api/admin", admin_live_show_ids.merge(admin_protected))
         .route("/", any(serve_admin_index))
-        .route("/dashboard/:show_id", any(serve_admin_index_if_show_access))
-        .route("/dashboard/:show_id/", any(serve_admin_index_if_show_access))
-        .route("/dashboard", any(serve_admin_index))
-        .route("/dashboard/", any(serve_admin_index))
         .route("/sessionManager/:show_id", any(serve_admin_index_if_show_access))
         .route("/sessionManager/:show_id/", any(serve_admin_index_if_show_access))
         .route("/sessionManager", any(serve_admin_index))
