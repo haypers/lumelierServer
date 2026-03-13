@@ -46,10 +46,13 @@ export interface CustomTimelineCallbacks {
   onSelectItem: (id: string | null) => void;
   onReadheadChange: (sec: number) => void;
   onMoveEvent?: (itemId: string, startSec: number) => void;
+  onMoveRange?: (itemId: string, newStartSec: number) => void;
 }
 
 export interface CustomTimelineView {
   update: () => void;
+  /** Schedule at most one update on the next frame (use for scroll, drag, resize to avoid jitter). */
+  scheduleUpdate: () => void;
   getVisibleRange: () => { startSec: number; endSec: number };
 }
 
@@ -223,7 +226,7 @@ export function createCustomTimelineView(
     const duration = getViewportDurationSec(viewport);
     const maxStart = Math.max(0, scrollRange - duration);
     setStartSec(viewport, Math.max(0, Math.min(maxStart, sec)));
-    update();
+    scheduleUpdate();
   }
 
   // Pan by wheel (no shift): vertical = 1/6 tick step per click; horizontal = deltaX pixels; zoom with shift+wheel
@@ -251,7 +254,7 @@ export function createCustomTimelineView(
     scheduleUpdate();
   }, { passive: false });
 
-  // Pan by drag only when starting on the ruler; event drag when starting on an event
+  // Pan by drag only when starting on the ruler; event drag when starting on an event; range drag when starting on a range (events are rendered on top so they take precedence when overlapping)
   let panning = false;
   let panStartClientX = 0;
   let panStartSec = 0;
@@ -259,15 +262,35 @@ export function createCustomTimelineView(
   let eventDragStartX = 0;
   let eventDragging = false;
   let didEventDrag = false;
+  let rangeDragItemId: string | null = null;
+  let rangeDragStartX = 0;
+  let rangeDragStartSec = 0;
+  let rangeDragDurationSec = 0;
+  let rangeDragging = false;
+  let didRangeDrag = false;
 
   viewportWrap.addEventListener("mousedown", (e) => {
     const eventEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-event");
-    const itemId = eventEl instanceof HTMLElement ? eventEl.dataset.itemId : undefined;
-    if (itemId) {
-      eventDragItemId = itemId;
+    const eventItemId = eventEl instanceof HTMLElement ? eventEl.dataset.itemId : undefined;
+    if (eventItemId) {
+      eventDragItemId = eventItemId;
       eventDragStartX = e.clientX;
       didEventDrag = false;
       return;
+    }
+    const rangeEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range");
+    const rangeItemId = rangeEl instanceof HTMLElement ? rangeEl.dataset.itemId : undefined;
+    if (rangeItemId && callbacks.onMoveRange) {
+      const item = getState().items.find((it) => it.id === rangeItemId);
+      if (item && item.kind === "range") {
+        const endSec = item.endSec ?? item.startSec + 1;
+        rangeDragItemId = rangeItemId;
+        rangeDragStartX = e.clientX;
+        rangeDragStartSec = item.startSec;
+        rangeDragDurationSec = endSec - item.startSec;
+        didRangeDrag = false;
+        return;
+      }
     }
     const onRuler = (e.target as HTMLElement)?.closest?.(".custom-timeline-ruler-wrap");
     if (!onRuler) return;
@@ -294,6 +317,21 @@ export function createCustomTimelineView(
       }
       return;
     }
+    if (rangeDragItemId != null && callbacks.onMoveRange) {
+      if (!rangeDragging && Math.abs(e.clientX - rangeDragStartX) >= 5) {
+        rangeDragging = true;
+        callbacks.onSelectItem(rangeDragItemId);
+      }
+      if (rangeDragging) {
+        const deltaPx = e.clientX - rangeDragStartX;
+        const deltaSec = deltaPx / viewport.pixelsPerSec;
+        const scrollRange = getScrollRangeRightSec(viewport, itemsAsViewportItems());
+        const maxStart = Math.max(0, scrollRange - rangeDragDurationSec);
+        const newStartSec = Math.max(0, Math.min(maxStart, rangeDragStartSec + deltaSec));
+        callbacks.onMoveRange(rangeDragItemId, newStartSec);
+      }
+      return;
+    }
     if (!panning) return;
     const deltaPx = panStartClientX - e.clientX;
     const deltaSec = deltaPx / viewport.pixelsPerSec;
@@ -310,6 +348,11 @@ export function createCustomTimelineView(
       eventDragItemId = null;
       eventDragging = false;
     }
+    if (rangeDragItemId != null) {
+      if (rangeDragging) didRangeDrag = true;
+      rangeDragItemId = null;
+      rangeDragging = false;
+    }
     if (panning) {
       panning = false;
       rulerWrap.classList.remove("custom-timeline-pan-cursor");
@@ -322,6 +365,11 @@ export function createCustomTimelineView(
       eventDragItemId = null;
       eventDragging = false;
     }
+    if (rangeDragItemId != null) {
+      if (rangeDragging) didRangeDrag = true;
+      rangeDragItemId = null;
+      rangeDragging = false;
+    }
     if (panning) {
       panning = false;
       rulerWrap.classList.remove("custom-timeline-pan-cursor");
@@ -331,15 +379,28 @@ export function createCustomTimelineView(
 
   layersContent.addEventListener("click", (e) => {
     const eventEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-event");
-    const itemId = eventEl instanceof HTMLElement ? eventEl.dataset.itemId : undefined;
-    if (!itemId) return;
-    e.preventDefault();
-    e.stopPropagation();
-    if (didEventDrag) {
-      didEventDrag = false;
+    const eventItemId = eventEl instanceof HTMLElement ? eventEl.dataset.itemId : undefined;
+    if (eventItemId) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (didEventDrag) {
+        didEventDrag = false;
+        return;
+      }
+      callbacks.onSelectItem(eventItemId);
       return;
     }
-    callbacks.onSelectItem(itemId);
+    const rangeEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range");
+    const rangeItemId = rangeEl instanceof HTMLElement ? rangeEl.dataset.itemId : undefined;
+    if (rangeItemId) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (didRangeDrag) {
+        didRangeDrag = false;
+        return;
+      }
+      callbacks.onSelectItem(rangeItemId);
+    }
   });
 
   // Readhead drag
@@ -544,8 +605,7 @@ export function createCustomTimelineView(
         viewport.pixelsPerSec,
         viewportWidthPx,
         LAYER_ROW_HEIGHT_PX,
-        state.selectedItemId,
-        { onSelectItem: (id) => callbacks.onSelectItem(id) }
+        state.selectedItemId
       );
       lastLayersKey = {
         startSec,
@@ -587,13 +647,14 @@ export function createCustomTimelineView(
   update();
   requestAnimationFrame(() => update());
 
-  const resizeObserver = new ResizeObserver(() => update());
+  const resizeObserver = new ResizeObserver(() => scheduleUpdate());
   resizeObserver.observe(rightContent);
   resizeObserver.observe(viewportWrap);
   resizeObserver.observe(rightCol);
 
   return {
     update,
+    scheduleUpdate,
     getVisibleRange: () => getVisibleRange(viewport),
   };
 }

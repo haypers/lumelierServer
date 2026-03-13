@@ -1009,11 +1009,13 @@ pub async fn post_go_live(
     }
 
     // Notify simulated server in real time so it can create the bucket without waiting for the next 10s poll.
-    let simulated_url = state.simulated_server_url.clone();
-    let show_id_notify = show_id.clone();
-    tokio::spawn(async move {
-        notify_simulated_server_show_live(&simulated_url, &show_id_notify).await;
-    });
+    if state.simulated_server_enabled && !state.simulated_server_url.is_empty() {
+        let simulated_url = state.simulated_server_url.clone();
+        let show_id_notify = show_id.clone();
+        tokio::spawn(async move {
+            notify_simulated_server_show_live(&simulated_url, &show_id_notify).await;
+        });
+    }
 
     Ok(StatusCode::OK)
 }
@@ -1039,11 +1041,13 @@ pub async fn post_end_live(
     state.live_shows.remove(&show_id);
 
     // Notify simulated server in real time so it can remove the bucket without waiting for the next 10s poll.
-    let simulated_url = state.simulated_server_url.clone();
-    let show_id_notify = show_id.clone();
-    tokio::spawn(async move {
-        notify_simulated_server_show_ended(&simulated_url, &show_id_notify).await;
-    });
+    if state.simulated_server_enabled && !state.simulated_server_url.is_empty() {
+        let simulated_url = state.simulated_server_url.clone();
+        let show_id_notify = show_id.clone();
+        tokio::spawn(async move {
+            notify_simulated_server_show_ended(&simulated_url, &show_id_notify).await;
+        });
+    }
 
     Ok(StatusCode::NO_CONTENT)
 }

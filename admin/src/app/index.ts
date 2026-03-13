@@ -4,6 +4,8 @@ import {
   getPath,
   getShowIdFromPath,
   SHOW_ID_REGEX,
+  setSimulatedServerEnabled,
+  getSimulatedServerEnabled,
 } from "./routing";
 import {
   initShowManagement,
@@ -102,14 +104,21 @@ function render(): void {
     return;
   }
 
-  fetch("/api/auth/me", { credentials: "include" })
-    .then(async (res) => {
-      if (!res.ok) {
+  Promise.all([
+    fetch("/api/auth/me", { credentials: "include" }),
+    fetch("/api/admin/config", { credentials: "include" }),
+  ])
+    .then(async ([meRes, configRes]) => {
+      if (!meRes.ok) {
         const redirect = encodeURIComponent(window.location.pathname || "/timeline");
         window.location.href = `/login?redirect=${redirect}`;
         return;
       }
-      const data = await res.json() as { username: string };
+      const data = (await meRes.json()) as { username: string };
+      if (configRes.ok) {
+        const config = (await configRes.json()) as { simulatedServerEnabled: boolean };
+        setSimulatedServerEnabled(config.simulatedServerEnabled ?? true);
+      }
       const showId = getShowIdFromPath();
       clearLiveStatePollTimer();
       if (showId) {
@@ -144,6 +153,11 @@ function render(): void {
       } else {
         showNotFoundShowId = null;
         setCurrentShow(null);
+      }
+      const path = getPath();
+      if (path === "/simulateDevices" && !getSimulatedServerEnabled()) {
+        const sid = getShowIdFromPath();
+        window.history.replaceState(null, "", sid ? `/timeline/${sid}` : "/timeline");
       }
       renderApp(data.username);
       const currentShow = getCurrentShow();

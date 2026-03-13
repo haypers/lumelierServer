@@ -67,6 +67,10 @@ let timelineMountEl: HTMLElement | null = null;
 let timelineDetailsPanelEl: HTMLElement | null = null;
 let timelineLoadingEl: HTMLElement | null = null;
 
+/** RAF id for throttling timeline update during event/range drag (one redraw per frame). */
+let dragUpdateRafId: number | null = null;
+let dragUpdateItemId: string | null = null;
+
 /** Offset (ms) from client time to server time: serverTimeMs ≈ Date.now() + serverTimeOffsetMs */
 let serverTimeOffsetMs = 0;
 let broadcastPlayAtMs: number | null = null;
@@ -84,7 +88,11 @@ function getServerTimeMs(): number {
 
 function setReadheadSec(sec: number): void {
   readheadSec = Math.max(0, sec);
-  customTimelineView?.update();
+  if (customTimelineView?.scheduleUpdate) {
+    customTimelineView.scheduleUpdate();
+  } else {
+    customTimelineView?.update();
+  }
 }
 
 function tickBroadcastReadhead(): void {
@@ -589,6 +597,20 @@ function showTimelineContent(): void {
   hasLoadedShow = true;
 }
 
+/** Schedule at most one timeline update per frame during drag to reduce jitter. */
+function scheduleDragUpdate(itemId: string): void {
+  dragUpdateItemId = itemId;
+  if (dragUpdateRafId != null) return;
+  dragUpdateRafId = requestAnimationFrame(() => {
+    dragUpdateRafId = null;
+    const id = dragUpdateItemId;
+    dragUpdateItemId = null;
+    customTimelineView?.update();
+    if (id != null) refreshDetailsPanel(id);
+    scheduleAutosave();
+  });
+}
+
 function ensureCustomTimelineCreated(): void {
   if (customTimelineView != null) return;
   if (!timelineMountEl || !timelineDetailsPanelEl) return;
@@ -632,9 +654,18 @@ function ensureCustomTimelineCreated(): void {
         if (item?.kind === "event") {
           item.startSec = startSec;
           selectedItemId = itemId;
-          customTimelineView?.update();
-          refreshDetailsPanel(itemId);
-          scheduleAutosave();
+          scheduleDragUpdate(itemId);
+        }
+      },
+      onMoveRange: (itemId, newStartSec) => {
+        const item = items.find((i) => i.id === itemId);
+        if (item?.kind === "range") {
+          const endSec = item.endSec ?? item.startSec + 1;
+          const duration = endSec - item.startSec;
+          item.startSec = newStartSec;
+          item.endSec = newStartSec + duration;
+          selectedItemId = itemId;
+          scheduleDragUpdate(itemId);
         }
       },
     }

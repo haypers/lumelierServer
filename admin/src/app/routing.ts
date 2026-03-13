@@ -21,6 +21,21 @@ export const ROUTES: { path: RoutePath; title: string; icon: string }[] = [
   { path: "/simulateDevices", title: "Simulate Extra Devices", icon: robotIcon },
 ];
 
+let simulatedServerEnabled = true;
+
+export function setSimulatedServerEnabled(enabled: boolean): void {
+  simulatedServerEnabled = enabled;
+}
+
+export function getSimulatedServerEnabled(): boolean {
+  return simulatedServerEnabled;
+}
+
+/** Routes to show in the nav; excludes Simulate Extra Devices when the simulated server is disabled. */
+export function getVisibleRoutes(): { path: RoutePath; title: string; icon: string }[] {
+  return ROUTES.filter((r) => r.path !== "/simulateDevices" || simulatedServerEnabled);
+}
+
 export const KNOWN_APP_PATHS: RoutePath[] = [
   "/timeline",
   "/venueMap",

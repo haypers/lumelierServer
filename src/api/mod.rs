@@ -44,12 +44,14 @@ pub struct MainAppState {
 }
 
 /// Shared state for the admin app (live show store + paths + auth). client_base_url is main server base (e.g. http://host:3002) for live-join-url.
-/// simulated_server_url is used to POST real-time go-live/end-live notifications to the simulated client server (optional; env SIMULATED_SERVER_URL).
+/// When simulated_server_enabled is true, simulated_server_url is used to POST go-live/end-live notifications to the simulated client server.
 #[derive(Clone)]
 pub struct AdminAppState {
     pub live_shows: Arc<LiveShowStore>,
     pub client_base_url: String,
-    /// Base URL of the simulated client server (e.g. http://127.0.0.1:3003). Used to notify it when a show goes live or ends, so it can update its per-show buckets immediately instead of waiting for the next 10s poll.
+    /// When false, the simulated server is not started and the admin UI must not show the simulate-devices tab.
+    pub simulated_server_enabled: bool,
+    /// Base URL of the simulated client server (e.g. http://127.0.0.1:3003). Only used when simulated_server_enabled is true.
     pub simulated_server_url: String,
     pub shows_path: PathBuf,
     pub auth: AuthState,
@@ -64,6 +66,20 @@ impl AuthStateExt for AdminAppState {
 #[derive(Serialize)]
 pub struct HealthResponse {
     pub ok: bool,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AdminConfigResponse {
+    pub simulated_server_enabled: bool,
+}
+
+pub async fn get_admin_config(
+    axum::extract::State(state): axum::extract::State<AdminAppState>,
+) -> axum::Json<AdminConfigResponse> {
+    axum::Json(AdminConfigResponse {
+        simulated_server_enabled: state.simulated_server_enabled,
+    })
 }
 
 pub async fn health() -> axum::Json<HealthResponse> {

@@ -7,7 +7,7 @@ import carrotIcon from "../icons/carrot.svg?raw";
 import closeIcon from "../icons/close.svg?raw";
 import shareIcon from "../icons/share.svg?raw";
 import trashIcon from "../icons/trash.svg?raw";
-import { type RoutePath, ROUTES } from "./routing";
+import { type RoutePath, getVisibleRoutes } from "./routing";
 import { type TemplateType, getTemplateState } from "../pages/timeline";
 import { createInfoBubble } from "../components/info-bubble";
 import { openModal } from "../components/modal";
@@ -174,7 +174,8 @@ function renderSelectedShowBlock(): string {
 
 export function renderHeader(container: HTMLElement, currentPath: RoutePath, username: string): void {
   lastUsername = username;
-  const current = ROUTES.find((r) => r.path === currentPath)!;
+  const visibleRoutes = getVisibleRoutes();
+  const current = visibleRoutes.find((r) => r.path === currentPath) ?? visibleRoutes[0];
   document.title = current.title;
   const dropdownId = "menu-dropdown";
   const escapedUsername = username.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
@@ -196,7 +197,7 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
         </div>
       </div>
       <div id="${dropdownId}" class="menu-dropdown" hidden role="menu">
-        ${ROUTES.map((r) => {
+        ${visibleRoutes.map((r) => {
           const fullPath = currentShow ? `${r.path}/${currentShow.id}` : r.path;
           return `<div class="menu-dropdown-item" role="menuitem" data-path="${r.path}" data-full-path="${fullPath}">
               <a href="${fullPath}" class="menu-dropdown-item-link ${r.path === currentPath ? "current" : ""}"><span class="icon-wrap">${r.icon}</span>${r.title}</a>

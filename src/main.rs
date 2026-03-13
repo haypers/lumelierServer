@@ -21,6 +21,7 @@ use tower_http::services::ServeDir;
 mod api;
 mod auth;
 mod broadcast;
+mod hosting;
 mod connections;
 mod live_shows;
 mod time;
@@ -86,43 +87,59 @@ async fn main() {
         sessions: auth::SessionStore::new(sessions_path.clone()),
     };
 
+    let simulated_server_enabled = hosting::simulated_server_enabled();
+    let preset = std::env::var(hosting::PRESET_KEY).unwrap_or_else(|_| "unset".into());
+    eprintln!(
+        "lumelier: LUMELIER_PRESET={:?} => simulated_server_enabled={}",
+        preset, simulated_server_enabled
+    );
+    let simulated_server_url = if simulated_server_enabled {
+        std::env::var("SIMULATED_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3003".to_string())
+    } else {
+        String::new()
+    };
+
     let admin_state = api::AdminAppState {
         live_shows: live_shows.clone(),
         client_base_url: client_base_url(),
-        simulated_server_url: std::env::var("SIMULATED_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3003".to_string()),
+        simulated_server_enabled,
+        simulated_server_url: simulated_server_url.clone(),
         shows_path,
         auth: auth_state,
     };
 
-    let simulated_bin = std::env::current_exe()
-        .ok()
-        .and_then(|p| p.parent().map(|d| d.join(format!("lumelier-simulated-server{}", std::env::consts::EXE_SUFFIX))))
-        .filter(|p| p.exists())
-        .or_else(|| {
-            let release = PathBuf::from("./target/release").join(format!("lumelier-simulated-server{}", std::env::consts::EXE_SUFFIX));
-            let debug = PathBuf::from("./target/debug").join(format!("lumelier-simulated-server{}", std::env::consts::EXE_SUFFIX));
-            if release.exists() {
-                Some(release)
-            } else if debug.exists() {
-                Some(debug)
-            } else {
-                None
-            }
-        });
+    let mut simulated_client_server_child: Option<Child> = None;
+    if simulated_server_enabled {
+        let simulated_bin = std::env::current_exe()
+            .ok()
+            .and_then(|p| p.parent().map(|d| d.join(format!("lumelier-simulated-server{}", std::env::consts::EXE_SUFFIX))))
+            .filter(|p| p.exists())
+            .or_else(|| {
+                let release = PathBuf::from("./target/release").join(format!("lumelier-simulated-server{}", std::env::consts::EXE_SUFFIX));
+                let debug = PathBuf::from("./target/debug").join(format!("lumelier-simulated-server{}", std::env::consts::EXE_SUFFIX));
+                if release.exists() {
+                    Some(release)
+                } else if debug.exists() {
+                    Some(debug)
+                } else {
+                    None
+                }
+            });
 
-    let mut simulated_client_server_child: Option<Child> = match simulated_bin {
-        Some(ref path) => match Command::new(path).spawn() {
-            Ok(c) => Some(c),
-            Err(e) => {
-                eprintln!("warning: could not start simulated client server: {}", e);
+        simulated_client_server_child = match simulated_bin {
+            Some(ref path) => match Command::new(path).spawn() {
+                Ok(c) => Some(c),
+                Err(e) => {
+                    eprintln!("warning: could not start simulated client server: {}", e);
+                    None
+                }
+            },
+            None => {
+                eprintln!("warning: lumelier-simulated-server binary not found (build with cargo build -p lumelier-simulated-server)");
                 None
             }
-        },
-        None => {
-            eprintln!("warning: lumelier-simulated-server binary not found (build with cargo build -p lumelier-simulated-server)");
-            None
-        }
-    };
+        };
+    }
 
     let live_shows_tick = live_shows.clone();
     tokio::spawn(async move {
@@ -165,9 +182,9 @@ async fn main() {
         serve_admin_index().await.into_response()
     }
 
-    // Live-show-ids: the simulated client server polls this every 10s to know which shows are live.
-    // It has no browser session, so we expose this route without the session layer.
-    let admin_live_show_ids = Router::new()
+    // Public admin routes (no session): config for UI capability flags, live-show-ids for simulated server.
+    let admin_public = Router::new()
+        .route("/config", get(api::get_admin_config))
         .route("/live-show-ids", get(api::get_live_show_ids))
         .with_state(admin_state.clone());
 
@@ -237,7 +254,7 @@ async fn main() {
         .route("/api/auth/login", post(auth::post_login::<api::AdminAppState>))
         .route("/api/auth/logout", post(auth::post_logout::<api::AdminAppState>))
         .route("/api/auth/me", get(auth::get_me::<api::AdminAppState>))
-        .nest("/api/admin", admin_live_show_ids.merge(admin_protected))
+        .nest("/api/admin", admin_public.merge(admin_protected))
         .route("/", any(serve_admin_index))
         .route("/sessionManager/:show_id", any(serve_admin_index_if_show_access))
         .route("/sessionManager/:show_id/", any(serve_admin_index_if_show_access))
