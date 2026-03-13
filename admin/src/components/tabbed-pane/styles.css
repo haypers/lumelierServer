@@ -1,0 +1,72 @@
+/* Tabbed pane: tab row + content area; no padding/margin so content is flush */
+
+.tabbed-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  padding: 0;
+  margin: 0;
+}
+.tabbed-pane__tabs {
+  flex-shrink: 0;
+  display: flex;
+  gap: 0;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: var(--bg);
+}
+.tabbed-pane__tab {
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+  background: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  margin: 0;
+  border-radius: 0;
+}
+.tabbed-pane__tab:hover {
+  color: var(--text);
+}
+.tabbed-pane__tab--selected {
+  color: var(--text);
+  background: var(--bg-elevated);
+  border-bottom-color: transparent;
+}
+.tabbed-pane__content {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin: 0;
+}
+.tabbed-pane__panel {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.tabbed-pane__panel[hidden] {
+  display: none !important;
+}
+.tabbed-pane__panel:not([hidden]) {
+  display: flex;
+}
+.tabbed-pane__panel-inner {
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+}

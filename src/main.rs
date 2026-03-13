@@ -6,7 +6,8 @@
 //! and broadcast state (timeline, play/pause). Prints a QR code so phones on the same network can
 //! open the client URL.
 
-use axum::extract::{Path, State};
+use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::handler::Handler;
 use axum::http::HeaderMap;
 use axum::middleware;
 use axum::response::IntoResponse;
@@ -234,6 +235,15 @@ async fn main() {
         .route(
             "/show-workspaces/:show_id/venue-shape",
             get(api::get_venue_shape).put(api::put_venue_shape),
+        )
+        .route(
+            "/show-workspaces/:show_id/timeline-media",
+            get(api::get_timeline_media_list)
+                .post(api::post_timeline_media_upload.layer(DefaultBodyLimit::max(500 * 1024 * 1024))),
+        )
+        .route(
+            "/show-workspaces/:show_id/timeline-media/:filename",
+            get(api::get_timeline_media_file),
         )
         .route_layer(middleware::from_fn_with_state(
             admin_state.clone(),

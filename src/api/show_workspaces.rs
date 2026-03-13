@@ -6,7 +6,8 @@
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::{Path, Query, State};
+use axum::extract::{Multipart, Path, Query, State};
+use axum::http::header::{HeaderValue, CONTENT_DISPOSITION, CONTENT_TYPE};
 use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
@@ -433,6 +434,262 @@ pub async fn put_venue_shape(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::OK)
+}
+
+// ---------------------------------------------------------------------------
+// Timeline media — per-show TimelineMedia folder: list, upload, download
+// ---------------------------------------------------------------------------
+
+const TIMELINE_MEDIA_DIR: &str = "TimelineMedia";
+
+const ALLOWED_EXTENSIONS: &[&str] = &[
+    "mp3", "mp4", "wav", "mov", "aac", "ogg", "png", "jpeg", "jpg", "bmp",
+    "webm", "mkv", "m4v", "avi",
+];
+
+#[derive(Serialize)]
+pub struct TimelineMediaFile {
+    pub name: String,
+    pub size_bytes: u64,
+}
+
+#[derive(Serialize)]
+pub struct TimelineMediaListResponse {
+    pub files: Vec<TimelineMediaFile>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct TimelineMediaUploadError {
+    pub(crate) error: String,
+}
+
+fn timeline_media_dir(state: &AdminAppState, show_id: &str) -> std::path::PathBuf {
+    state.shows_path.join(show_id).join(TIMELINE_MEDIA_DIR)
+}
+
+async fn list_timeline_media_files(media_dir: &std::path::Path) -> Result<Vec<TimelineMediaFile>, StatusCode> {
+    let mut entries = match fs::read_dir(media_dir).await {
+        Ok(rd) => rd,
+        Err(e) => {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                return Ok(Vec::new());
+            }
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+    };
+    let mut files = Vec::new();
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
+    {
+        let meta = entry.metadata().await.map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if !meta.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().into_owned();
+        files.push(TimelineMediaFile {
+            size_bytes: meta.len(),
+            name,
+        });
+    }
+    files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    Ok(files)
+}
+
+/// GET /api/admin/show-workspaces/:show_id/timeline-media — list files in TimelineMedia folder.
+pub async fn get_timeline_media_list(
+    State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<TimelineMediaListResponse>, StatusCode> {
+    if !is_valid_show_id_format(&show_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &username, &show_id).await?;
+    let media_dir = timeline_media_dir(&state, &show_id);
+    let files = list_timeline_media_files(media_dir.as_path()).await?;
+    Ok(Json(TimelineMediaListResponse { files }))
+}
+
+fn sanitize_timeline_media_filename(name: &str) -> Option<String> {
+    let base = std::path::Path::new(name).file_name()?.to_string_lossy();
+    let s = base.trim();
+    if s.is_empty() || s.contains('\0') || s.contains('/') || s.contains('\\') || s.contains("..") {
+        return None;
+    }
+    Some(s.to_string())
+}
+
+fn allowed_extension(filename: &str) -> bool {
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
+    ALLOWED_EXTENSIONS.contains(&ext.as_str())
+}
+
+/// POST /api/admin/show-workspaces/:show_id/timeline-media — upload a file; returns updated file list.
+pub async fn post_timeline_media_upload(
+    State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+    mut multipart: Multipart,
+) -> Result<(StatusCode, Json<TimelineMediaListResponse>), (StatusCode, Json<TimelineMediaUploadError>)> {
+    if !is_valid_show_id_format(&show_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(TimelineMediaUploadError {
+                error: "Not found".to_string(),
+            }),
+        ));
+    }
+    let session_id = auth::parse_session_cookie(&headers).ok_or((
+        StatusCode::UNAUTHORIZED,
+        Json(TimelineMediaUploadError {
+            error: "Unauthorized".to_string(),
+        }),
+    ))?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            Json(TimelineMediaUploadError {
+                error: "Unauthorized".to_string(),
+            }),
+        ))?;
+    check_show_access(&state, &username, &show_id)
+        .await
+        .map_err(|code| {
+            (
+                code,
+                Json(TimelineMediaUploadError {
+                    error: "Access denied".to_string(),
+                }),
+            )
+        })?;
+
+    let media_dir = timeline_media_dir(&state, &show_id);
+    fs::create_dir_all(&media_dir).await.map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(TimelineMediaUploadError {
+                error: "Failed to create directory".to_string(),
+            }),
+        )
+    })?;
+
+    let bad_request = |msg: String| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(TimelineMediaUploadError { error: msg }),
+        )
+    };
+
+    let mut saved = false;
+    while let Some(field) = multipart.next_field().await.map_err(|_| {
+        bad_request("Invalid multipart request".to_string())
+    })? {
+        if field.name().as_deref() != Some("file") {
+            continue;
+        }
+        let filename = field
+            .file_name()
+            .ok_or_else(|| bad_request("Missing filename".to_string()))?
+            .to_string();
+        let sanitized = sanitize_timeline_media_filename(&filename)
+            .ok_or_else(|| bad_request("Invalid filename".to_string()))?;
+        if !allowed_extension(&sanitized) {
+            return Err(bad_request(format!(
+                "Unsupported file type. Allowed: {}",
+                ALLOWED_EXTENSIONS.join(", ")
+            )));
+        }
+        let path = media_dir.join(&sanitized);
+        let data = field.bytes().await.map_err(|_| {
+            bad_request("Failed to read file data".to_string())
+        })?;
+        fs::write(&path, &data).await.map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(TimelineMediaUploadError {
+                    error: "Failed to write file".to_string(),
+                }),
+            )
+        })?;
+        saved = true;
+        break;
+    }
+    if !saved {
+        return Err(bad_request(
+            "No file uploaded. Send a multipart field named 'file'.".to_string(),
+        ));
+    }
+
+    let files = list_timeline_media_files(media_dir.as_path()).await.map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(TimelineMediaUploadError {
+                error: "Failed to list files".to_string(),
+            }),
+        )
+    })?;
+    Ok((StatusCode::CREATED, Json(TimelineMediaListResponse { files })))
+}
+
+/// GET /api/admin/show-workspaces/:show_id/timeline-media/:filename — download a file.
+pub async fn get_timeline_media_file(
+    State(state): State<AdminAppState>,
+    Path((show_id, filename)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<impl IntoResponse, StatusCode> {
+    if !is_valid_show_id_format(&show_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if filename.is_empty()
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains("..")
+        || filename.contains('\0')
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &username, &show_id).await?;
+
+    let path = timeline_media_dir(&state, &show_id).join(&filename);
+    let bytes = fs::read(&path).await.map_err(|e| {
+        if e.kind() == std::io::ErrorKind::NotFound {
+            StatusCode::NOT_FOUND
+        } else {
+            StatusCode::INTERNAL_SERVER_ERROR
+        }
+    })?;
+
+    let mut headers = HeaderMap::new();
+    headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/octet-stream"));
+    let disp = format!("attachment; filename=\"{}\"", filename.replace('"', "\\\""));
+    if let Ok(v) = HeaderValue::try_from(disp) {
+        headers.insert(CONTENT_DISPOSITION, v);
+    }
+    Ok((headers, bytes))
 }
 
 #[derive(Deserialize)]

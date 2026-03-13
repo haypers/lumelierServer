@@ -10,9 +10,11 @@ import type { TimelineStateJSON } from "./types";
 import { createCustomTimelineView, type CustomTimelineView } from "./timelineEditor/custom-timeline";
 import { createInfoBubble } from "../../components/info-bubble";
 import { createResizableSplit } from "../../components/resizable-split";
+import { createTabbedPane } from "../../components/tabbed-pane";
 import type { DetailsPanelUpdates } from "./details-panel";
 import { updateDetailsPanel } from "./details-panel";
 import { renderPreviewPanel } from "./preview";
+import { renderAssetsPanel } from "./assets";
 import {
   exportState,
   importState,
@@ -876,9 +878,35 @@ export function render(container: HTMLElement, showId: string | null): void {
         <p class="no-selection">Select an item on the timeline to view or edit its details.</p>
       </div>
     `;
-    const previewSection = document.createElement("section");
-    previewSection.className = "timeline-preview-panel";
-    previewSection.setAttribute("aria-label", "Show preview");
+    const bottomRightSection = document.createElement("section");
+    bottomRightSection.className = "timeline-bottom-right-panel";
+    bottomRightSection.setAttribute("aria-label", "Preview and assets");
+
+    const { container: tabbedContainer } = createTabbedPane({
+      storageKey: "timeline-bottom-right-tabs",
+      tabs: [
+        {
+          id: "preview",
+          label: "Preview",
+          getContent: () => {
+            const el = document.createElement("div");
+            el.className = "timeline-tab-content timeline-tab-content--preview";
+            renderPreviewPanel(el);
+            return el;
+          },
+        },
+        {
+          id: "assets",
+          label: "Assets",
+          getContent: () => {
+            const el = document.createElement("div");
+            el.className = "timeline-tab-content timeline-tab-content--assets";
+            renderAssetsPanel(el, currentShowId);
+            return el;
+          },
+        },
+      ],
+    });
 
     const { container: splitContainer, panelA, panelB } = createResizableSplit("horizontal", {
       size: 50,
@@ -887,9 +915,9 @@ export function render(container: HTMLElement, showId: string | null): void {
       storageKey: "timeline-details-preview-split",
     });
     panelA.appendChild(detailsSection);
-    panelB.appendChild(previewSection);
+    bottomRightSection.appendChild(tabbedContainer);
+    panelB.appendChild(bottomRightSection);
     bottomRowEl.appendChild(splitContainer);
-    renderPreviewPanel(previewSection);
   }
 
   /* Wrap timeline (top) and bottom row in a vertical resizable split */
