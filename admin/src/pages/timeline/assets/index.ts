@@ -10,6 +10,7 @@ import uploadingIcon from "../../../icons/uploading.svg?raw";
 import uploadedIcon from "../../../icons/uploaded.svg?raw";
 import trashIcon from "../../../icons/trash.svg?raw";
 import { attachTooltipWhen } from "../../../components/popup-tooltip";
+import { createDragHandleCell, type ExtensionKind } from "./asset-drag";
 
 const ACCEPT_ATTR =
   ".mp3,.mp4,.wav,.mov,.aac,.ogg,.png,.jpeg,.jpg,.bmp,.webm,.mkv,.m4v,.avi";
@@ -76,9 +77,14 @@ function renderFileList(
     const row = document.createElement("div");
     row.className = "assets-file-row";
 
+    const isUploading = uploadingState.has(file.name);
+    const lastDot = file.name.lastIndexOf(".");
+    const extensionKind: ExtensionKind =
+      lastDot > 0 ? getExtensionKind(file.name.slice(lastDot + 1)) : null;
+    const dragHandleCell = createDragHandleCell(isUploading, file.name, extensionKind);
+
     const nameCell = document.createElement("div");
     nameCell.className = "assets-file-name-cell";
-    const lastDot = file.name.lastIndexOf(".");
     const baseName = lastDot > 0 ? file.name.slice(0, lastDot) : file.name;
     const ext = lastDot > 0 ? file.name.slice(lastDot) : ""; // includes dot, e.g. ".wav"
     const baseSpan = document.createElement("span");
@@ -102,7 +108,6 @@ function renderFileList(
 
     const statusCell = document.createElement("div");
     statusCell.className = "assets-file-status-cell";
-    const isUploading = uploadingState.has(file.name);
     const statusWrap = document.createElement("span");
     statusWrap.className = "assets-status-icon-wrap";
     if (isUploading) {
@@ -189,6 +194,7 @@ function renderFileList(
     actionsCell.appendChild(downloadBtn);
     actionsCell.appendChild(deleteBtn);
 
+    row.appendChild(dragHandleCell);
     row.appendChild(nameCell);
     row.appendChild(statusCell);
     row.appendChild(durationCell);
@@ -201,6 +207,8 @@ function renderFileList(
 function createListHeader(): HTMLElement {
   const row = document.createElement("div");
   row.className = "assets-file-header";
+  const drag = document.createElement("div");
+  drag.className = "assets-file-header__drag";
   const name = document.createElement("div");
   name.className = "assets-file-header__name";
   name.textContent = "Name";
@@ -216,6 +224,7 @@ function createListHeader(): HTMLElement {
   const actions = document.createElement("div");
   actions.className = "assets-file-header__actions";
   actions.setAttribute("aria-hidden", "true");
+  row.appendChild(drag);
   row.appendChild(name);
   row.appendChild(status);
   row.appendChild(duration);

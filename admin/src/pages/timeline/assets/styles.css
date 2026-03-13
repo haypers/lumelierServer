@@ -315,6 +315,98 @@
   pointer-events: auto;
 }
 
+/* Drag handle column (row cell) */
+.assets-file-drag-cell {
+  flex: 0 0 auto;
+  width: 24px;
+  min-width: 24px;
+}
+
+/* Drag handle: visible on row hover, grab cursor */
+.assets-file-drag-handle-wrap {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+  cursor: grab;
+}
+
+.assets-file-row:hover .assets-file-drag-handle-wrap {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.assets-file-drag-handle-wrap svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+/* Floating clip shown while dragging from asset (no drop target yet) */
+.assets-dragging-clip {
+  position: fixed;
+  width: 120px;
+  height: 32px;
+  pointer-events: none;
+  z-index: 9999;
+  box-sizing: border-box;
+  border-radius: 4px;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+/* Border layer: fades to transparent on the right */
+.assets-dragging-clip__border {
+  position: absolute;
+  inset: -1px;
+  border-radius: 5px;
+  background: var(--border);
+  -webkit-mask-image: linear-gradient(to right, black 0%, black 55%, transparent 100%);
+  mask-image: linear-gradient(to right, black 0%, black 55%, transparent 100%);
+}
+
+/* Fill layer: extension color, fades to transparent; contains label */
+.assets-dragging-clip__fill {
+  position: absolute;
+  inset: 1px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  -webkit-mask-image: linear-gradient(to right, black 0%, black 55%, transparent 100%);
+  mask-image: linear-gradient(to right, black 0%, black 55%, transparent 100%);
+}
+
+.assets-dragging-clip__fill--audio {
+  background: var(--asset-pill-audio);
+}
+
+.assets-dragging-clip__fill--video {
+  background: var(--asset-pill-video);
+}
+
+.assets-dragging-clip__fill--image {
+  background: var(--asset-pill-image);
+}
+
+.assets-dragging-clip__fill--other {
+  background: var(--border);
+}
+
+.assets-dragging-clip__label {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .assets-delete-btn {
   flex: 0 0 auto;
   width: 28px;
