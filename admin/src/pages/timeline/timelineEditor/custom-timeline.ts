@@ -1,4 +1,3 @@
-import trashIcon from "../../../icons/trash.svg?raw";
 import type { TimelineStateJSON } from "../types";
 import {
   createViewportState,
@@ -14,22 +13,20 @@ import { renderRuler as renderRulerTicks, getTickStepForRange } from "./timeline
 import { getVisibleItems } from "./timeline-visible-events";
 import { renderVirtualizedLayers } from "./timeline-layers-render";
 import { createCustomScrollbar } from "./timeline-custom-scrollbar";
-
-const LAYER_LABELS_WIDTH_PX = 180;
-const RULER_HEIGHT_PX = 40;
-const LAYER_ROW_HEIGHT_PX = 32;
-const DEFAULT_PIXELS_PER_SEC = 20;
-const ZOOM_MIN_PX_PER_SEC = 5;
-const ZOOM_MAX_PX_PER_SEC = 200;
-const READHEAD_HIT_WIDTH_PX = 10;
-const WHEEL_DELTA_PER_CLICK = 100;
-const HORIZONTAL_SCROLLBAR_HEIGHT_PX = 18;
-
-function escapeHtml(s: string): string {
-  const div = document.createElement("div");
-  div.textContent = s;
-  return div.innerHTML;
-}
+import { buildLayerLabelRow } from "./layer-labels";
+import { createReadheadElement, renderReadhead as renderReadheadUpdate } from "./readhead";
+import { setupTimelineInteractions } from "./interactions";
+import {
+  LAYER_LABELS_WIDTH_PX,
+  RULER_HEIGHT_PX,
+  LAYER_ROW_HEIGHT_PX,
+  DEFAULT_PIXELS_PER_SEC,
+  ZOOM_MIN_PX_PER_SEC,
+  ZOOM_MAX_PX_PER_SEC,
+  READHEAD_HIT_WIDTH_PX,
+  WHEEL_DELTA_PER_CLICK,
+  HORIZONTAL_SCROLLBAR_HEIGHT_PX,
+} from "./constants";
 
 export interface CustomTimelineState {
   layers: TimelineStateJSON["layers"];
@@ -170,20 +167,7 @@ export function createCustomTimelineView(
   layersContent.style.overflowY = "auto";
   layersContent.style.overflowX = "hidden";
 
-  const readheadLine = document.createElement("div");
-  readheadLine.className = "custom-timeline-readhead";
-  readheadLine.setAttribute("aria-hidden", "true");
-  const readheadLineInner = document.createElement("div");
-  readheadLineInner.className = "custom-timeline-readhead-line";
-  readheadLineInner.style.position = "absolute";
-  readheadLineInner.style.left = "50%";
-  readheadLineInner.style.top = "0";
-  readheadLineInner.style.bottom = "0";
-  readheadLineInner.style.width = "2px";
-  readheadLineInner.style.transform = "translateX(-50%)";
-  readheadLineInner.style.background = "var(--accent)";
-  readheadLineInner.style.pointerEvents = "none";
-  readheadLine.appendChild(readheadLineInner);
+  const { element: readheadLine, innerLine: readheadLineInner } = createReadheadElement();
 
   const scrollbarContainer = document.createElement("div");
   scrollbarContainer.className = "custom-timeline-scrollbar-container";
@@ -254,153 +238,20 @@ export function createCustomTimelineView(
     scheduleUpdate();
   }, { passive: false });
 
-  // Pan by drag only when starting on the ruler; event drag when starting on an event; range drag when starting on a range (events are rendered on top so they take precedence when overlapping)
-  let panning = false;
-  let panStartClientX = 0;
-  let panStartSec = 0;
-  let eventDragItemId: string | null = null;
-  let eventDragStartX = 0;
-  let eventDragging = false;
-  let didEventDrag = false;
-  let rangeDragItemId: string | null = null;
-  let rangeDragStartX = 0;
-  let rangeDragStartSec = 0;
-  let rangeDragDurationSec = 0;
-  let rangeDragging = false;
-  let didRangeDrag = false;
-
-  viewportWrap.addEventListener("mousedown", (e) => {
-    const eventEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-event");
-    const eventItemId = eventEl instanceof HTMLElement ? eventEl.dataset.itemId : undefined;
-    if (eventItemId) {
-      eventDragItemId = eventItemId;
-      eventDragStartX = e.clientX;
-      didEventDrag = false;
-      return;
-    }
-    const rangeEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range");
-    const rangeItemId = rangeEl instanceof HTMLElement ? rangeEl.dataset.itemId : undefined;
-    if (rangeItemId && callbacks.onMoveRange) {
-      const item = getState().items.find((it) => it.id === rangeItemId);
-      if (item && item.kind === "range") {
-        const endSec = item.endSec ?? item.startSec + 1;
-        rangeDragItemId = rangeItemId;
-        rangeDragStartX = e.clientX;
-        rangeDragStartSec = item.startSec;
-        rangeDragDurationSec = endSec - item.startSec;
-        didRangeDrag = false;
-        return;
-      }
-    }
-    const onRuler = (e.target as HTMLElement)?.closest?.(".custom-timeline-ruler-wrap");
-    if (!onRuler) return;
-    e.preventDefault();
-    panning = true;
-    panStartClientX = e.clientX;
-    panStartSec = viewport.startSec;
-    rulerWrap.classList.add("custom-timeline-pan-cursor");
-    viewportWrap.classList.add("custom-timeline-pan-cursor");
-  });
-  document.addEventListener("mousemove", (e) => {
-    if (eventDragItemId != null && callbacks.onMoveEvent) {
-      if (!eventDragging && Math.abs(e.clientX - eventDragStartX) >= 5) {
-        eventDragging = true;
-        callbacks.onSelectItem(eventDragItemId);
-      }
-      if (eventDragging) {
-        const rect = rightContent.getBoundingClientRect();
-        const x = e.clientX - rect.left;
-        const newStartSec = viewport.startSec + x / viewport.pixelsPerSec;
-        const scrollRange = getScrollRangeRightSec(viewport, itemsAsViewportItems());
-        const clamped = Math.max(0, Math.min(scrollRange, newStartSec));
-        callbacks.onMoveEvent(eventDragItemId, clamped);
-      }
-      return;
-    }
-    if (rangeDragItemId != null && callbacks.onMoveRange) {
-      if (!rangeDragging && Math.abs(e.clientX - rangeDragStartX) >= 5) {
-        rangeDragging = true;
-        callbacks.onSelectItem(rangeDragItemId);
-      }
-      if (rangeDragging) {
-        const deltaPx = e.clientX - rangeDragStartX;
-        const deltaSec = deltaPx / viewport.pixelsPerSec;
-        const scrollRange = getScrollRangeRightSec(viewport, itemsAsViewportItems());
-        const maxStart = Math.max(0, scrollRange - rangeDragDurationSec);
-        const newStartSec = Math.max(0, Math.min(maxStart, rangeDragStartSec + deltaSec));
-        callbacks.onMoveRange(rangeDragItemId, newStartSec);
-      }
-      return;
-    }
-    if (!panning) return;
-    const deltaPx = panStartClientX - e.clientX;
-    const deltaSec = deltaPx / viewport.pixelsPerSec;
-    const scrollRange = getScrollRangeRightSec(viewport, itemsAsViewportItems());
-    const duration = getViewportDurationSec(viewport);
-    const maxStart = Math.max(0, scrollRange - duration);
-    const newStart = Math.max(0, Math.min(maxStart, panStartSec + deltaSec));
-    setStartSec(viewport, newStart);
-    scheduleUpdate();
-  });
-  document.addEventListener("mouseup", () => {
-    if (eventDragItemId != null) {
-      if (eventDragging) didEventDrag = true;
-      eventDragItemId = null;
-      eventDragging = false;
-    }
-    if (rangeDragItemId != null) {
-      if (rangeDragging) didRangeDrag = true;
-      rangeDragItemId = null;
-      rangeDragging = false;
-    }
-    if (panning) {
-      panning = false;
-      rulerWrap.classList.remove("custom-timeline-pan-cursor");
-      viewportWrap.classList.remove("custom-timeline-pan-cursor");
-    }
-  });
-  document.addEventListener("mouseleave", () => {
-    if (eventDragItemId != null) {
-      if (eventDragging) didEventDrag = true;
-      eventDragItemId = null;
-      eventDragging = false;
-    }
-    if (rangeDragItemId != null) {
-      if (rangeDragging) didRangeDrag = true;
-      rangeDragItemId = null;
-      rangeDragging = false;
-    }
-    if (panning) {
-      panning = false;
-      rulerWrap.classList.remove("custom-timeline-pan-cursor");
-      viewportWrap.classList.remove("custom-timeline-pan-cursor");
-    }
-  });
-
-  layersContent.addEventListener("click", (e) => {
-    const eventEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-event");
-    const eventItemId = eventEl instanceof HTMLElement ? eventEl.dataset.itemId : undefined;
-    if (eventItemId) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (didEventDrag) {
-        didEventDrag = false;
-        return;
-      }
-      callbacks.onSelectItem(eventItemId);
-      return;
-    }
-    const rangeEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range");
-    const rangeItemId = rangeEl instanceof HTMLElement ? rangeEl.dataset.itemId : undefined;
-    if (rangeItemId) {
-      e.preventDefault();
-      e.stopPropagation();
-      if (didRangeDrag) {
-        didRangeDrag = false;
-        return;
-      }
-      callbacks.onSelectItem(rangeItemId);
-    }
+  setupTimelineInteractions({
+    viewportWrap,
+    rightContent,
+    rulerWrap,
+    layersContent,
+    viewport,
+    itemsAsViewportItems,
+    getState,
+    callbacks: {
+      onSelectItem: callbacks.onSelectItem,
+      onMoveEvent: callbacks.onMoveEvent,
+      onMoveRange: callbacks.onMoveRange,
+    },
+    scheduleUpdate,
   });
 
   // Readhead drag
@@ -430,108 +281,13 @@ export function createCustomTimelineView(
     readheadDragging = false;
   });
 
-  function buildLayerLabelRow(layer: { id: string; label: string }, onlyOne: boolean): HTMLElement {
-    const wrap = document.createElement("div");
-    wrap.className = "timeline-layer-label custom-timeline-layer-label-row";
-    wrap.style.height = `${LAYER_ROW_HEIGHT_PX}px`;
-    wrap.style.minHeight = `${LAYER_ROW_HEIGHT_PX}px`;
-    const label = String(layer.label ?? "");
-    wrap.innerHTML = `
-      <span class="timeline-layer-label-name" title="Double-click to rename">${escapeHtml(label)}</span>
-      <button type="button" class="timeline-layer-label-remove" title="Remove layer" aria-label="Remove layer">${trashIcon}</button>
-    `;
-    if (onlyOne) wrap.classList.add("timeline-layer-label--only-one");
-    const nameEl = wrap.querySelector(".timeline-layer-label-name") as HTMLElement;
-    const btn = wrap.querySelector(".timeline-layer-label-remove") as HTMLButtonElement;
-
-    btn.addEventListener("click", (e) => {
-      e.stopPropagation();
-      e.preventDefault();
-      if (onlyOne) return;
-      if (confirm("Remove this layer and all its items?")) {
-        callbacks.onRemoveLayer(layer.id);
-      }
-    });
-
-    nameEl.addEventListener("dblclick", (e) => {
-      e.stopPropagation();
-      const input = document.createElement("input");
-      input.type = "text";
-      input.className = "timeline-layer-label-input";
-      input.value = nameEl.textContent ?? "";
-      input.setAttribute("aria-label", "Layer name");
-      const commit = () => {
-        const val = input.value.trim();
-        if (val) callbacks.onRenameLayer(layer.id, val);
-        wrap.replaceChild(nameEl, input);
-        nameEl.textContent = val || label;
-        removeClickOutsideListener();
-      };
-      const removeClickOutsideListener = () => {
-        document.removeEventListener("mousedown", clickOutsideHandler);
-      };
-      const clickOutsideHandler = (ev: MouseEvent) => {
-        if (document.activeElement !== input) return;
-        if (wrap.contains(ev.target as Node)) return;
-        commit();
-        input.blur();
-      };
-      document.addEventListener("mousedown", clickOutsideHandler);
-      input.addEventListener("blur", commit);
-      input.addEventListener("keydown", (ev) => {
-        if (ev.key === "Enter") {
-          ev.preventDefault();
-          input.blur();
-        }
-        if (ev.key === "Escape") {
-          removeClickOutsideListener();
-          wrap.replaceChild(nameEl, input);
-        }
-      });
-      wrap.replaceChild(input, nameEl);
-      input.focus();
-      input.select();
-    });
-
-    return wrap;
-  }
-
   function renderRuler(startSec: number, endSec: number, viewportWidthPx: number): void {
     if (viewportWidthPx <= 0) return;
     renderRulerTicks(rulerCanvas, startSec, endSec, viewport.pixelsPerSec, viewportWidthPx);
   }
 
   function renderReadhead(): void {
-    const state = getState();
-    const { startSec, endSec } = getVisibleRange(viewport);
-    const viewportWidthPx = viewport.viewportWidthPx || 0;
-    if (viewportWidthPx <= 0) return;
-    const x = (state.readheadSec - startSec) * viewport.pixelsPerSec;
-    const inView = state.readheadSec >= startSec && state.readheadSec <= endSec;
-    readheadLine.style.left = `${x}px`;
-    readheadLine.style.position = "absolute";
-    readheadLine.style.top = "0";
-    readheadLine.style.width = "2px";
-    readheadLine.style.background = "var(--accent)";
-    readheadLine.style.zIndex = "10";
-    readheadLine.style.visibility = inView ? "visible" : "hidden";
-    if (state.readheadDraggable) {
-      readheadLine.classList.add("custom-timeline-readhead--draggable");
-      readheadLine.style.pointerEvents = "auto";
-      readheadLine.style.cursor = "ew-resize";
-      readheadLine.style.width = `${READHEAD_HIT_WIDTH_PX}px`;
-      readheadLine.style.marginLeft = `${-READHEAD_HIT_WIDTH_PX / 2}px`;
-      readheadLine.style.background = "transparent";
-      readheadLineInner.style.display = "";
-    } else {
-      readheadLine.classList.remove("custom-timeline-readhead--draggable");
-      readheadLine.style.pointerEvents = "none";
-      readheadLine.style.cursor = "";
-      readheadLine.style.width = "2px";
-      readheadLine.style.marginLeft = "0";
-      readheadLine.style.background = "var(--accent)";
-      readheadLineInner.style.display = "none";
-    }
+    renderReadheadUpdate(readheadLine, readheadLineInner, getState, viewport, READHEAD_HIT_WIDTH_PX);
   }
 
   let lastRulerKey: { startSec: number; endSec: number; pixelsPerSec: number; viewportWidthPx: number } | null = null;
@@ -558,7 +314,12 @@ export function createCustomTimelineView(
 
     layerLabelsList.innerHTML = "";
     state.layers.forEach((layer) => {
-      layerLabelsList.appendChild(buildLayerLabelRow(layer, onlyOne));
+      layerLabelsList.appendChild(
+        buildLayerLabelRow(layer, onlyOne, LAYER_ROW_HEIGHT_PX, {
+          onRemoveLayer: callbacks.onRemoveLayer,
+          onRenameLayer: callbacks.onRenameLayer,
+        })
+      );
     });
 
     const { startSec, endSec } = getVisibleRange(viewport);

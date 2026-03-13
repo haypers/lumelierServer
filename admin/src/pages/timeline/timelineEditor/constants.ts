@@ -1,0 +1,9 @@
+export const LAYER_LABELS_WIDTH_PX = 180;
+export const RULER_HEIGHT_PX = 40;
+export const LAYER_ROW_HEIGHT_PX = 32;
+export const DEFAULT_PIXELS_PER_SEC = 20;
+export const ZOOM_MIN_PX_PER_SEC = 5;
+export const ZOOM_MAX_PX_PER_SEC = 200;
+export const READHEAD_HIT_WIDTH_PX = 10;
+export const WHEEL_DELTA_PER_CLICK = 100;
+export const HORIZONTAL_SCROLLBAR_HEIGHT_PX = 18;
