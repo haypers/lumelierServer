@@ -16,6 +16,8 @@
   --asset-pill-audio: #2d7d4a;
   --asset-pill-video: #2563eb;
   --asset-pill-image: #7c3aed;
+  --asset-status-uploading: #e67e22;
+  --asset-status-uploaded: #27ae60;
 }
 
 * {

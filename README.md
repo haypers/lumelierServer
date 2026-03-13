@@ -6,6 +6,8 @@ Just ask the model how to get this project running. it can make a translation of
 
 - **Rust 1.85+** (for Cargo; the crates.io index includes packages that need it). If `cargo check` fails with `edition2024 is required`, install [rustup](https://rustup.rs/) and run `rustup update` so the project’s `rust-toolchain.toml` can use a recent toolchain. Do not rely on the system `cargo` from apt if it is older than 1.85.
 
+- **ffmpeg** (optional but recommended). Used to read duration of audio/video assets in the admin timeline (Assets tab). Without it, the server runs normally but duration stays blank. Install with: `sudo apt install ffmpeg` (Debian/Ubuntu) or `brew install ffmpeg` (macOS).
+
 - **Why Rust?** Because we are working with complex bulk networking, we can't aford the networking overhead that node provides. You'll notice the fronend for both the admin (show manager) and the client (phones) are node projects, but the networking is all served by rust. I don't know rust, I'm having AI help me build it lol.
 
 ## Build and run

@@ -105,6 +105,12 @@
   background: var(--bg);
 }
 
+.assets-file-header__drag {
+  flex: 0 0 auto;
+  width: 24px;
+  min-width: 24px;
+}
+
 .assets-file-header__name {
   flex: 1 1 0;
   min-width: 0;
@@ -127,10 +133,10 @@
   text-align: right;
 }
 
-.assets-file-header__download {
+.assets-file-header__actions {
   flex: 0 0 auto;
-  width: 28px;
-  min-width: 28px;
+  width: 60px;
+  min-width: 60px;
 }
 
 .assets-list-empty {
@@ -172,6 +178,40 @@
   width: 4.5em;
   color: var(--text-muted);
   font-size: 12px;
+}
+
+.assets-status-icon-wrap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  cursor: default;
+}
+
+.assets-status-icon-wrap svg {
+  width: 18px;
+  height: 18px;
+  display: block;
+}
+
+.assets-status-icon-wrap--uploading {
+  color: var(--asset-status-uploading);
+  animation: assets-status-uploading-pulse 1.5s ease-in-out infinite;
+}
+
+.assets-status-icon-wrap--uploaded {
+  color: var(--asset-status-uploaded);
+}
+
+@keyframes assets-status-uploading-pulse {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
+    opacity: 1;
+  }
 }
 
 .assets-file-duration-cell {
@@ -250,4 +290,62 @@
 
 .assets-download-btn:active {
   background: var(--bg-elevated);
+}
+
+.assets-download-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Actions (download + delete): visible only on row hover */
+.assets-file-actions {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 60px;
+  min-width: 60px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+.assets-file-row:hover .assets-file-actions {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.assets-delete-btn {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  min-width: 28px;
+  min-height: 28px;
+  border: none;
+  background: transparent;
+  border-radius: var(--radius);
+  cursor: pointer;
+  color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.assets-delete-btn svg {
+  width: 18px;
+  height: 18px;
+}
+
+.assets-delete-btn:hover {
+  background: var(--border);
+}
+
+.assets-delete-btn:active {
+  background: var(--bg-elevated);
+}
+
+.assets-delete-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }

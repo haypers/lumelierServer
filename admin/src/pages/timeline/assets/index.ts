@@ -6,6 +6,10 @@ import "./styles.css";
 import uploadIcon from "../../../icons/upload.svg?raw";
 import refreshIcon from "../../../icons/refresh.svg?raw";
 import downloadIcon from "../../../icons/download.svg?raw";
+import uploadingIcon from "../../../icons/uploading.svg?raw";
+import uploadedIcon from "../../../icons/uploaded.svg?raw";
+import trashIcon from "../../../icons/trash.svg?raw";
+import { attachTooltipWhen } from "../../../components/popup-tooltip";
 
 const ACCEPT_ATTR =
   ".mp3,.mp4,.wav,.mov,.aac,.ogg,.png,.jpeg,.jpg,.bmp,.webm,.mkv,.m4v,.avi";
@@ -46,10 +50,27 @@ function formatDuration(sec: number | undefined): string {
   return `${m}:${s.toString().padStart(2, "0")}`;
 }
 
+/** Per-file upload progress for tooltip and status. */
+interface UploadProgress {
+  loaded: number;
+  total: number;
+  startTime: number;
+}
+
+function formatTimeRemaining(remainingSec: number): string {
+  if (!Number.isFinite(remainingSec) || remainingSec < 0) return "—";
+  if (remainingSec < 60) return `${Math.round(remainingSec)} s`;
+  const m = Math.floor(remainingSec / 60);
+  const s = Math.round(remainingSec % 60);
+  return s > 0 ? `${m} min ${s} s` : `${m} min`;
+}
+
 function renderFileList(
   listEl: HTMLElement,
   files: TimelineMediaFile[],
-  showId: string
+  showId: string,
+  uploadingState: Map<string, UploadProgress>,
+  onDeleteSuccess: (data: TimelineMediaListResponse) => void
 ): void {
   for (const file of files) {
     const row = document.createElement("div");
@@ -81,7 +102,32 @@ function renderFileList(
 
     const statusCell = document.createElement("div");
     statusCell.className = "assets-file-status-cell";
-    // Placeholder for future: uploading, saved, loaded locally, etc.
+    const isUploading = uploadingState.has(file.name);
+    const statusWrap = document.createElement("span");
+    statusWrap.className = "assets-status-icon-wrap";
+    if (isUploading) {
+      statusWrap.classList.add("assets-status-icon-wrap--uploading");
+      statusWrap.innerHTML = uploadingIcon;
+      statusWrap.setAttribute("aria-label", "Uploading");
+      attachTooltipWhen(statusWrap, () => {
+        const u = uploadingState.get(file.name);
+        if (!u) return "";
+        const pct = u.total > 0 ? Math.round((u.loaded / u.total) * 100) : 0;
+        let remSec = 0;
+        if (u.loaded > 0 && u.total > u.loaded) {
+          const elapsedSec = (Date.now() - u.startTime) / 1000;
+          const rate = u.loaded / elapsedSec;
+          remSec = (u.total - u.loaded) / rate / 1000;
+        }
+        return `Your file is currently uploading\n${pct}% - ${formatTimeRemaining(remSec)} Remaining`;
+      });
+    } else {
+      statusWrap.classList.add("assets-status-icon-wrap--uploaded");
+      statusWrap.innerHTML = uploadedIcon;
+      statusWrap.setAttribute("aria-label", "Saved on server");
+      attachTooltipWhen(statusWrap, () => "This file is saved on the Lumelier Server");
+    }
+    statusCell.appendChild(statusWrap);
 
     const durationCell = document.createElement("div");
     durationCell.className = "assets-file-duration-cell";
@@ -91,34 +137,63 @@ function renderFileList(
     sizeSpan.className = "assets-file-size";
     sizeSpan.textContent = formatSize(file.size_bytes);
 
+    const actionsCell = document.createElement("div");
+    actionsCell.className = "assets-file-actions";
     const downloadBtn = document.createElement("button");
     downloadBtn.type = "button";
     downloadBtn.className = "assets-download-btn";
     downloadBtn.setAttribute("aria-label", `Download ${file.name}`);
     downloadBtn.innerHTML = downloadIcon;
-    downloadBtn.addEventListener("click", () => {
-      const url = `/api/admin/show-workspaces/${encodeURIComponent(showId)}/timeline-media/${encodeURIComponent(file.name)}`;
-      fetch(url, { credentials: "include" })
-        .then((r) => {
-          if (!r.ok) throw new Error(String(r.status));
-          return r.blob();
-        })
-        .then((blob) => {
-          const objUrl = URL.createObjectURL(blob);
-          const a = document.createElement("a");
-          a.href = objUrl;
-          a.download = file.name;
-          a.click();
-          URL.revokeObjectURL(objUrl);
-        })
-        .catch((e) => console.error("Download failed:", e));
-    });
+    if (isUploading) {
+      downloadBtn.disabled = true;
+      downloadBtn.setAttribute("aria-label", "Download (available when upload completes)");
+    } else {
+      downloadBtn.addEventListener("click", () => {
+        const url = `/api/admin/show-workspaces/${encodeURIComponent(showId)}/timeline-media/${encodeURIComponent(file.name)}`;
+        fetch(url, { credentials: "include" })
+          .then((r) => {
+            if (!r.ok) throw new Error(String(r.status));
+            return r.blob();
+          })
+          .then((blob) => {
+            const objUrl = URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = objUrl;
+            a.download = file.name;
+            a.click();
+            URL.revokeObjectURL(objUrl);
+          })
+          .catch((e) => console.error("Download failed:", e));
+      });
+    }
+    const deleteBtn = document.createElement("button");
+    deleteBtn.type = "button";
+    deleteBtn.className = "assets-delete-btn";
+    deleteBtn.setAttribute("aria-label", `Delete ${file.name}`);
+    deleteBtn.innerHTML = trashIcon;
+    if (!isUploading) {
+      deleteBtn.addEventListener("click", () => {
+        if (!confirm(`Remove "${file.name}" from this project? This cannot be undone.`)) return;
+        const url = `/api/admin/show-workspaces/${encodeURIComponent(showId)}/timeline-media/${encodeURIComponent(file.name)}`;
+        fetch(url, { method: "DELETE", credentials: "include" })
+          .then((r) => {
+            if (!r.ok) throw new Error(String(r.status));
+            return r.json() as Promise<TimelineMediaListResponse>;
+          })
+          .then(onDeleteSuccess)
+          .catch((e) => console.error("Delete failed:", e));
+      });
+    } else {
+      deleteBtn.disabled = true;
+    }
+    actionsCell.appendChild(downloadBtn);
+    actionsCell.appendChild(deleteBtn);
 
     row.appendChild(nameCell);
     row.appendChild(statusCell);
     row.appendChild(durationCell);
     row.appendChild(sizeSpan);
-    row.appendChild(downloadBtn);
+    row.appendChild(actionsCell);
     listEl.appendChild(row);
   }
 }
@@ -138,14 +213,14 @@ function createListHeader(): HTMLElement {
   const size = document.createElement("div");
   size.className = "assets-file-header__size";
   size.textContent = "Size";
-  const download = document.createElement("div");
-  download.className = "assets-file-header__download";
-  download.setAttribute("aria-hidden", "true");
+  const actions = document.createElement("div");
+  actions.className = "assets-file-header__actions";
+  actions.setAttribute("aria-hidden", "true");
   row.appendChild(name);
   row.appendChild(status);
   row.appendChild(duration);
   row.appendChild(size);
-  row.appendChild(download);
+  row.appendChild(actions);
   return row;
 }
 
@@ -186,6 +261,9 @@ export function renderAssetsPanel(container: HTMLElement, showId: string | null)
   refreshBtn.className = "btn btn-icon-label";
   refreshBtn.innerHTML = refreshIcon + "<span>Refresh</span>";
 
+  let serverFiles: TimelineMediaFile[] = [];
+  const uploadingState = new Map<string, UploadProgress>();
+
   function fetchList(): Promise<TimelineMediaListResponse> {
     return fetch(`/api/admin/show-workspaces/${encodeURIComponent(sid)}/timeline-media`, {
       credentials: "include",
@@ -195,16 +273,32 @@ export function renderAssetsPanel(container: HTMLElement, showId: string | null)
     });
   }
 
-  function applyList(data: TimelineMediaListResponse): void {
+  function buildDisplayList(): TimelineMediaFile[] {
+    const list = [...serverFiles];
+    for (const name of uploadingState.keys()) {
+      if (!list.some((f) => f.name === name)) {
+        list.push({ name, size_bytes: 0 });
+      }
+    }
+    return list.sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
+  }
+
+  function renderList(): void {
     listEl.innerHTML = "";
-    if (data.files.length === 0) {
+    const displayFiles = buildDisplayList();
+    if (displayFiles.length === 0) {
       const empty = document.createElement("div");
       empty.className = "assets-list-empty";
       empty.textContent = "No Assets in this project yet.";
       listEl.appendChild(empty);
     } else {
-      renderFileList(listEl, data.files, sid);
+      renderFileList(listEl, displayFiles, sid, uploadingState, applyList);
     }
+  }
+
+  function applyList(data: TimelineMediaListResponse): void {
+    serverFiles = data.files;
+    renderList();
   }
 
   function refresh(): void {
@@ -213,29 +307,82 @@ export function renderAssetsPanel(container: HTMLElement, showId: string | null)
       .catch((e) => console.error("Failed to list timeline media:", e));
   }
 
+  function uploadOneFile(file: File): Promise<TimelineMediaListResponse> {
+    const name = file.name;
+    uploadingState.set(name, { loaded: 0, total: file.size, startTime: Date.now() });
+    renderList();
+
+    const url = `/api/admin/show-workspaces/${encodeURIComponent(sid)}/timeline-media`;
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const fd = new FormData();
+      fd.append("file", file);
+
+      xhr.upload.addEventListener("progress", (e) => {
+        if (e.lengthComputable) {
+          const prev = uploadingState.get(name);
+          if (prev) uploadingState.set(name, { ...prev, loaded: e.loaded, total: e.total });
+        }
+      });
+
+      xhr.addEventListener("load", () => {
+        uploadingState.delete(name);
+        if (xhr.status === 201) {
+          try {
+            const data = JSON.parse(xhr.responseText) as TimelineMediaListResponse;
+            applyList(data);
+            resolve(data);
+          } catch {
+            reject(new Error("Invalid response"));
+          }
+        } else {
+          let msg = `Upload failed (${xhr.status})`;
+          try {
+            const body = JSON.parse(xhr.responseText) as { error?: string };
+            if (body.error) msg = body.error;
+          } catch {
+            /* ignore */
+          }
+          reject(new Error(msg));
+        }
+      });
+      xhr.addEventListener("error", () => {
+        uploadingState.delete(name);
+        renderList();
+        reject(new Error("Network error"));
+      });
+      xhr.addEventListener("abort", () => {
+        uploadingState.delete(name);
+        renderList();
+        reject(new Error("Upload aborted"));
+      });
+
+      xhr.open("POST", url);
+      xhr.withCredentials = true;
+      xhr.send(fd);
+    });
+  }
+
   refreshBtn.addEventListener("click", refresh);
 
+  fileInput.multiple = true;
   fileInput.addEventListener("change", () => {
-    const file = fileInput.files?.[0];
-    if (!file) return;
-    const fd = new FormData();
-    fd.append("file", file);
-    fetch(`/api/admin/show-workspaces/${encodeURIComponent(sid)}/timeline-media`, {
-      method: "POST",
-      credentials: "include",
-      body: fd,
-    })
-      .then(async (r) => {
-        if (r.status === 201) return r.json() as Promise<TimelineMediaListResponse>;
-        const body = await r.json().catch(() => ({})) as { error?: string };
-        throw new Error(body.error ?? `Upload failed (${r.status})`);
-      })
-      .then(applyList)
-      .catch((e) => {
+    const files = fileInput.files;
+    if (!files?.length) return;
+    const fileArray = Array.from(files);
+    fileInput.value = "";
+
+    const toUpload = fileArray.filter((file) => {
+      const exists = serverFiles.some((f) => f.name === file.name);
+      if (!exists) return true;
+      return confirm(`A file named "${file.name}" already exists. Overwrite?`);
+    });
+    if (toUpload.length === 0) return;
+
+    Promise.all(toUpload.map((file) => uploadOneFile(file))).catch((e) => {
         console.error("Upload failed:", e);
         alert(typeof e === "object" && e?.message ? e.message : "Upload failed.");
-      });
-    fileInput.value = "";
+    });
   });
 
   toolbar.appendChild(fileInput);

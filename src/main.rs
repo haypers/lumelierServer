@@ -44,8 +44,23 @@ fn client_base_url() -> String {
     format!("http://{}:{}", host, PORT)
 }
 
+/// Log once at startup if ffprobe (from ffmpeg) is not available. Duration for audio/video assets will be omitted.
+fn check_ffprobe() {
+    if Command::new("ffprobe")
+        .arg("-version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|s| !s.success())
+        .unwrap_or(true)
+    {
+        eprintln!("lumelier: ffprobe not found (install ffmpeg for asset duration in the admin Assets tab)");
+    }
+}
+
 #[tokio::main]
 async fn main() {
+    check_ffprobe();
     let live_shows: Arc<live_shows::LiveShowStore> = Arc::new(live_shows::LiveShowStore::new());
 
     let shows_path = PathBuf::from("./userData/shows");
@@ -195,7 +210,7 @@ async fn main() {
         )
         .route(
             "/show-workspaces/:show_id/timeline-media/:filename",
-            get(api::get_timeline_media_file),
+            get(api::get_timeline_media_file).delete(api::delete_timeline_media_file),
         )
         .route(
             "/show-workspaces/:show_id/simulated-client-profiles",

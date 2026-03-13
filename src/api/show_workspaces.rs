@@ -14,6 +14,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 use tokio::fs;
+use tokio::process::Command;
 
 use crate::api::AdminAppState;
 use crate::auth;
@@ -456,6 +457,9 @@ const ALLOWED_EXTENSIONS: &[&str] = &[
 pub struct TimelineMediaFile {
     pub name: String,
     pub size_bytes: u64,
+    /// Duration in seconds for audio/video files; absent for images or when unknown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_sec: Option<f64>,
 }
 
 #[derive(Serialize)]
@@ -470,6 +474,56 @@ pub(crate) struct TimelineMediaUploadError {
 
 fn timeline_media_dir(state: &AdminAppState, show_id: &str) -> std::path::PathBuf {
     state.shows_path.join(show_id).join(TIMELINE_MEDIA_DIR)
+}
+
+/// Extensions we try to get duration for (audio/video). Others (images) get None.
+const DURATION_EXTENSIONS: &[&str] = &[
+    "mp3", "mp4", "wav", "mov", "aac", "ogg", "webm", "mkv", "m4v", "avi",
+];
+
+fn is_audio_or_video_ext(filename: &str) -> bool {
+    let ext = std::path::Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|s| s.to_lowercase());
+    match ext.as_deref() {
+        Some(ext) => DURATION_EXTENSIONS.contains(&ext),
+        None => false,
+    }
+}
+
+/// Run ffprobe (from the ffmpeg package) to get duration in seconds.
+/// Returns None if ffprobe is not installed, not on PATH, or fails — the server does not require ffmpeg to run.
+async fn get_duration_ffprobe(path: &std::path::Path) -> Option<f64> {
+    // Use canonical path so ffprobe gets an absolute path (helps when server cwd differs).
+    let path = fs::canonicalize(path).await.ok().unwrap_or_else(|| path.to_path_buf());
+    let path_str = path.to_string_lossy();
+
+    let output = Command::new("ffprobe")
+        .args([
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            path_str.as_ref(),
+        ])
+        .output()
+        .await
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&output.stdout);
+    // Parse first line; accept "123.45" or "duration=123.45" or leading/trailing whitespace.
+    let line = s.lines().next()?.trim();
+    let num_str = line.strip_prefix("duration=").unwrap_or(line);
+    num_str
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|&d| d.is_finite() && d >= 0.0)
 }
 
 async fn list_timeline_media_files(media_dir: &std::path::Path) -> Result<Vec<TimelineMediaFile>, StatusCode> {
@@ -493,9 +547,15 @@ async fn list_timeline_media_files(media_dir: &std::path::Path) -> Result<Vec<Ti
             continue;
         }
         let name = entry.file_name().to_string_lossy().into_owned();
+        let duration_sec = if is_audio_or_video_ext(&name) {
+            get_duration_ffprobe(&media_dir.join(&name)).await
+        } else {
+            None
+        };
         files.push(TimelineMediaFile {
             size_bytes: meta.len(),
             name,
+            duration_sec,
         });
     }
     files.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
@@ -695,6 +755,47 @@ pub async fn get_timeline_media_file(
         headers.insert(CONTENT_DISPOSITION, v);
     }
     Ok((headers, bytes))
+}
+
+/// DELETE /api/admin/show-workspaces/:show_id/timeline-media/:filename — delete a file; returns updated file list.
+pub async fn delete_timeline_media_file(
+    State(state): State<AdminAppState>,
+    Path((show_id, filename)): Path<(String, String)>,
+    headers: HeaderMap,
+) -> Result<Json<TimelineMediaListResponse>, StatusCode> {
+    if !is_valid_show_id_format(&show_id) {
+        return Err(StatusCode::NOT_FOUND);
+    }
+    if filename.is_empty()
+        || filename.contains('/')
+        || filename.contains('\\')
+        || filename.contains("..")
+        || filename.contains('\0')
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &username, &show_id).await?;
+
+    let media_dir = timeline_media_dir(&state, &show_id);
+    let path = media_dir.join(&filename);
+    if path.parent() != Some(media_dir.as_path()) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if fs::remove_file(&path).await.is_err() {
+        return Err(StatusCode::NOT_FOUND);
+    }
+
+    let files = list_timeline_media_files(media_dir.as_path()).await.map_err(|_| {
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    Ok(Json(TimelineMediaListResponse { files }))
 }
 
 #[derive(Deserialize)]
