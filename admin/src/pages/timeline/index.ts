@@ -628,6 +628,17 @@ function scheduleDragUpdate(itemId: string): void {
 
 function ensureCustomTimelineCreated(): void {
   if (customTimelineView != null) return;
+  if (!timelineMountEl?.isConnected || !timelineDetailsPanelEl?.isConnected) {
+    const main = document.getElementById("admin-content");
+    if (main) {
+      const mount = main.querySelector("#timeline-mount");
+      const details = main.querySelector(".timeline-details-panel");
+      if (mount && details) {
+        timelineMountEl = mount as HTMLElement;
+        timelineDetailsPanelEl = details as HTMLElement;
+      }
+    }
+  }
   if (!timelineMountEl || !timelineDetailsPanelEl) return;
   const loadingEl = timelineLoadingEl;
   customTimelineView = createCustomTimelineView(
@@ -839,6 +850,7 @@ function setAutosaveUI(state: "saved" | "syncing"): void {
     timelineAutosaveEl.innerHTML = `<span class="timeline-autosave-icon">${circleCheckIcon}</span><span>Saved</span>`;
     timelineAutosaveEl.classList.remove("timeline-autosave--syncing");
   } else {
+    if (timelineAutosaveEl.classList.contains("timeline-autosave--syncing")) return;
     timelineAutosaveEl.innerHTML = `<span class="timeline-autosave-icon timeline-autosave-icon--spin">${animatedLoadingIcon}</span><span>Syncing</span>`;
     timelineAutosaveEl.classList.add("timeline-autosave--syncing");
   }
@@ -926,6 +938,10 @@ async function loadTimelineFromServer(showId: string): Promise<void> {
       return;
     }
     if (!res.ok) {
+      loadShowState(getDefaultNewShowState());
+      await loadTrackSplitterTree(showId);
+      hasLoadedShow = true;
+      setAutosaveUI("saved");
       return;
     }
     const state = (await res.json()) as TimelineStateJSON;
@@ -1049,6 +1065,15 @@ export function render(container: HTMLElement, showId: string | null): void {
     bottomRightSection.className = "timeline-bottom-right-panel";
     bottomRightSection.setAttribute("aria-label", "Preview and assets");
 
+    const { container: splitContainer, panelA, panelB } = createResizableSplit("horizontal", {
+      size: 50,
+      min: 15,
+      max: 85,
+      storageKey: `lumelier-timeline:${showId}:details-preview-split`,
+    });
+    panelA.appendChild(detailsSection);
+    bottomRowEl.appendChild(splitContainer);
+
     const { container: tabbedContainer } = createTabbedPane({
       storageKey: `lumelier-timeline:${showId}:bottom-right-tabs`,
       tabs: [
@@ -1083,17 +1108,8 @@ export function render(container: HTMLElement, showId: string | null): void {
         },
       ],
     });
-
-    const { container: splitContainer, panelA, panelB } = createResizableSplit("horizontal", {
-      size: 50,
-      min: 15,
-      max: 85,
-      storageKey: `lumelier-timeline:${showId}:details-preview-split`,
-    });
-    panelA.appendChild(detailsSection);
     bottomRightSection.appendChild(tabbedContainer);
     panelB.appendChild(bottomRightSection);
-    bottomRowEl.appendChild(splitContainer);
   }
 
   /* Wrap timeline (top) and bottom row in a vertical resizable split */
@@ -1317,19 +1333,22 @@ export function render(container: HTMLElement, showId: string | null): void {
     });
   });
 
-  // Load timeline first, then fetch live state and apply. This ensures the timeline is
-  // always created and shown before we apply broadcast UI (so opening the tab while live works).
-  loadTimelineFromServer(showId).then(() => {
+  // Defer load so the DOM from this render is committed and in the document before we create the timeline.
+  // Fixes empty timeline-mount when opening a show (first load after "open show").
+  requestAnimationFrame(() => {
     if (currentShowId !== showId) return;
-    fetch(`/api/admin/show-workspaces/${showId}/live-join-url`, { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : { live: false }))
-      .then((data: { live?: boolean }) => {
-        if (currentShowId !== showId) return;
-        applyLiveState(data.live === true, false);
-      })
-      .catch(() => {
-        if (currentShowId !== showId) return;
-        applyLiveState(false, false);
-      });
+    loadTimelineFromServer(showId).then(() => {
+      if (currentShowId !== showId) return;
+      fetch(`/api/admin/show-workspaces/${showId}/live-join-url`, { credentials: "include" })
+        .then((res) => (res.ok ? res.json() : { live: false }))
+        .then((data: { live?: boolean }) => {
+          if (currentShowId !== showId) return;
+          applyLiveState(data.live === true, false);
+        })
+        .catch(() => {
+          if (currentShowId !== showId) return;
+          applyLiveState(false, false);
+        });
+    });
   });
 }
