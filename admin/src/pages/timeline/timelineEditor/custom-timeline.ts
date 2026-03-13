@@ -356,7 +356,7 @@ export function createCustomTimelineView(
   });
   document.addEventListener("mousemove", (e) => {
     if (!readheadDragging) return;
-    const deltaSec = (readheadDragStartX - e.clientX) / viewport.pixelsPerSec;
+    const deltaSec = (e.clientX - readheadDragStartX) / viewport.pixelsPerSec;
     const scrollRange = getScrollRangeRightSec(viewport, itemsAsViewportItems());
     let newSec = readheadDragStartSec + deltaSec;
     newSec = Math.max(0, Math.min(scrollRange, newSec));

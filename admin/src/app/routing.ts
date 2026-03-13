@@ -48,7 +48,7 @@ export function parsePath(): { path: RoutePath; showId: string | null } {
   if (segments.length === 2) {
     const basePath = "/" + segments[0] as RoutePath;
     const showId = segments[1];
-    if (KNOWN_APP_PATHS.includes(basePath) && SHOW_ID_REGEX.test(showId)) {
+    if (KNOWN_APP_PATHS.includes(basePath)) {
       return { path: basePath, showId };
     }
   }

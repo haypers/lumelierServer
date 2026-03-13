@@ -1,19 +1,24 @@
-//! # Map State API — Server-Owned Connected Devices Map State
+//! # Map State API — Per-show map state (venue shape + mapped clients options)
 //!
-//! Stores current map state in memory (venue shape + mapped clients options), exposes read/write,
-//! and provides load/save venue actions backed by venue shape JSON files.
+//! GET/POST map state for a show. Stored as mapState.json in the show directory.
+//! GET returns saved state, or default with points from venueShape.json if no mapState.json yet.
 
-use std::sync::Arc;
-
-use axum::extract::State;
+use axum::extract::{Path, State};
+use axum::http::HeaderMap;
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
+use tokio::fs;
 
+use crate::api::show_workspaces::check_show_access;
 use crate::api::AdminAppState;
+use crate::auth;
 
 type ApiError = (StatusCode, String);
 type ApiResult<T> = Result<Json<T>, ApiError>;
+
+const MAP_STATE_FILENAME: &str = "mapState.json";
+const VENUE_SHAPE_FILENAME: &str = "venueShape.json";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -66,101 +71,95 @@ pub enum MapClientsSubMode {
     SimulatedColors,
 }
 
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct VenueNameBody {
-    pub name: String,
-}
-
 #[derive(Debug, Serialize, Deserialize)]
-pub struct VenueShapeBody {
-    pub points: Vec<[f64; 2]>,
+struct VenueShapeBody {
+    points: Vec<[f64; 2]>,
 }
 
-pub async fn get_map_state(State(state): State<AdminAppState>) -> Json<MapState> {
-    let current = state.map_state.load();
-    Json(current.as_ref().clone())
+fn show_dir(state: &AdminAppState, show_id: &str) -> std::path::PathBuf {
+    state.shows_path.join(show_id)
 }
 
-pub async fn post_map_state(
+/// GET /api/admin/show-workspaces/:show_id/map-state
+pub async fn get_map_state_show(
     State(state): State<AdminAppState>,
-    Json(mut body): Json<MapState>,
-) -> ApiResult<MapState> {
-    validate_and_normalize_map_state(&mut body)?;
-    state.map_state.store(Arc::new(body.clone()));
-    Ok(Json(body))
-}
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<MapState>, StatusCode> {
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &username, &show_id).await?;
 
-pub async fn post_load_map_state_venue(
-    State(state): State<AdminAppState>,
-    Json(body): Json<VenueNameBody>,
-) -> ApiResult<MapState> {
-    let name = ensure_json_ext(&body.name);
-    let safe_name = sanitize_filename(&name)
-        .ok_or((StatusCode::BAD_REQUEST, "Invalid venue name.".to_string()))?;
-    let file_path = state.venue_shapes_path.join(&safe_name);
-    let bytes = tokio::fs::read(&file_path).await.map_err(|e| match e.kind() {
-        std::io::ErrorKind::NotFound => (StatusCode::NOT_FOUND, "Venue not found.".to_string()),
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to read venue file.".to_string(),
-        ),
-    })?;
+    let dir = show_dir(&state, &show_id);
+    let map_state_path = dir.join(MAP_STATE_FILENAME);
+    let venue_path = dir.join(VENUE_SHAPE_FILENAME);
 
-    let parsed: VenueShapeBody = serde_json::from_slice(&bytes).map_err(|_| {
-        (
-            StatusCode::BAD_REQUEST,
-            "Venue file JSON is invalid.".to_string(),
-        )
-    })?;
-    validate_points(&parsed.points)?;
-
-    let current = state.map_state.load();
-    let mut next = current.as_ref().clone();
-    next.points = parsed.points;
-    next.loaded_venue_name = Some(safe_name);
-    state.map_state.store(Arc::new(next.clone()));
-    Ok(Json(next))
-}
-
-pub async fn post_save_map_state_venue(
-    State(state): State<AdminAppState>,
-    Json(body): Json<VenueNameBody>,
-) -> ApiResult<MapState> {
-    let name = ensure_json_ext(&body.name);
-    let safe_name = sanitize_filename(&name)
-        .ok_or((StatusCode::BAD_REQUEST, "Invalid venue name.".to_string()))?;
-
-    let current = state.map_state.load();
-    let mut next = current.as_ref().clone();
-    validate_points(&next.points)?;
-    if next.points.len() < 3 {
-        return Err((
-            StatusCode::BAD_REQUEST,
-            "Cannot save venue with fewer than 3 points.".to_string(),
-        ));
+    if map_state_path.exists() {
+        let bytes = fs::read(&map_state_path)
+            .await
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        let mut parsed: MapState = serde_json::from_slice(&bytes)
+            .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+        if validate_and_normalize_map_state(&mut parsed).is_err() {
+            return Err(StatusCode::INTERNAL_SERVER_ERROR);
+        }
+        return Ok(Json(parsed));
     }
 
-    let content = serde_json::to_vec(&VenueShapeBody {
-        points: next.points.clone(),
-    })
-    .map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to serialize map points.".to_string(),
-        )
-    })?;
-    let file_path = state.venue_shapes_path.join(&safe_name);
-    tokio::fs::write(&file_path, content).await.map_err(|_| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            "Failed to write venue file.".to_string(),
-        )
-    })?;
+    let mut default_state = MapState::default();
+    if venue_path.exists() {
+        if let Ok(bytes) = fs::read(&venue_path).await {
+            if let Ok(venue) = serde_json::from_slice::<VenueShapeBody>(&bytes) {
+                if validate_points(&venue.points).is_ok() {
+                    default_state.points = venue.points;
+                }
+            }
+        }
+    }
+    Ok(Json(default_state))
+}
 
-    next.loaded_venue_name = Some(safe_name);
-    state.map_state.store(Arc::new(next.clone()));
-    Ok(Json(next))
+/// POST /api/admin/show-workspaces/:show_id/map-state
+pub async fn post_map_state_show(
+    State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+    Json(mut body): Json<MapState>,
+) -> ApiResult<MapState> {
+    let session_id = auth::parse_session_cookie(&headers)
+        .ok_or((StatusCode::UNAUTHORIZED, "Not authenticated".to_string()))?;
+    let username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or((StatusCode::UNAUTHORIZED, "Invalid session".to_string()))?;
+    check_show_access(&state, &username, &show_id)
+        .await
+        .map_err(|e| (e, "Show access denied".to_string()))?;
+
+    validate_and_normalize_map_state(&mut body)?;
+
+    let dir = show_dir(&state, &show_id);
+    fs::create_dir_all(&dir)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create show dir".to_string()))?;
+    let path = dir.join(MAP_STATE_FILENAME);
+    let bytes = serde_json::to_vec_pretty(&body).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to serialize map state".to_string(),
+        )
+    })?;
+    fs::write(&path, &bytes)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write map state".to_string()))?;
+    Ok(Json(body))
 }
 
 fn validate_and_normalize_map_state(state: &mut MapState) -> Result<(), ApiError> {
@@ -185,10 +184,10 @@ fn validate_and_normalize_map_state(state: &mut MapState) -> Result<(), ApiError
     }
 
     if let Some(name) = state.loaded_venue_name.as_deref() {
-        let normalized = ensure_json_ext(name);
-        let safe_name = sanitize_filename(&normalized)
-            .ok_or((StatusCode::BAD_REQUEST, "Invalid loadedVenueName.".to_string()))?;
-        state.loaded_venue_name = Some(safe_name);
+        let trimmed = name.trim();
+        if !trimmed.is_empty() && !trimmed.contains('/') && !trimmed.contains('\\') {
+            state.loaded_venue_name = Some(trimmed.to_string());
+        }
     }
 
     Ok(())
@@ -220,25 +219,4 @@ fn validate_points(points: &[[f64; 2]]) -> Result<(), ApiError> {
     }
 
     Ok(())
-}
-
-fn sanitize_filename(name: &str) -> Option<String> {
-    if name.is_empty() || name.contains("..") || name.contains('/') || name.contains('\\') {
-        return None;
-    }
-    let ok = name
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_' || c == '-');
-    if !ok {
-        return None;
-    }
-    Some(name.to_string())
-}
-
-fn ensure_json_ext(name: &str) -> String {
-    if name.ends_with(".json") {
-        name.to_string()
-    } else {
-        format!("{}.json", name)
-    }
 }

@@ -34,7 +34,7 @@ function hasZeroDestructionPointInAllCharts(curves: DistributionCurve[]): boolea
 }
 
 export function showCreateClientsModal(
-  _showId: string,
+  showId: string,
   onCreate: (newClients: SimulatedClient[]) => void
 ): void {
   let generateFromProfile = true;
@@ -192,7 +192,10 @@ export function showCreateClientsModal(
   document.addEventListener("click", closeOnClickOutside);
 
   async function loadProfileList(): Promise<void> {
-    const res = await fetch("/api/admin/simulated-client-profiles");
+    if (!showId) return;
+    const res = await fetch(`/api/admin/show-workspaces/${encodeURIComponent(showId)}/simulated-client-profiles`, {
+      credentials: "include",
+    });
     const names: string[] = res.ok ? await res.json() : [];
     profileDropdownList.innerHTML = "";
     const placeholder = document.createElement("button");
@@ -227,7 +230,11 @@ export function showCreateClientsModal(
       updateCreateButtonState();
       return;
     }
-    const res = await fetch(`/api/admin/simulated-client-profiles/${encodeURIComponent(name)}`);
+    if (!showId) return;
+    const res = await fetch(
+      `/api/admin/show-workspaces/${encodeURIComponent(showId)}/simulated-client-profiles/${encodeURIComponent(name)}`,
+      { credentials: "include" }
+    );
     if (!res.ok) return;
     const profile = (await res.json()) as Record<SimulatedClientDistKey, DistributionCurve>;
     editorApi.setCurves(profile);
@@ -247,7 +254,7 @@ export function showCreateClientsModal(
   const closeRef = { current: (): void => {} };
 
   async function handleSaveProfile(): Promise<void> {
-    if (!editorApi) return;
+    if (!editorApi || !showId) return;
     const name = prompt("What is the name of this client profile?");
     if (name == null || name.trim() === "") return;
     const profileName = name.trim();
@@ -266,18 +273,21 @@ export function showCreateClientsModal(
         })),
       };
     }
-    let res = await fetch("/api/admin/simulated-client-profiles", {
+    const baseUrl = `/api/admin/show-workspaces/${encodeURIComponent(showId)}/simulated-client-profiles`;
+    let res = await fetch(baseUrl, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: profileName, overwrite: false, profile }),
+      credentials: "include",
     });
     const data = await res.json();
     if (res.status === 409 && data.exists === true) {
       if (!confirm("A profile with this name already exists. Overwrite it?")) return;
-      res = await fetch("/api/admin/simulated-client-profiles", {
+      res = await fetch(baseUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ name: profileName, overwrite: true, profile }),
+        credentials: "include",
       });
     }
     if (res.ok) {

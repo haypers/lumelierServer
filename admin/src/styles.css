@@ -13,6 +13,9 @@
   --radius: 3px;
   --space: 8px;
   --font-sans: system-ui, -apple-system, Segoe UI, sans-serif;
+  --asset-pill-audio: #2d7d4a;
+  --asset-pill-video: #2563eb;
+  --asset-pill-image: #7c3aed;
 }
 
 * {

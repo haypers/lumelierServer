@@ -30,7 +30,7 @@ function hasZeroDestructionPointInAllCharts(curves: DistributionCurve[]): boolea
 }
 
 export function showCloneClientModal(
-  _showId: string,
+  showId: string,
   sourceClient: SimulatedClient,
   onCreate: (newClients: SimulatedClient[]) => void
 ): void {
@@ -102,7 +102,11 @@ export function showCloneClientModal(
   document.addEventListener("click", closeOnClickOutsideClone);
 
   async function loadCloneProfileList(): Promise<void> {
-    const res = await fetch("/api/admin/simulated-client-profiles");
+    if (!showId) return;
+    const res = await fetch(
+      `/api/admin/show-workspaces/${encodeURIComponent(showId)}/simulated-client-profiles`,
+      { credentials: "include" }
+    );
     const names: string[] = res.ok ? await res.json() : [];
     profileDropdownList.innerHTML = "";
     const placeholder = document.createElement("button");
@@ -135,7 +139,11 @@ export function showCloneClientModal(
       updateCloneButtonsState();
       return;
     }
-    const res = await fetch(`/api/admin/simulated-client-profiles/${encodeURIComponent(name)}`);
+    if (!showId) return;
+    const res = await fetch(
+      `/api/admin/show-workspaces/${encodeURIComponent(showId)}/simulated-client-profiles/${encodeURIComponent(name)}`,
+      { credentials: "include" }
+    );
     if (!res.ok) return;
     const profile = (await res.json()) as Record<SimulatedClientDistKey, DistributionCurve>;
     editorApi.setCurves(profile);
@@ -181,12 +189,17 @@ export function showCloneClientModal(
     profileName: string,
     overwrite: boolean
   ): Promise<{ success: boolean; exists?: boolean }> {
+    if (!showId) return { success: false };
     const profile = buildProfilePayload();
-    const res = await fetch("/api/admin/simulated-client-profiles", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name: profileName, overwrite, profile }),
-    });
+    const res = await fetch(
+      `/api/admin/show-workspaces/${encodeURIComponent(showId)}/simulated-client-profiles`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: profileName, overwrite, profile }),
+        credentials: "include",
+      }
+    );
     await res.json();
     if (res.status === 409) return { success: false, exists: true };
     if (!res.ok) return { success: false };

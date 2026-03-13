@@ -42,7 +42,6 @@ function renderFileList(
   files: TimelineMediaFile[],
   showId: string
 ): void {
-  listEl.innerHTML = "";
   for (const file of files) {
     const row = document.createElement("div");
     row.className = "assets-file-row";
@@ -65,8 +64,7 @@ function renderFileList(
         nameCell.appendChild(pill);
       } else {
         const pill = document.createElement("span");
-        pill.className = "assets-file-extension-pill";
-        pill.style.background = "var(--border)";
+        pill.className = "assets-file-extension-pill assets-file-extension-pill--other";
         pill.textContent = ext;
         nameCell.appendChild(pill);
       }
@@ -153,7 +151,15 @@ export function renderAssetsPanel(container: HTMLElement, showId: string | null)
   }
 
   function applyList(data: TimelineMediaListResponse): void {
-    renderFileList(listEl, data.files, sid);
+    listEl.innerHTML = "";
+    if (data.files.length === 0) {
+      const empty = document.createElement("div");
+      empty.className = "assets-list-empty";
+      empty.textContent = "No Assets in this project yet.";
+      listEl.appendChild(empty);
+    } else {
+      renderFileList(listEl, data.files, sid);
+    }
   }
 
   function refresh(): void {

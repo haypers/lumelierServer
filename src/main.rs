@@ -6,9 +6,8 @@
 //! and broadcast state (timeline, play/pause). Prints a QR code so phones on the same network can
 //! open the client URL.
 
-use axum::extract::{DefaultBodyLimit, Path, State};
+use axum::extract::DefaultBodyLimit;
 use axum::handler::Handler;
-use axum::http::HeaderMap;
 use axum::middleware;
 use axum::response::IntoResponse;
 use axum::routing::{any, get, post};
@@ -49,21 +48,6 @@ fn client_base_url() -> String {
 async fn main() {
     let live_shows: Arc<live_shows::LiveShowStore> = Arc::new(live_shows::LiveShowStore::new());
 
-    let show_timelines_path = PathBuf::from("./userData/showTimelines");
-    if let Err(e) = std::fs::create_dir_all(&show_timelines_path) {
-        eprintln!("could not create show timelines dir: {}", e);
-    }
-
-    let simulated_client_profiles_path = PathBuf::from("./userData/simulatedClientProfiles");
-    if let Err(e) = std::fs::create_dir_all(&simulated_client_profiles_path) {
-        eprintln!("could not create simulated client profiles dir: {}", e);
-    }
-
-    let venue_shapes_path = PathBuf::from("./userData/venueShapes");
-    if let Err(e) = std::fs::create_dir_all(&venue_shapes_path) {
-        eprintln!("could not create venue shapes dir: {}", e);
-    }
-
     let shows_path = PathBuf::from("./userData/shows");
     if let Err(e) = std::fs::create_dir_all(&shows_path) {
         eprintln!("could not create shows dir: {}", e);
@@ -87,11 +71,7 @@ async fn main() {
         live_shows: live_shows.clone(),
         client_base_url: client_base_url(),
         simulated_server_url: std::env::var("SIMULATED_SERVER_URL").unwrap_or_else(|_| "http://127.0.0.1:3003".to_string()),
-        show_timelines_path,
-        simulated_client_profiles_path,
-        venue_shapes_path,
         shows_path,
-        map_state: Arc::new(arc_swap::ArcSwap::from_pointee(api::MapState::default())),
         auth: auth_state,
     };
 
@@ -160,27 +140,10 @@ async fn main() {
         }
     }
 
-    /// Serves the admin SPA only if the user has access to the show. Used for routes like /dashboard/:show_id.
-    async fn serve_admin_index_if_show_access(
-        Path(show_id): Path<String>,
-        State(state): State<api::AdminAppState>,
-        headers: HeaderMap,
-    ) -> impl IntoResponse {
-        if !api::is_valid_show_id_format(&show_id) {
-            return axum::http::StatusCode::NOT_FOUND.into_response();
-        }
-        let session_id = match auth::parse_session_cookie(&headers) {
-            Some(s) => s,
-            None => return axum::http::StatusCode::UNAUTHORIZED.into_response(),
-        };
-        let username = match state.auth.sessions.get(&session_id).await {
-            Some(u) => u,
-            None => return axum::http::StatusCode::UNAUTHORIZED.into_response(),
-        };
-        match api::check_show_access(&state, &username, &show_id).await {
-            Ok(_) => serve_admin_index().await.into_response(),
-            Err(sc) => sc.into_response(),
-        }
+    /// Serves the admin SPA for show routes (e.g. /dashboard/:show_id). Always returns the SPA so the
+    /// client can load and show a styled 404 when the show does not exist or the user has no access.
+    async fn serve_admin_index_if_show_access() -> impl IntoResponse {
+        serve_admin_index().await.into_response()
     }
 
     // Live-show-ids: the simulated client server polls this every 10s to know which shows are live.
@@ -202,21 +165,6 @@ async fn main() {
         .route("/shows/:show_id/broadcast/readhead", post(api::post_broadcast_readhead))
         .route("/shows/:show_id/broadcast/play", post(api::post_broadcast_play))
         .route("/shows/:show_id/broadcast/pause", post(api::post_broadcast_pause))
-        .route("/shows", get(api::list_shows))
-        .route("/shows/:name", get(api::get_show).put(api::put_show))
-        .route("/venues", get(api::list_venues))
-        .route("/venues/:name", get(api::get_venue).put(api::put_venue))
-        .route("/map-state", get(api::get_map_state).post(api::post_map_state))
-        .route("/map-state/load-venue", post(api::post_load_map_state_venue))
-        .route("/map-state/save-venue", post(api::post_save_map_state_venue))
-        .route(
-            "/simulated-client-profiles",
-            get(api::list_simulated_client_profiles).post(api::post_save_simulated_client_profile),
-        )
-        .route(
-            "/simulated-client-profiles/:name",
-            get(api::get_simulated_client_profile),
-        )
         .route("/users/check", get(api::get_user_exists))
         .route("/show-workspaces", get(api::get_list_shows).post(api::post_create_show))
         .route(
@@ -237,6 +185,10 @@ async fn main() {
             get(api::get_venue_shape).put(api::put_venue_shape),
         )
         .route(
+            "/show-workspaces/:show_id/map-state",
+            get(api::get_map_state_show).post(api::post_map_state_show),
+        )
+        .route(
             "/show-workspaces/:show_id/timeline-media",
             get(api::get_timeline_media_list)
                 .post(api::post_timeline_media_upload.layer(DefaultBodyLimit::max(500 * 1024 * 1024))),
@@ -244,6 +196,14 @@ async fn main() {
         .route(
             "/show-workspaces/:show_id/timeline-media/:filename",
             get(api::get_timeline_media_file),
+        )
+        .route(
+            "/show-workspaces/:show_id/simulated-client-profiles",
+            get(api::list_simulated_client_profiles).post(api::post_save_simulated_client_profile),
+        )
+        .route(
+            "/show-workspaces/:show_id/simulated-client-profiles/:name",
+            get(api::get_simulated_client_profile),
         )
         .route_layer(middleware::from_fn_with_state(
             admin_state.clone(),

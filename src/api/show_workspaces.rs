@@ -176,6 +176,11 @@ pub async fn post_create_show(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write venueShape.json"))?;
 
+    let track_splitter_json = r#"{"root":{"type":"setTrack","trackId":"1"}}"#;
+    fs::write(show_dir.join(TRACK_SPLITTER_TREE_FILENAME), track_splitter_json)
+        .await
+        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write trackSplitterTree.json"))?;
+
     fs::create_dir_all(show_dir.join("simulatedClientProfiles"))
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create simulatedClientProfiles dir"))?;

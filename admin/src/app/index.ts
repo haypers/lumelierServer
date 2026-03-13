@@ -3,6 +3,7 @@ import {
   parsePath,
   getPath,
   getShowIdFromPath,
+  SHOW_ID_REGEX,
 } from "./routing";
 import {
   initShowManagement,
@@ -26,9 +27,33 @@ import { render as renderRegister } from "../pages/register";
 
 const LIVE_STATE_INITIAL_POLL_MS = 15000;
 
+const SHOW_NOT_FOUND_MESSAGE = "The requested show does not exist.";
+
+/** Renders the styled 404 empty state when the show in the URL does not exist or is invalid. */
+function renderShowNotFound(container: HTMLElement): void {
+  container.innerHTML = `
+    <div class="show-required-empty-state">
+      <p class="show-required-empty-state-message">${SHOW_NOT_FOUND_MESSAGE}</p>
+    </div>`;
+}
+
+/** Whether the current route has a show id that we determined does not exist (404). */
+let showNotFoundShowId: string | null = null;
+
 function renderPageContent(path: RoutePath): void {
   const main = document.getElementById("admin-content");
   if (!main) return;
+  const showIdFromPath = getShowIdFromPath();
+  const isShowRoute =
+    path === "/dashboard" ||
+    path === "/timeline" ||
+    path === "/connectedDevicesList" ||
+    path === "/venueMap" ||
+    path === "/simulateDevices" ||
+    path === "/sessionManager";
+  if (isShowRoute && showIdFromPath != null && showIdFromPath === showNotFoundShowId) {
+    return renderShowNotFound(main);
+  }
   switch (path) {
     case "/dashboard":
       return renderDashboard(main, getShowIdFromPath());
@@ -89,30 +114,39 @@ function render(): void {
         return;
       }
       const data = await res.json() as { username: string };
-      const path = getPath();
       const showId = getShowIdFromPath();
       clearLiveStatePollTimer();
       if (showId) {
-        try {
-          const showRes = await fetch(`/api/admin/show-workspaces/${showId}`, { credentials: "include" });
-          if (showRes.ok) {
-            const showData = (await showRes.json()) as { show_id: string; name: string };
-            setCurrentShow({ id: showData.show_id, name: showData.name });
-            try {
-              const live = await fetchLiveStateFromServer(showData.show_id);
-              setShowLiveState(live ? "live" : "not_live");
-            } catch {
-              setShowLiveState("not_live");
-            }
-          } else {
-            setCurrentShow(null);
-            window.history.replaceState(null, "", path);
-          }
-        } catch {
+        const validFormat = SHOW_ID_REGEX.test(showId);
+        if (!validFormat) {
+          showNotFoundShowId = showId;
           setCurrentShow(null);
-          window.history.replaceState(null, "", path);
+        } else {
+          try {
+            const showRes = await fetch(`/api/admin/show-workspaces/${showId}`, {
+              credentials: "include",
+            });
+            if (showRes.ok) {
+              showNotFoundShowId = null;
+              const showData = (await showRes.json()) as { show_id: string; name: string };
+              setCurrentShow({ id: showData.show_id, name: showData.name });
+              try {
+                const live = await fetchLiveStateFromServer(showData.show_id);
+                setShowLiveState(live ? "live" : "not_live");
+              } catch {
+                setShowLiveState("not_live");
+              }
+            } else {
+              showNotFoundShowId = showId;
+              setCurrentShow(null);
+            }
+          } catch {
+            showNotFoundShowId = showId;
+            setCurrentShow(null);
+          }
         }
       } else {
+        showNotFoundShowId = null;
         setCurrentShow(null);
       }
       renderApp(data.username);

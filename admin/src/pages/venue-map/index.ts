@@ -253,11 +253,13 @@ export function render(container: HTMLElement, showId: string | null): void {
   }
 
   async function postCurrentMapState(alertOnError: boolean): Promise<boolean> {
+    if (!currentShowId) return true;
     try {
-      const res = await fetch("/api/admin/map-state", {
+      const res = await fetch(`/api/admin/show-workspaces/${currentShowId}/map-state`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(getCurrentMapStatePayload()),
+        credentials: "include",
       });
       if (!res.ok) {
         if (alertOnError) {
@@ -287,10 +289,12 @@ export function render(container: HTMLElement, showId: string | null): void {
   }
 
   async function syncMapStateFromServer(): Promise<void> {
-    if (mapStateSyncInFlight) return;
+    if (!currentShowId || mapStateSyncInFlight) return;
     mapStateSyncInFlight = true;
     try {
-      const res = await fetch("/api/admin/map-state", { credentials: "include" });
+      const res = await fetch(`/api/admin/show-workspaces/${currentShowId}/map-state`, {
+        credentials: "include",
+      });
       if (!res.ok) return;
       const parsed = parseMapState(await res.json());
       if (!parsed || drawingMode) return;
