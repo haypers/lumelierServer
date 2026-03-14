@@ -1,7 +1,7 @@
 //! # Show workspaces — Per-show folders under userData/shows
 //!
 //! Each show has a folder {show_id}/ with info.json, timeline.json, trackSplitterTree.json,
-//! venueShape.json, and simulatedClientProfiles/. Creating a show updates the user's show_ids and the show's info.json.
+//! ShowLocation.json, and simulatedClientProfiles/. Creating a show updates the user's show_ids and the show's info.json.
 
 use std::sync::Arc;
 
@@ -172,10 +172,18 @@ pub async fn post_create_show(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write timeline.json"))?;
 
-    let venue_json = r#"{"points":[]}"#;
-    fs::write(show_dir.join("venueShape.json"), venue_json)
-        .await
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write venueShape.json"))?;
+    let show_location_json = serde_json::json!({
+        "lat": 0.0,
+        "lng": 0.0,
+        "radiusMeters": 100.0,
+        "requestsGPS": false
+    });
+    fs::write(
+        show_dir.join(SHOW_LOCATION_FILENAME),
+        serde_json::to_string(&show_location_json).unwrap(),
+    )
+    .await
+    .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write ShowLocation.json"))?;
 
     let track_splitter_json = r#"{"root":{"type":"setTrack","trackId":"1"}}"#;
     fs::write(show_dir.join(TRACK_SPLITTER_TREE_FILENAME), track_splitter_json)
@@ -381,8 +389,33 @@ pub async fn put_track_splitter_tree(
     Ok(StatusCode::OK)
 }
 
-/// GET /api/admin/show-workspaces/:show_id/venue-shape — returns venueShape.json for the show. 404 if file missing.
-pub async fn get_venue_shape(
+const SHOW_LOCATION_FILENAME: &str = "ShowLocation.json";
+
+#[derive(Deserialize)]
+struct ShowLocationBody {
+    lat: f64,
+    lng: f64,
+    #[serde(rename = "radiusMeters")]
+    radius_meters: f64,
+    #[serde(rename = "requestsGPS")]
+    requests_gps: bool,
+}
+
+fn validate_show_location(body: &ShowLocationBody) -> Result<(), StatusCode> {
+    if !body.lat.is_finite() || !body.lng.is_finite() || !body.radius_meters.is_finite() {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if !(-90.0..=90.0).contains(&body.lat) || !(-180.0..=180.0).contains(&body.lng) {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if body.radius_meters <= 0.0 {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(())
+}
+
+/// GET /api/admin/show-workspaces/:show_id/show-location — returns ShowLocation.json for the show. 404 if file missing.
+pub async fn get_show_location(
     State(state): State<AdminAppState>,
     Path(show_id): Path<String>,
     headers: HeaderMap,
@@ -395,7 +428,7 @@ pub async fn get_venue_shape(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     check_show_access(&state, &username, &show_id).await?;
-    let path = state.shows_path.join(&show_id).join("venueShape.json");
+    let path = state.shows_path.join(&show_id).join(SHOW_LOCATION_FILENAME);
     let bytes = fs::read(&path)
         .await
         .map_err(|e| match e.kind() {
@@ -405,41 +438,60 @@ pub async fn get_venue_shape(
     Ok(([("content-type", "application/json")], bytes))
 }
 
-/// PUT /api/admin/show-workspaces/:show_id/venue-shape — write venue shape JSON. Expects { "points": [[lat, lng], ...] }.
-pub async fn put_venue_shape(
+/// PUT /api/admin/show-workspaces/:show_id/show-location — write ShowLocation.json. Expects { lat, lng, radiusMeters, requestsGPS }.
+pub async fn put_show_location(
     State(state): State<AdminAppState>,
     Path(show_id): Path<String>,
     headers: HeaderMap,
     body: Bytes,
-) -> Result<StatusCode, StatusCode> {
-    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+) -> Result<StatusCode, (StatusCode, String)> {
+    let session_id = auth::parse_session_cookie(&headers).ok_or((
+        StatusCode::UNAUTHORIZED,
+        "Unauthorized".to_string(),
+    ))?;
     let username = state
         .auth
         .sessions
         .get(&session_id)
         .await
-        .ok_or(StatusCode::UNAUTHORIZED)?;
-    check_show_access(&state, &username, &show_id).await?;
-    let value: serde_json::Value =
-        serde_json::from_slice(&body).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let obj = value.as_object().ok_or(StatusCode::BAD_REQUEST)?;
-    let points = obj.get("points").and_then(|p| p.as_array()).ok_or(StatusCode::BAD_REQUEST)?;
-    for p in points {
-        let arr = p.as_array().ok_or(StatusCode::BAD_REQUEST)?;
-        if arr.len() != 2 {
-            return Err(StatusCode::BAD_REQUEST);
-        }
-        let lat = arr[0].as_f64().ok_or(StatusCode::BAD_REQUEST)?;
-        let lng = arr[1].as_f64().ok_or(StatusCode::BAD_REQUEST)?;
-        if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
-            return Err(StatusCode::BAD_REQUEST);
+        .ok_or((
+            StatusCode::UNAUTHORIZED,
+            "Unauthorized".to_string(),
+        ))?;
+    check_show_access(&state, &username, &show_id)
+        .await
+        .map_err(|code| (code, "Access denied".to_string()))?;
+    let value: ShowLocationBody = serde_json::from_slice(&body).map_err(|e| {
+        (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e))
+    })?;
+    validate_show_location(&value).map_err(|_| {
+        (
+            StatusCode::BAD_REQUEST,
+            "Validation failed: lat in [-90,90], lng in [-180,180], radiusMeters > 0".to_string(),
+        )
+    })?;
+    let path = state.shows_path.join(&show_id).join(SHOW_LOCATION_FILENAME);
+    fs::write(&path, &body).await.map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to write file".to_string(),
+        )
+    })?;
+    Ok(StatusCode::OK)
+}
+
+/// Read ShowLocation.json for the show and set timeline["requestsGPS"] so clients receive it via broadcast.
+pub async fn merge_requests_gps_into_timeline(
+    state: &AdminAppState,
+    show_id: &str,
+    timeline: &mut serde_json::Value,
+) {
+    let path = state.shows_path.join(show_id).join(SHOW_LOCATION_FILENAME);
+    if let Ok(bytes) = fs::read(&path).await {
+        if let Ok(show_loc) = serde_json::from_slice::<ShowLocationBody>(&bytes) {
+            timeline["requestsGPS"] = serde_json::json!(show_loc.requests_gps);
         }
     }
-    let path = state.shows_path.join(&show_id).join("venueShape.json");
-    fs::write(&path, &body)
-        .await
-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
-    Ok(StatusCode::OK)
 }
 
 // ---------------------------------------------------------------------------
@@ -976,15 +1028,17 @@ pub async fn post_go_live(
     if let Ok(bytes) = fs::read(&timeline_path).await {
         if timeline_validator::validate_broadcast_timeline(&bytes).is_ok() {
             if let Ok(json) = String::from_utf8(bytes.to_vec()) {
-                if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&json) {
+                if let Ok(mut parsed) = serde_json::from_str::<serde_json::Value>(&json) {
+                    merge_requests_gps_into_timeline(&state, &show_id, &mut parsed).await;
                     let readhead_sec = parsed
                         .get("readheadSec")
                         .and_then(|v| v.as_f64())
                         .filter(|v| v.is_finite())
                         .map(|v| v.max(0.0))
                         .unwrap_or(0.0);
+                    let json_merged = serde_json::to_string(&parsed).unwrap_or(json);
                     let snapshot = BroadcastSnapshot {
-                        timeline_raw: Some(Arc::from(json.into_boxed_str())),
+                        timeline_raw: Some(Arc::from(json_merged.into_boxed_str())),
                         timeline_parsed: Some(Arc::new(parsed)),
                         readhead_sec,
                         play_at_ms: None,

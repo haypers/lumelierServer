@@ -1,0 +1,34 @@
+/* Dark-theme zoom controls for all Leaflet maps in the app */
+
+.leaflet-control-zoom {
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius);
+  overflow: hidden;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+.leaflet-control-zoom-in,
+.leaflet-control-zoom-out {
+  background: var(--bg-elevated) !important;
+  color: var(--text) !important;
+  border: none !important;
+  border-bottom: 1px solid var(--border) !important;
+  width: 30px !important;
+  height: 30px !important;
+  line-height: 30px !important;
+  font-size: 18px !important;
+  font-weight: 300;
+  transition: background 0.15s ease;
+}
+.leaflet-control-zoom-out {
+  border-bottom: none !important;
+}
+.leaflet-control-zoom-in:hover,
+.leaflet-control-zoom-out:hover {
+  background: var(--border) !important;
+  color: var(--text) !important;
+}
+.leaflet-control-zoom a.leaflet-control-zoom-in,
+.leaflet-control-zoom a.leaflet-control-zoom-out {
+  color: var(--text) !important;
+  text-decoration: none !important;
+}

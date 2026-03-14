@@ -7,13 +7,11 @@ export function exportState(
   getLayers: () => LayersArray,
   getItems: () => ItemsArray,
   getReadheadSec: () => number,
-  getTitle: () => string,
-  getRequestsGPS: () => boolean
+  getTitle: () => string
 ): TimelineStateJSON {
   return {
     version: 1,
     title: getTitle(),
-    requestsGPS: getRequestsGPS(),
     layers: getLayers().map((l) => ({ id: l.id, label: l.label })),
     items: getItems().map((it) => ({
       id: it.id,
@@ -42,11 +40,9 @@ export function importState(
   setItems: (items: ItemsArray) => void,
   setReadheadSec: (sec: number) => void,
   setNextIds: (ids: NextIds) => void,
-  setTitle: (title: string) => void,
-  setRequestsGPS: (value: boolean) => void
+  setTitle: (title: string) => void
 ): void {
   setTitle(state.title ?? "Untitled Show");
-  setRequestsGPS(state.requestsGPS === true);
   setLayers(state.layers.map((l) => ({ id: l.id, label: l.label })));
   setItems(
     state.items.map((it) => {

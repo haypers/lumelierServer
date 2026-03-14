@@ -1,8 +1,8 @@
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
 import "./styles.css";
-import { convexHull } from "./convex-hull";
 import searchIcon from "../../icons/search.svg?raw";
+import dragHandleIcon from "../../icons/drag-handle.svg?raw";
 import animatedLoadingIcon from "../../icons/animatedLoadingIcon.svg?raw";
 import mapIcon from "../../icons/map.svg?raw";
 import eyeIcon from "../../icons/eye.svg?raw";
@@ -24,14 +24,14 @@ const MAP_CLIENTS_WRAP_ID = "connected-devices-map-map-clients-wrap";
 const MAP_CLIENTS_BTN_ID = "connected-devices-map-map-clients-btn";
 const MAP_CLIENTS_DROPDOWN_ID = "connected-devices-map-map-clients-dropdown";
 const TOOLBAR_ID = "connected-devices-map-toolbar";
-const EDIT_VENUE_BTN_ID = "connected-devices-map-edit-venue-btn";
+const EDIT_LOCATION_BTN_ID = "connected-devices-map-edit-location-btn";
 const NOMINATIM_USER_AGENT = "Lumelier Light Show Planner";
 const SEARCH_TIMEOUT_MS = 12_000;
 const EDIT_BTN_CONFIRM_CLASS = "connected-devices-map-edit-btn--confirm";
 const MAP_STATE_REFRESH_DEFAULT_MS = 2000;
 const MAP_STATE_REFRESH_STORAGE_KEY = "Connected_Devices_Map-State";
 
-/** Module-level show id when viewing a show's venue map; used for PUT venue-shape on Confirm. */
+/** Module-level show id when viewing a show's venue map; used for PUT show-location on Confirm. */
 let currentShowId: string | null = null;
 
 interface NominatimResult {
@@ -78,7 +78,7 @@ export function render(container: HTMLElement, showId: string | null): void {
           </div>
           <div class="connected-devices-map-search-results" id="${SEARCH_RESULTS_ID}" hidden role="listbox" aria-label="Search results"></div>
         </div>
-        <button type="button" class="devices-toolbar-btn" id="${EDIT_VENUE_BTN_ID}">${mapIcon}<span>Edit Venue Shape</span></button>
+        <button type="button" class="devices-toolbar-btn" id="${EDIT_LOCATION_BTN_ID}">${mapIcon}<span>Edit Show Location</span></button>
       </div>
       <div class="connected-devices-map-options-bar">
         <div class="connected-devices-map-refresh-wrap" id="${MAP_REFRESH_WRAP_ID}"></div>
@@ -102,7 +102,7 @@ export function render(container: HTMLElement, showId: string | null): void {
   const map = L.map(mapEl).setView([20, 0], 2);
 
   // Positron, no labels: shapes only (roads, water, parks).
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png", {
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
     subdomains: "abcd",
     maxZoom: 20,
@@ -171,10 +171,6 @@ export function render(container: HTMLElement, showId: string | null): void {
     return Math.min(max, Math.max(min, nn));
   }
 
-  function clonePoints(src: [number, number][]): [number, number][] {
-    return src.map(([lat, lng]) => [lat, lng]);
-  }
-
   function parseMapState(raw: unknown): MapStateApi | null {
     if (!raw || typeof raw !== "object") return null;
     const obj = raw as Record<string, unknown>;
@@ -226,7 +222,7 @@ export function render(container: HTMLElement, showId: string | null): void {
 
   function getCurrentMapStatePayload(): MapStateApi {
     return {
-      points: clonePoints(points),
+      points: [],
       loadedVenueName,
       mapClients: {
         parentMode: mapClientsParentMode,
@@ -236,8 +232,7 @@ export function render(container: HTMLElement, showId: string | null): void {
     };
   }
 
-  function applyMapState(state: MapStateApi, fitBounds = false): void {
-    points = clonePoints(state.points);
+  function applyMapState(state: MapStateApi): void {
     loadedVenueName = state.loadedVenueName;
     mapClientsParentMode = state.mapClients.parentMode;
     mapClientsMappedLimit = clampInt(state.mapClients.mappedLimit, 1, 10000);
@@ -245,10 +240,6 @@ export function render(container: HTMLElement, showId: string | null): void {
       mapClientsParentMode === "mapped"
         ? state.mapClients.subMode ?? "locationOnly"
         : null;
-    selectedPointIndex = null;
-    confirmed = false;
-    pointMarkersLayer.clearLayers();
-    updateHullPolygonOnly(fitBounds);
     syncMapClientsDropdown();
   }
 
@@ -297,7 +288,7 @@ export function render(container: HTMLElement, showId: string | null): void {
       });
       if (!res.ok) return;
       const parsed = parseMapState(await res.json());
-      if (!parsed || drawingMode) return;
+      if (!parsed || editLocationMode) return;
       if (currentShowId != null) {
         mapClientsParentMode = parsed.mapClients.parentMode;
         mapClientsMappedLimit = clampInt(parsed.mapClients.mappedLimit, 1, 10000);
@@ -664,19 +655,24 @@ export function render(container: HTMLElement, showId: string | null): void {
     }
   });
 
-  // --- Drawing mode: venue polygon (convex hull), no dimming ---
-  let drawingMode = false;
-  let points: [number, number][] = [];
-  let selectedPointIndex: number | null = null;
-  let confirmed = false; // after confirm, no more editing/selecting/dragging
-  let pointsBeforeDrawing: [number, number][] = [];
-  const pointMarkersLayer = L.layerGroup().addTo(map);
-  let hullPolygon: L.Polygon | null = null;
-  const editVenueBtn = document.getElementById(EDIT_VENUE_BTN_ID) as HTMLButtonElement;
+  // --- Edit Show Location (circle) ---
+  interface ShowLocationData {
+    lat: number;
+    lng: number;
+    radiusMeters: number;
+    requestsGPS: boolean;
+  }
+  let editLocationMode = false;
+  let showLocation: ShowLocationData | null = null;
+  let circleLayer: L.Circle | null = null;
+  let circleCenterMarker: L.Marker | null = null;
+  let circleHandleMarker: L.Marker | null = null;
+  const circleEditLayer = L.layerGroup().addTo(map);
+  const editLocationBtn = document.getElementById(EDIT_LOCATION_BTN_ID) as HTMLButtonElement;
   const toolbarEl = document.getElementById(TOOLBAR_ID);
 
-  function setDrawingMode(active: boolean): void {
-    drawingMode = active;
+  function setEditLocationMode(active: boolean): void {
+    editLocationMode = active;
     toolbarEl?.classList.toggle("connected-devices-map-toolbar--drawing", active);
     if (active) {
       closeSearchResults();
@@ -684,254 +680,227 @@ export function render(container: HTMLElement, showId: string | null): void {
     }
   }
 
-  function setSelectedPoint(index: number | null): void {
-    if (confirmed) return;
-    selectedPointIndex = index;
-    syncPointMarkerSelection();
+  const MIN_RADIUS_METERS = 10;
+
+  function getDefaultRadiusMeters(): number {
+    const bounds = map.getBounds();
+    const center = map.getCenter();
+    const east = L.latLng(center.lat, bounds.getEast());
+    const north = L.latLng(bounds.getNorth(), center.lng);
+    const w = map.distance(center, east);
+    const h = map.distance(center, north);
+    return Math.max(MIN_RADIUS_METERS, Math.min(w, h) / 4);
+  }
+
+  function latLngAtBearing(center: L.LatLng, radiusMeters: number, bearingDeg: number): L.LatLng {
+    const R = 6371000;
+    const br = (bearingDeg * Math.PI) / 180;
+    const lat0 = (center.lat * Math.PI) / 180;
+    const lng0 = (center.lng * Math.PI) / 180;
+    const lat1 = Math.asin(
+      Math.sin(lat0) * Math.cos(radiusMeters / R) +
+        Math.cos(lat0) * Math.sin(radiusMeters / R) * Math.cos(br)
+    );
+    const lng1 =
+      lng0 +
+      Math.atan2(
+        Math.sin(br) * Math.sin(radiusMeters / R) * Math.cos(lat0),
+        Math.cos(radiusMeters / R) - Math.sin(lat0) * Math.sin(lat1)
+      );
+    return L.latLng((lat1 * 180) / Math.PI, (lng1 * 180) / Math.PI);
   }
 
   function updateEditButtonLabel(): void {
-    if (!editVenueBtn) return;
-    const span = editVenueBtn.querySelector("span");
+    if (!editLocationBtn) return;
+    const span = editLocationBtn.querySelector("span");
     if (!span) return;
-    if (!drawingMode || confirmed) {
-      span.textContent = "Edit Venue Shape";
-      editVenueBtn.classList.remove("devices-toolbar-btn-danger");
-      editVenueBtn.classList.remove(EDIT_BTN_CONFIRM_CLASS);
+    if (!editLocationMode) {
+      span.textContent = "Edit Show Location";
+      editLocationBtn.classList.remove("devices-toolbar-btn-danger");
+      editLocationBtn.classList.remove(EDIT_BTN_CONFIRM_CLASS);
       return;
     }
-    if (points.length < 3) {
-      span.textContent = "Cancel Drawing Shape";
-      editVenueBtn.classList.add("devices-toolbar-btn-danger");
-      editVenueBtn.classList.remove(EDIT_BTN_CONFIRM_CLASS);
+    if (!showLocation) {
+      span.textContent = "Cancel";
+      editLocationBtn.classList.add("devices-toolbar-btn-danger");
+      editLocationBtn.classList.remove(EDIT_BTN_CONFIRM_CLASS);
     } else {
-      span.textContent = "Confirm Polygon Shape";
-      editVenueBtn.classList.remove("devices-toolbar-btn-danger");
-      editVenueBtn.classList.add(EDIT_BTN_CONFIRM_CLASS);
+      span.textContent = "Confirm Location";
+      editLocationBtn.classList.remove("devices-toolbar-btn-danger");
+      editLocationBtn.classList.add(EDIT_BTN_CONFIRM_CLASS);
     }
   }
 
-  function removeHullLayers(): void {
-    if (hullPolygon) {
-      map.removeLayer(hullPolygon);
-      hullPolygon = null;
-    }
-    pointMarkersLayer.clearLayers();
+  function removeCircleEditLayers(): void {
+    circleEditLayer.clearLayers();
+    circleLayer = null;
+    circleCenterMarker = null;
+    circleHandleMarker = null;
   }
 
-  function createPointMarker(
-    latLng: L.LatLngExpression,
-    isSelected: boolean,
-    onDragEnd: (marker: L.Marker) => void,
-    onClick: () => void,
-    onDragStart: () => void
-  ): L.Marker {
-    const marker = L.marker(latLng, {
-      draggable: !confirmed,
-      icon: L.divIcon({
-        className: "connected-devices-map-point-marker" + (isSelected ? " selected" : ""),
-        html: "<span></span>",
-        iconSize: [16, 16],
-        iconAnchor: [8, 8],
-      }),
-    });
-    marker.on("dragend", () => onDragEnd(marker));
-    marker.on("click", (e) => {
-      L.DomEvent.stopPropagation(e);
-      onClick();
-    });
-    marker.on("dragstart", onDragStart);
-    return marker;
-  }
-
-  function syncPointMarkerSelection(): void {
-    pointMarkersLayer.eachLayer((layer) => {
-      const marker = layer as L.Marker & { __pointIndex?: number };
-      const el = marker.getElement?.();
-      if (!el || marker.__pointIndex === undefined) return;
-      el.classList.toggle("selected", marker.__pointIndex === selectedPointIndex);
-    });
-  }
-
-  function indexOfClosestPoint(targetLat: number, targetLng: number): number {
-    if (points.length === 0) return -1;
-    let best = 0;
-    let bestD = 1e30;
-    for (let i = 0; i < points.length; i++) {
-      const [lat, lng] = points[i];
-      const d = (lat - targetLat) ** 2 + (lng - targetLng) ** 2;
-      if (d < bestD) {
-        bestD = d;
-        best = i;
-      }
+  function drawCircleState(fitBounds = false): void {
+    removeCircleEditLayers();
+    if (!showLocation || showLocation.radiusMeters <= 0) {
+      updateEditButtonLabel();
+      return;
     }
-    return best;
-  }
-
-  function syncHullAndLayers(selectNewLatLng?: { lat: number; lng: number }): void {
-    if (points.length >= 3) {
-      const hull = convexHull(points);
-      points.length = 0;
-      points.push(...hull);
+    const center = L.latLng(showLocation.lat, showLocation.lng);
+    const isEditing = editLocationMode;
+    const fillOpacity = isEditing ? 0.25 : 0;
+    const strokeColor = "#4a7dc7";
+    circleLayer = L.circle(center, {
+      radius: showLocation.radiusMeters,
+      color: strokeColor,
+      fillColor: "#87ceeb",
+      fillOpacity,
+      weight: 2,
+    }).addTo(circleEditLayer);
+    if (isEditing) {
+      circleCenterMarker = L.marker(center, {
+        icon: L.divIcon({
+          className: "connected-devices-map-show-location-center",
+          html: "<span></span>",
+          iconSize: [8, 8],
+          iconAnchor: [4, 4],
+        }),
+        interactive: false,
+      }).addTo(circleEditLayer);
+      const handleLatLng = latLngAtBearing(center, showLocation.radiusMeters, 0);
+      circleHandleMarker = L.marker(handleLatLng, {
+        draggable: true,
+        icon: L.divIcon({
+          className: "connected-devices-map-show-location-handle",
+          html: `<span class="connected-devices-map-show-location-handle-inner">${dragHandleIcon}</span>`,
+          iconSize: [24, 24],
+          iconAnchor: [12, 12],
+        }),
+      }).addTo(circleEditLayer);
+      circleHandleMarker.on("click", (e) => L.DomEvent.stopPropagation(e));
+      circleHandleMarker.on("drag", () => {
+        if (!showLocation || !circleHandleMarker) return;
+        const handleLl = circleHandleMarker.getLatLng();
+        const centerLl = L.latLng(showLocation.lat, showLocation.lng);
+        const newRadius = map.distance(centerLl, handleLl);
+        if (newRadius < 10) return;
+        showLocation = { ...showLocation, radiusMeters: newRadius };
+        circleHandleMarker!.setLatLng(latLngAtBearing(centerLl, newRadius, 0));
+        if (circleLayer) circleLayer.setRadius(newRadius);
+      });
     }
-
-    if (selectNewLatLng) {
-      const closest = indexOfClosestPoint(selectNewLatLng.lat, selectNewLatLng.lng);
-      selectedPointIndex = closest >= 0 ? closest : null;
-    }
-
-    pointMarkersLayer.clearLayers();
-    for (let i = 0; i < points.length; i++) {
-      const idx = i;
-      const pt = points[idx];
-      const isSelected = idx === selectedPointIndex;
-      const marker = createPointMarker(
-        pt,
-        isSelected,
-        (m) => {
-          const ll = m.getLatLng();
-          points[idx] = [ll.lat, ll.lng];
-          syncHullAndLayers();
-        },
-        () => setSelectedPoint(idx),
-        () => setSelectedPoint(idx)
+    if (fitBounds) {
+      const r = showLocation.radiusMeters;
+      const padding = r * 0.2;
+      const bounds = L.latLngBounds(
+        latLngAtBearing(center, r + padding, 225),
+        latLngAtBearing(center, r + padding, 45)
       );
-      (marker as L.Marker & { __pointIndex?: number }).__pointIndex = idx;
-      pointMarkersLayer.addLayer(marker);
-    }
-
-    if (hullPolygon) {
-      map.removeLayer(hullPolygon);
-      hullPolygon = null;
-    }
-
-    if (points.length >= 3) {
-      const hullLatLngs = points.map((p) => L.latLng(p[0], p[1]));
-      hullPolygon = L.polygon(hullLatLngs, {
-        color: "#4a7dc7",
-        fillColor: "#4a7dc7",
-        fillOpacity: 0,
-        weight: 2,
-      }).addTo(map);
+      map.fitBounds(bounds, { padding: [20, 20] });
     }
     updateEditButtonLabel();
   }
 
-  /** Update only the hull polygon from current points (no markers). Used after load. */
-  function updateHullPolygonOnly(fitBounds = false): void {
-    if (hullPolygon) {
-      map.removeLayer(hullPolygon);
-      hullPolygon = null;
-    }
-    if (points.length >= 3) {
-      const hullLatLngs = points.map((p) => L.latLng(p[0], p[1]));
-      hullPolygon = L.polygon(hullLatLngs, {
-        color: "#4a7dc7",
-        fillColor: "#4a7dc7",
-        fillOpacity: 0,
-        weight: 2,
-      }).addTo(map);
-      if (fitBounds) {
-        const bounds = L.latLngBounds(points.map((p) => [p[0], p[1]] as L.LatLngTuple));
-        map.fitBounds(bounds, { padding: [20, 20] });
-      }
-    }
-  }
-
-  map.on("click", (e: L.LeafletMouseEvent) => {
-    if (!drawingMode || confirmed) return;
-    const { lat, lng } = e.latlng;
-    points.push([lat, lng]);
-    syncHullAndLayers({ lat, lng });
-  });
-
-  document.addEventListener("keydown", (e) => {
-    if (e.key !== "Delete" || !drawingMode || confirmed) return;
-    const target = e.target as HTMLElement;
-    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
-    if (selectedPointIndex == null || selectedPointIndex < 0 || selectedPointIndex >= points.length) return;
-    points.splice(selectedPointIndex, 1);
-    setSelectedPoint(null);
-    syncHullAndLayers();
-  });
-
-  editVenueBtn?.addEventListener("click", () => {
-    if (!drawingMode) {
-      pointsBeforeDrawing = clonePoints(points);
-      setDrawingMode(true);
-      confirmed = false;
-      syncHullAndLayers();
-      updateEditButtonLabel();
-      return;
-    }
-    if (points.length < 3) {
-      removeHullLayers();
-      points = clonePoints(pointsBeforeDrawing);
-      setSelectedPoint(null);
-      setDrawingMode(false);
-      updateHullPolygonOnly();
-      updateEditButtonLabel();
-      return;
-    }
-    confirmed = true;
-    setDrawingMode(false);
-    setSelectedPoint(null);
-    pointMarkersLayer.clearLayers();
-    updateEditButtonLabel();
-    putVenueShapeOnConfirm();
-  });
-
-  function putVenueShapeOnConfirm(): void {
-    if (!currentShowId) return;
-    const payload = JSON.stringify({ points: clonePoints(points) });
-    fetch(`/api/admin/show-workspaces/${currentShowId}/venue-shape`, {
+  function putShowLocationOnConfirm(): void {
+    if (!currentShowId || !showLocation) return;
+    const radiusMeters = Math.max(MIN_RADIUS_METERS, showLocation.radiusMeters);
+    const payload = {
+      lat: showLocation.lat,
+      lng: showLocation.lng,
+      radiusMeters,
+      requestsGPS: showLocation.requestsGPS,
+    };
+    fetch(`/api/admin/show-workspaces/${currentShowId}/show-location`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: payload,
+      body: JSON.stringify(payload),
     })
       .then((res) => {
         if (!res.ok) {
-          res.text().then((t) => alert(`Failed to save venue shape: ${res.status} ${t || res.statusText}`));
+          res.text().then((t) => alert(`Failed to save show location: ${res.status} ${t || res.statusText}`));
         }
       })
-      .catch((e) => alert(`Failed to save venue shape: ${e instanceof Error ? e.message : String(e)}`));
+      .catch((e) => alert(`Failed to save show location: ${e instanceof Error ? e.message : String(e)}`));
   }
 
-  async function loadVenueShapeFromServer(showId: string): Promise<void> {
+  map.on("click", (e: L.LeafletMouseEvent) => {
+    if (!editLocationMode) return;
+    const { lat, lng } = e.latlng;
+    if (showLocation) {
+      showLocation = { ...showLocation, lat, lng };
+      drawCircleState();
+      if (circleCenterMarker) circleCenterMarker.setLatLng(e.latlng);
+      if (circleHandleMarker)
+        circleHandleMarker.setLatLng(latLngAtBearing(e.latlng, showLocation.radiusMeters, 0));
+    } else {
+      const radiusMeters = getDefaultRadiusMeters();
+      showLocation = { lat, lng, radiusMeters, requestsGPS: false };
+      drawCircleState(true);
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && editLocationMode && !showLocation) {
+      setEditLocationMode(false);
+      updateEditButtonLabel();
+    }
+  });
+
+  editLocationBtn?.addEventListener("click", () => {
+    if (!editLocationMode) {
+      setEditLocationMode(true);
+      if (showLocation) drawCircleState();
+      else updateEditButtonLabel();
+      return;
+    }
+    if (!showLocation) {
+      setEditLocationMode(false);
+      removeCircleEditLayers();
+      updateEditButtonLabel();
+      return;
+    }
+    setEditLocationMode(false);
+    removeCircleEditLayers();
+    drawCircleState();
+    putShowLocationOnConfirm();
+  });
+
+  async function loadShowLocationFromServer(showId: string): Promise<void> {
     try {
-      const res = await fetch(`/api/admin/show-workspaces/${showId}/venue-shape`, { credentials: "include" });
+      const res = await fetch(`/api/admin/show-workspaces/${showId}/show-location`, { credentials: "include" });
       if (res.status === 403) {
         window.location.pathname = "/venueMap";
         return;
       }
       if (res.status === 404) {
-        points = [];
-        updateHullPolygonOnly();
+        showLocation = null;
+        removeCircleEditLayers();
         syncMapClientsDropdown();
         return;
       }
       if (!res.ok) return;
       const raw = (await res.json()) as unknown;
-      if (!raw || typeof raw !== "object" || !Array.isArray((raw as Record<string, unknown>).points)) {
-        return;
+      if (!raw || typeof raw !== "object") return;
+      const obj = raw as Record<string, unknown>;
+      const lat = typeof obj.lat === "number" && Number.isFinite(obj.lat) ? obj.lat : null;
+      const lng = typeof obj.lng === "number" && Number.isFinite(obj.lng) ? obj.lng : null;
+      const radiusMeters =
+        typeof obj.radiusMeters === "number" && Number.isFinite(obj.radiusMeters) && obj.radiusMeters > 0
+          ? obj.radiusMeters
+          : null;
+      const requestsGPS = obj.requestsGPS === true;
+      if (lat != null && lng != null && radiusMeters != null) {
+        showLocation = { lat, lng, radiusMeters, requestsGPS };
+        drawCircleState(true);
+      } else {
+        showLocation = null;
       }
-      const arr = (raw as { points: unknown[] }).points;
-      const next: [number, number][] = [];
-      for (const p of arr) {
-        if (!Array.isArray(p) || p.length !== 2 || typeof p[0] !== "number" || typeof p[1] !== "number") continue;
-        if (!Number.isFinite(p[0]) || !Number.isFinite(p[1])) continue;
-        next.push([p[0], p[1]]);
-      }
-      points = next;
-      updateHullPolygonOnly(true);
     } finally {
       syncMapClientsDropdown();
     }
   }
 
   syncMapClientsDropdown();
-  void loadVenueShapeFromServer(showId).then(() => {
+  void loadShowLocationFromServer(showId).then(() => {
     void syncMapStateFromServer();
   });
 }

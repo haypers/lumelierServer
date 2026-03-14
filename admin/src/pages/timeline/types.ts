@@ -32,6 +32,12 @@ export function dateToSecFloat(date: Date): number {
 /** Range type for media; used for bar color and optional file path. */
 export type RangeType = "Image" | "Video" | "Audio";
 
+/** Optional GPS/location data for ranges (e.g. Video, Image). */
+export interface GpsData {
+  lat: number;
+  lng: number;
+}
+
 /** Extended item payload for ranges and events (stored in item and in JSON). */
 export interface TimelineItemPayload {
   kind: "range" | "event";
@@ -44,6 +50,8 @@ export interface TimelineItemPayload {
   rangeType?: RangeType;
   /** Range only: media file path the range represents (optional; range is general object). */
   filePath?: string;
+  /** Range only (Video/Image): optional GPS position. */
+  gpsData?: GpsData;
 }
 
 /** Serializable timeline state for server (timeline.json). Track splitter tree is stored in trackSplitterTree.json. */
@@ -51,8 +59,6 @@ export interface TimelineStateJSON {
   version: number;
   /** Show title; default "Untitled Show" when missing. */
   title?: string;
-  /** If true, this show requests GPS/location data from clients. Defaults to false when missing. */
-  requestsGPS?: boolean;
   layers: { id: string; label: string }[];
   items: {
     id: string;
@@ -65,6 +71,7 @@ export interface TimelineStateJSON {
     color?: string;
     rangeType?: RangeType;
     filePath?: string;
+    gpsData?: GpsData;
   }[];
   /** Readhead position in seconds. */
   readheadSec: number;

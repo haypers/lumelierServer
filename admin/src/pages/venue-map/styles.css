@@ -1,3 +1,5 @@
+@import "../timeline/styles/leaflet-overrides.css";
+
 /* Map fills the main content area */
 .connected-devices-map-wrap {
   height: 100%;
@@ -9,7 +11,7 @@
 }
 
 
-/* Toolbar: search + Edit Venue Shape */
+/* Toolbar: search + Edit Show Location */
 .connected-devices-map-toolbar {
   display: flex;
   align-items: center;
@@ -485,6 +487,37 @@
   background: var(--accent);
   border-color: #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+/* Show location circle: center dot and resize handle when editing */
+.connected-devices-map-show-location-center {
+  background: none;
+  border: none;
+}
+.connected-devices-map-show-location-center span {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4a7dc7;
+}
+.connected-devices-map-show-location-handle {
+  background: none;
+  border: none;
+}
+.connected-devices-map-show-location-handle-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: #4a7dc7;
+  color: #fff;
+}
+.connected-devices-map-show-location-handle-inner svg {
+  width: 14px;
+  height: 14px;
 }
 
 /* Temporary search-result marker (removed on next map click) */

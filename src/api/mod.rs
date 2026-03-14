@@ -23,10 +23,10 @@ pub use map_state::{get_map_state_show, post_map_state_show};
 pub use poll::{poll, poll_admin};
 pub use show_workspaces::{
     check_show_access, delete_show, delete_timeline_media_file, get_list_shows, get_live_join_url,
-    get_live_show_ids, get_show_by_id, get_show_members, get_timeline, get_timeline_media_file,
-    get_timeline_media_list, get_track_splitter_tree, get_user_exists, get_venue_shape,
+    get_live_show_ids, get_show_by_id, get_show_members, get_show_location, get_timeline,
+    get_timeline_media_file, get_timeline_media_list, get_track_splitter_tree, get_user_exists,
     is_valid_show_id_format, post_create_show, post_end_live, post_go_live, post_show_member,
-    post_timeline_media_upload, put_timeline, put_track_splitter_tree, put_venue_shape,
+    post_timeline_media_upload, put_timeline, put_show_location, put_track_splitter_tree,
 };
 pub use simulated_profiles::{
     get_simulated_client_profile, list_simulated_client_profiles, post_save_simulated_client_profile,

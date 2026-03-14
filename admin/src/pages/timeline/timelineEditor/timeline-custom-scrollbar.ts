@@ -27,7 +27,7 @@ export function createCustomScrollbar(
   thumb.style.position = "absolute";
   thumb.style.top = "0";
   thumb.style.height = "100%";
-  thumb.style.background = "var(--accent)";
+  thumb.style.background = "var(--border)";
   thumb.style.borderRadius = "4px";
   thumb.style.cursor = "grab";
   track.appendChild(thumb);

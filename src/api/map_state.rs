@@ -1,7 +1,7 @@
 //! # Map State API — Per-show map state (venue shape + mapped clients options)
 //!
 //! GET/POST map state for a show. Stored as mapState.json in the show directory.
-//! GET returns saved state, or default with points from venueShape.json if no mapState.json yet.
+//! GET returns saved state, or default (empty points) if no mapState.json yet.
 
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
@@ -18,7 +18,6 @@ type ApiError = (StatusCode, String);
 type ApiResult<T> = Result<Json<T>, ApiError>;
 
 const MAP_STATE_FILENAME: &str = "mapState.json";
-const VENUE_SHAPE_FILENAME: &str = "venueShape.json";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -71,11 +70,6 @@ pub enum MapClientsSubMode {
     SimulatedColors,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct VenueShapeBody {
-    points: Vec<[f64; 2]>,
-}
-
 fn show_dir(state: &AdminAppState, show_id: &str) -> std::path::PathBuf {
     state.shows_path.join(show_id)
 }
@@ -97,7 +91,6 @@ pub async fn get_map_state_show(
 
     let dir = show_dir(&state, &show_id);
     let map_state_path = dir.join(MAP_STATE_FILENAME);
-    let venue_path = dir.join(VENUE_SHAPE_FILENAME);
 
     if map_state_path.exists() {
         let bytes = fs::read(&map_state_path)
@@ -111,17 +104,7 @@ pub async fn get_map_state_show(
         return Ok(Json(parsed));
     }
 
-    let mut default_state = MapState::default();
-    if venue_path.exists() {
-        if let Ok(bytes) = fs::read(&venue_path).await {
-            if let Ok(venue) = serde_json::from_slice::<VenueShapeBody>(&bytes) {
-                if validate_points(&venue.points).is_ok() {
-                    default_state.points = venue.points;
-                }
-            }
-        }
-    }
-    Ok(Json(default_state))
+    Ok(Json(MapState::default()))
 }
 
 /// POST /api/admin/show-workspaces/:show_id/map-state

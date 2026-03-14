@@ -50,7 +50,6 @@ let customTimelineView: CustomTimelineView | null = null;
 let nextLayerId = 1;
 let nextItemId = 1;
 let projectTitle = "Untitled Show";
-let requestsGPS = false;
 const EVENT_TYPE_SET_COLOR_BROADCAST = "Set Color Broadcast";
 /** True once the user has opened or created a show; timeline and toolbar are visible. */
 let hasLoadedShow = false;
@@ -296,18 +295,8 @@ function getExportState(): TimelineStateJSON {
     () => layers,
     () => items,
     () => readheadSec,
-    () => projectTitle,
-    () => requestsGPS
+    () => projectTitle
   );
-}
-
-function setRequestsGPS(value: boolean): void {
-  requestsGPS = value;
-  const btn = document.getElementById("timeline-request-gps-toggle");
-  if (btn) {
-    btn.classList.toggle("gps-toggle--on", value);
-    btn.setAttribute("aria-pressed", String(value));
-  }
 }
 
 function getReadheadSecClamped(): number {
@@ -319,7 +308,6 @@ function getDefaultNewShowState(): TimelineStateJSON {
   return {
     version: 1,
     title: "Untitled Show",
-    requestsGPS: false,
     layers: [{ id: "layer-1", label: "Layer 1" }],
     items: [
       {
@@ -420,7 +408,6 @@ function getRainbowCycleTemplate(): TimelineStateJSON {
   return {
     version: 1,
     title: "Rainbow Cycle",
-    requestsGPS: false,
     layers,
     items,
     readheadSec: 0,
@@ -458,7 +445,6 @@ function getBreatheTemplate(): TimelineStateJSON {
   return {
     version: 1,
     title: "Breathe",
-    requestsGPS: false,
     layers: [{ id: "layer-1", label: "Layer 1" }],
     items,
     readheadSec: 0,
@@ -492,7 +478,6 @@ function getPartyModeTemplate(): TimelineStateJSON {
   return {
     version: 1,
     title: "Party Mode",
-    requestsGPS: false,
     layers: [{ id: "layer-1", label: "Layer 1" }],
     items,
     readheadSec: 0,
@@ -542,6 +527,7 @@ function getItemForDetails(id: string): import("./details-panel").DetailsPanelIt
       color: it.color,
       rangeType: it.kind === "range" ? it.rangeType : undefined,
       filePath: it.kind === "range" ? it.filePath : undefined,
+      gpsData: it.kind === "range" ? it.gpsData : undefined,
     },
   };
 }
@@ -836,8 +822,7 @@ function loadShowState(state: TimelineStateJSON): void {
       projectTitle = title;
       const el = document.getElementById("timeline-project-title-input");
       if (el instanceof HTMLInputElement) el.value = title;
-    },
-    (value) => setRequestsGPS(value)
+    }
   );
   ensureCustomTimelineCreated();
   customTimelineView?.update();
@@ -966,7 +951,6 @@ export function render(container: HTMLElement, showId: string | null): void {
   hasLoadedShow = false;
   currentShowId = showId;
   isBroadcastMode = false;
-  requestsGPS = false;
   layers = [];
   items = [];
   readheadSec = 0;
@@ -989,9 +973,6 @@ export function render(container: HTMLElement, showId: string | null): void {
 
   container.innerHTML = `
     <div class="timeline-page">
-      <div class="timeline-actions-row">
-        <p class="timeline-live-status-message" id="timeline-live-status-message">${MESSAGE_NOT_LIVE}</p>
-      </div>
       <div class="timeline-page-body timeline-page-body--details-hidden">
         <div class="timeline">
           <div class="timeline-empty-state" id="timeline-empty-state">
@@ -1004,15 +985,8 @@ export function render(container: HTMLElement, showId: string | null): void {
                   <div class="timeline-save-status-wrap">
                     <span class="timeline-autosave" id="timeline-autosave"><span class="timeline-autosave-icon">${circleCheckIcon}</span><span>Saved</span></span>
                   </div>
-                  <span class="timeline-toolbar-gps">
-                    <span class="timeline-toolbar-gps-label">Request Client GPS:</span>
-                    <button type="button" class="mode-switch-toggle gps-toggle" id="timeline-request-gps-toggle" aria-pressed="false" aria-label="Request GPS">
-                      <span class="mode-switch-track">
-                        <span class="mode-switch-knob"></span>
-                      </span>
-                    </button>
-                  </span>
                 </div>
+                <p class="timeline-live-status-message" id="timeline-live-status-message">${MESSAGE_NOT_LIVE}</p>
               </div>
               <div class="timeline-toolbar-spacer" id="timeline-toolbar-spacer"></div>
               <div class="timeline-toolbar-center" id="timeline-toolbar-center" hidden>
@@ -1083,7 +1057,10 @@ export function render(container: HTMLElement, showId: string | null): void {
           getContent: () => {
             const el = document.createElement("div");
             el.className = "timeline-tab-content timeline-tab-content--preview";
-            renderPreviewPanel(el, showId);
+            renderPreviewPanel(el, showId, {
+              onShowSyncing: () => setAutosaveUI("syncing"),
+              onShowSaved: () => setAutosaveUI("saved"),
+            });
             return el;
           },
         },
@@ -1200,12 +1177,6 @@ export function render(container: HTMLElement, showId: string | null): void {
   timelineAutosaveEl = container.querySelector("#timeline-autosave");
 
   if (!mount || !detailsPanel) return;
-
-  container.querySelector("#timeline-request-gps-toggle")?.addEventListener("click", () => {
-    setRequestsGPS(!requestsGPS);
-    scheduleAutosave();
-  });
-  setRequestsGPS(requestsGPS);
 
   container.querySelectorAll("[data-action]").forEach((el) => {
     el.addEventListener("click", async (e) => {

@@ -1,6 +1,11 @@
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
 import type { TimelineItemPayload } from "./types";
 import { dateToSecFloat } from "./types";
 import { createLayerTrackPicker } from "./layer-track-picker";
+
+const TIMELINE_DETAILS_MAP_ID = "timeline-details-map";
+let detailsPanelMap: L.Map | null = null;
 
 /** Item shape used by the details panel (id, start/end/group, payload). */
 export interface DetailsPanelItem {
@@ -52,6 +57,11 @@ export function updateDetailsPanel(
   const h3 = container.querySelector("h3");
   const body = container.querySelector(".timeline-details-body");
   if (!h3 || !body) return;
+
+  if (detailsPanelMap) {
+    detailsPanelMap.remove();
+    detailsPanelMap = null;
+  }
 
   if (itemId == null) {
     h3.textContent = "Selection";
@@ -109,6 +119,17 @@ export function updateDetailsPanel(
         `<option value="${escapeAttr(t)}" ${t === (payload.rangeType ?? "Audio") ? "selected" : ""}>${escapeHtml(t)}</option>`
     ).join("");
 
+  const showPositionMap =
+    payload.kind === "range" &&
+    (payload.rangeType === "Video" || payload.rangeType === "Image");
+  const positionMapHtml = showPositionMap
+    ? `
+      <dt>Position</dt>
+      <dd class="detail-map-wrap">
+        <div id="${TIMELINE_DETAILS_MAP_ID}" class="timeline-details-map"></div>
+      </dd>`
+    : "";
+
   body.innerHTML = `
     <dl class="detail-grid">
       <dt>ID</dt><dd class="detail-readonly">${escapeHtml(String(item.id))}</dd>
@@ -142,6 +163,7 @@ export function updateDetailsPanel(
       <dd>
         <input type="text" class="detail-input detail-file-path" value="${escapeAttr(payload.filePath ?? "")}" aria-label="File path" placeholder="Path to media file" />
       </dd>
+      ${positionMapHtml}
     </dl>
       ` : payload.kind === "event" ? `
       <dt>Event Type</dt>
@@ -165,6 +187,29 @@ export function updateDetailsPanel(
         ariaLabel: "Layer by name",
       })
     );
+  }
+
+  if (showPositionMap) {
+    const mapContainer = body.querySelector(`#${TIMELINE_DETAILS_MAP_ID}`) as HTMLElement | null;
+    if (mapContainer) {
+      const map = L.map(mapContainer).setView([20, 0], 2);
+      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
+        attribution:
+          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+        subdomains: "abcd",
+        maxZoom: 20,
+      }).addTo(map);
+      detailsPanelMap = map;
+      requestAnimationFrame(() => {
+        try {
+          if (map.getContainer().isConnected) {
+            map.invalidateSize();
+          }
+        } catch {
+          /* map may already be removed */
+        }
+      });
+    }
   }
 
   const startInput = body.querySelector(".detail-start") as HTMLInputElement;

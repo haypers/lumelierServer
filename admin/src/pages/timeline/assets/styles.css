@@ -82,6 +82,7 @@
   overflow: auto;
   display: flex;
   flex-direction: column;
+  direction: ltr;
 }
 
 .assets-file-list {
@@ -102,7 +103,7 @@
   font-weight: 500;
   color: var(--text-muted);
   flex-shrink: 0;
-  background: var(--bg);
+  background: var(--bg-elevated);
 }
 
 .assets-file-header__drag {

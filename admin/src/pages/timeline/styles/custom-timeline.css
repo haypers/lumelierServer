@@ -147,7 +147,11 @@
 .custom-timeline-scrollbar-track {
   width: 100%;
 }
+.custom-timeline-scrollbar-thumb {
+  background: var(--border);
+}
 .custom-timeline-scrollbar-thumb:hover {
+  background: var(--text-muted);
   opacity: 1;
 }
 .custom-timeline-readhead {

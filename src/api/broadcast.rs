@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use crate::api::admin::resolve_show_bucket;
+use crate::api::show_workspaces::merge_requests_gps_into_timeline;
 use crate::api::AdminAppState;
 use crate::broadcast::BroadcastSnapshot;
 use crate::time;
@@ -65,16 +66,18 @@ pub async fn post_broadcast_timeline(
         return Err(StatusCode::BAD_REQUEST);
     }
     let json = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let parsed: serde_json::Value =
+    let mut parsed: serde_json::Value =
         serde_json::from_str(&json).map_err(|_| StatusCode::BAD_REQUEST)?;
+    merge_requests_gps_into_timeline(&state, &show_id, &mut parsed).await;
     let readhead_sec = parsed
         .get("readheadSec")
         .and_then(|v| v.as_f64())
         .filter(|v| v.is_finite())
         .map(|v| v.max(0.0))
         .unwrap_or(0.0);
+    let json_merged = serde_json::to_string(&parsed).unwrap_or(json);
     let next = BroadcastSnapshot {
-        timeline_raw: Some(Arc::from(json.into_boxed_str())),
+        timeline_raw: Some(Arc::from(json_merged.into_boxed_str())),
         timeline_parsed: Some(Arc::new(parsed)),
         readhead_sec,
         play_at_ms: None,

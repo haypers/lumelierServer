@@ -217,8 +217,8 @@ async fn main() {
             get(api::get_track_splitter_tree).put(api::put_track_splitter_tree),
         )
         .route(
-            "/show-workspaces/:show_id/venue-shape",
-            get(api::get_venue_shape).put(api::put_venue_shape),
+            "/show-workspaces/:show_id/show-location",
+            get(api::get_show_location).put(api::put_show_location),
         )
         .route(
             "/show-workspaces/:show_id/map-state",
