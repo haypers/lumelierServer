@@ -20,7 +20,7 @@ export interface ResizeState {
  * Render virtualized layer rows: only items in visibleItems are in the DOM.
  * Positions are (item.startSec - startSec) * pixelsPerSec.
  * Ranges are rendered first, then events on top, so when they overlap the event receives the click/drag.
- * Click/drag is handled by the parent (custom-timeline) via delegated listeners on the layer content.
+ * Click/drag is handled by the parent (timeline widget) via delegated listeners on the layer content.
  */
 export function renderVirtualizedLayers(
   container: HTMLElement,
@@ -41,7 +41,7 @@ export function renderVirtualizedLayers(
 
   layers.forEach((layer, index) => {
     const rowWrap = document.createElement("div");
-    rowWrap.className = "custom-timeline-layer-row-wrap";
+    rowWrap.className = "timeline-layer-row-wrap";
     rowWrap.style.position = "absolute";
     rowWrap.style.left = "0";
     rowWrap.style.top = `${index * rowHeightPx}px`;

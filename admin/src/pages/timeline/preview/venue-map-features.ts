@@ -71,8 +71,8 @@ export function initPreviewMapVenueFeatures(
   showId: string | null,
   options?: PreviewMapVenueFeaturesOptions
 ): void {
-  const searchOverlay = wrapEl.querySelector(".timeline-preview-map-overlay-search") as HTMLElement | null;
-  const bottomLeftOverlay = wrapEl.querySelector(".timeline-preview-map-overlay-bottom-left") as HTMLElement | null;
+  const searchOverlay = wrapEl.querySelector(".preview-map-overlay-search") as HTMLElement | null;
+  const bottomLeftOverlay = wrapEl.querySelector(".preview-map-overlay-bottom-left") as HTMLElement | null;
   if (!searchOverlay || !bottomLeftOverlay) return;
 
   const searchResultMarkerLayer = L.layerGroup().addTo(map);
@@ -90,7 +90,7 @@ export function initPreviewMapVenueFeatures(
     clearSearchMarker();
     L.marker([latNum, lonNum], {
       icon: L.divIcon({
-        className: "timeline-preview-map-search-pin",
+        className: "preview-map-search-pin",
         html: "<span></span>",
         iconSize: [18, 18],
         iconAnchor: [9, 9],
@@ -103,23 +103,23 @@ export function initPreviewMapVenueFeatures(
   }
 
   // --- Search overlay (top-right) ---
-  const searchWrapId = "timeline-preview-map-search-wrap";
-  const searchInputId = "timeline-preview-map-search-input";
-  const searchBtnId = "timeline-preview-map-search-btn";
-  const searchResultsId = "timeline-preview-map-search-results";
-  const centerOnMapBtnId = "timeline-preview-map-center-on-map-btn";
+  const searchWrapId = "preview-map-search-wrap";
+  const searchInputId = "preview-map-search-input";
+  const searchBtnId = "preview-map-search-btn";
+  const searchResultsId = "preview-map-search-results";
+  const centerOnMapBtnId = "preview-map-center-on-map-btn";
 
   searchOverlay.innerHTML = `
-    <div class="timeline-preview-map-overlay-top-right-inner">
-      <div class="timeline-preview-map-center-wrap" id="timeline-preview-map-center-wrap">
-        <button type="button" class="timeline-preview-map-btn timeline-preview-map-center-btn" id="${centerOnMapBtnId}" aria-label="Center map on venue" title="Center map on venue">${crosshairIcon}</button>
+    <div class="preview-map-overlay-top-right-inner">
+      <div class="preview-map-center-wrap" id="preview-map-center-wrap">
+        <button type="button" class="preview-map-btn preview-map-center-btn" id="${centerOnMapBtnId}" aria-label="Center map on venue" title="Center map on venue">${crosshairIcon}</button>
       </div>
-      <div class="timeline-preview-map-search-wrap" id="${searchWrapId}">
-        <div class="timeline-preview-map-search-group">
+      <div class="preview-map-search-wrap" id="${searchWrapId}">
+        <div class="preview-map-search-group">
           <input type="text" id="${searchInputId}" placeholder="Search for a place…" aria-label="Search place" />
-          <button type="button" class="timeline-preview-map-search-btn" id="${searchBtnId}" aria-label="Search">${searchIcon}</button>
+          <button type="button" class="preview-map-search-btn" id="${searchBtnId}" aria-label="Search">${searchIcon}</button>
         </div>
-        <div class="timeline-preview-map-search-results" id="${searchResultsId}" hidden role="listbox" aria-label="Search results"></div>
+        <div class="preview-map-search-results" id="${searchResultsId}" hidden role="listbox" aria-label="Search results"></div>
       </div>
     </div>
   `;
@@ -146,7 +146,7 @@ export function initPreviewMapVenueFeatures(
 
   function showNoSearchResults(): void {
     if (!searchResultsEl) return;
-    searchResultsEl.innerHTML = '<div class="timeline-preview-map-search-results-empty">No places found</div>';
+    searchResultsEl.innerHTML = '<div class="preview-map-search-results-empty">No places found</div>';
     searchResultsEl.hidden = false;
   }
 
@@ -156,7 +156,7 @@ export function initPreviewMapVenueFeatures(
     for (const r of results) {
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.className = "timeline-preview-map-search-results-item";
+      btn.className = "preview-map-search-results-item";
       btn.setAttribute("role", "option");
       btn.dataset.lat = r.lat;
       btn.dataset.lon = r.lon;
@@ -242,7 +242,7 @@ export function initPreviewMapVenueFeatures(
   searchResultsEl?.addEventListener("click", (e) => {
     e.stopPropagation();
     const target = e.target as HTMLElement | null;
-    const btn = target?.closest?.(".timeline-preview-map-search-results-item") as HTMLButtonElement | null;
+    const btn = target?.closest?.(".preview-map-search-results-item") as HTMLButtonElement | null;
     if (!btn) return;
     const latNum = Number(btn.dataset.lat);
     const lonNum = Number(btn.dataset.lon);
@@ -252,23 +252,23 @@ export function initPreviewMapVenueFeatures(
   });
 
   // --- Bottom-left: Edit Show Location + Map Clients ---
-  const editLocationBtnId = "timeline-preview-map-edit-location-btn";
-  const mapClientsBtnId = "timeline-preview-map-map-clients-btn";
-  const mapClientsDropdownId = "timeline-preview-map-map-clients-dropdown";
+  const editLocationBtnId = "preview-map-edit-location-btn";
+  const mapClientsBtnId = "preview-map-map-clients-btn";
+  const mapClientsDropdownId = "preview-map-map-clients-dropdown";
 
   let mapClientsParentMode: MapClientsParentMode = "none";
   let mapClientsMappedLimit = 10;
   let mapClientsSubMode: MapClientsSubMode | null = null;
 
   bottomLeftOverlay.innerHTML = `
-    <button type="button" class="timeline-preview-map-btn" id="${editLocationBtnId}">${mapIcon}<span>Edit Show Location</span></button>
-    <div class="timeline-preview-map-clients-wrap">
-      <button type="button" class="timeline-preview-map-btn timeline-preview-map-clients-btn" id="${mapClientsBtnId}" aria-expanded="false" aria-haspopup="true" aria-controls="${mapClientsDropdownId}">
-        <span class="timeline-preview-map-clients-icon" data-map-clients-btn-icon aria-hidden="true">${eyeIcon}</span>
-        <span class="timeline-preview-map-clients-label">Map Clients<span class="timeline-preview-map-clients-caret" aria-hidden="true">${carrotIcon}</span></span>
+    <button type="button" class="preview-map-btn" id="${editLocationBtnId}">${mapIcon}<span>Edit Show Location</span></button>
+    <div class="preview-map-clients-wrap">
+      <button type="button" class="preview-map-btn preview-map-clients-btn" id="${mapClientsBtnId}" aria-expanded="false" aria-haspopup="true" aria-controls="${mapClientsDropdownId}">
+        <span class="preview-map-clients-icon" data-map-clients-btn-icon aria-hidden="true">${eyeIcon}</span>
+        <span class="preview-map-clients-label">Map Clients<span class="preview-map-clients-caret" aria-hidden="true">${carrotIcon}</span></span>
       </button>
     </div>
-    <div class="timeline-preview-map-clients-dropdown" id="${mapClientsDropdownId}" hidden role="menu"></div>
+    <div class="preview-map-clients-dropdown" id="${mapClientsDropdownId}" hidden role="menu"></div>
   `;
 
   const editLocationBtn = bottomLeftOverlay.querySelector(`#${editLocationBtnId}`) as HTMLButtonElement;
@@ -281,7 +281,7 @@ export function initPreviewMapVenueFeatures(
   let circleHandleMarker: L.Marker | null = null;
   let circleCenterToHandleLine: L.Polyline | null = null;
   const circleEditLayer = L.layerGroup().addTo(map);
-  const EDIT_BTN_CONFIRM_CLASS = "timeline-preview-map-edit-btn--confirm";
+  const EDIT_BTN_CONFIRM_CLASS = "preview-map-edit-btn--confirm";
   let handleDragInProgress = false;
 
   /** True only when we have a full valid circle: all 4 values non-null, lat/lng/radius non-zero. Crosshairs and Map Clients only show then. */
@@ -305,8 +305,8 @@ export function initPreviewMapVenueFeatures(
 
   /** Single source of truth: apply editing and has-location state to the wrap. CSS uses these classes to show/hide search bar, Map Clients, and crosshairs. */
   function applyMapWrapState(): void {
-    wrapEl.classList.toggle("timeline-preview-map-wrap--editing", editLocationMode);
-    wrapEl.classList.toggle("timeline-preview-map-wrap--has-location", hasValidCircle());
+    wrapEl.classList.toggle("preview-map-wrap--editing", editLocationMode);
+    wrapEl.classList.toggle("preview-map-wrap--has-location", hasValidCircle());
   }
 
   function setEditLocationMode(active: boolean): void {
@@ -393,17 +393,17 @@ export function initPreviewMapVenueFeatures(
     if (!span) return;
     if (!editLocationMode) {
       span.textContent = "Edit Show Location";
-      editLocationBtn.classList.remove("timeline-preview-map-btn-danger");
+      editLocationBtn.classList.remove("preview-map-btn-danger");
       editLocationBtn.classList.remove(EDIT_BTN_CONFIRM_CLASS);
       return;
     }
     if (!showLocation) {
       span.textContent = "Cancel";
-      editLocationBtn.classList.add("timeline-preview-map-btn-danger");
+      editLocationBtn.classList.add("preview-map-btn-danger");
       editLocationBtn.classList.remove(EDIT_BTN_CONFIRM_CLASS);
     } else {
       span.textContent = "Confirm Location";
-      editLocationBtn.classList.remove("timeline-preview-map-btn-danger");
+      editLocationBtn.classList.remove("preview-map-btn-danger");
       editLocationBtn.classList.add(EDIT_BTN_CONFIRM_CLASS);
     }
   }
@@ -438,7 +438,7 @@ export function initPreviewMapVenueFeatures(
     if (isEditing) {
       circleCenterMarker = L.marker(center, {
         icon: L.divIcon({
-          className: "timeline-preview-map-show-location-center",
+          className: "preview-map-show-location-center",
           html: "<span></span>",
           iconSize: [8, 8],
           iconAnchor: [4, 4],
@@ -456,8 +456,8 @@ export function initPreviewMapVenueFeatures(
       circleHandleMarker = L.marker(handleLatLng, {
         draggable: true,
         icon: L.divIcon({
-          className: "timeline-preview-map-show-location-handle",
-          html: `<span class="timeline-preview-map-show-location-handle-inner">${dragHandleIcon}</span>`,
+          className: "preview-map-show-location-handle",
+          html: `<span class="preview-map-show-location-handle-inner">${dragHandleIcon}</span>`,
           iconSize: [24, 24],
           iconAnchor: [12, 12],
         }),
@@ -491,7 +491,7 @@ export function initPreviewMapVenueFeatures(
       const tickEndLatLng = latLngAtBearing(center, r * 0.9, angle);
       L.marker(dotLatLng, {
         icon: L.divIcon({
-          className: "timeline-preview-map-show-location-radius-dot",
+          className: "preview-map-show-location-radius-dot",
           html: "<span></span>",
           iconSize: [8, 8],
           iconAnchor: [4, 4],

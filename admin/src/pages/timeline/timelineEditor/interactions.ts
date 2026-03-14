@@ -59,11 +59,11 @@ function getNearestRangeEdgeInRow(
   clientY: number,
   layersContent: HTMLElement
 ): { rangeId: string; side: "left" | "right"; distance: number } | null {
-  const rows = layersContent.querySelectorAll(".custom-timeline-layer-row-wrap");
+  const rows = layersContent.querySelectorAll(".timeline-layer-row-wrap");
   for (const row of rows) {
     const rect = row.getBoundingClientRect();
     if (clientY < rect.top || clientY > rect.bottom) continue;
-    const ranges = row.querySelectorAll(".custom-timeline-range");
+    const ranges = row.querySelectorAll(".timeline-range");
     let best: { rangeId: string; side: "left" | "right"; distance: number } | null = null;
     for (const rangeEl of ranges) {
       const r = (rangeEl as HTMLElement).getBoundingClientRect();
@@ -150,7 +150,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
   let didRangeResize = false;
 
   viewportWrap.addEventListener("mousedown", (e) => {
-    const eventEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-event");
+    const eventEl = (e.target as HTMLElement)?.closest?.(".timeline-event");
     const eventItemId = eventEl instanceof HTMLElement ? eventEl.dataset.itemId : undefined;
     if (eventItemId) {
       eventDragItemId = eventItemId;
@@ -182,7 +182,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
         }
       }
     }
-    const rangeEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range");
+    const rangeEl = (e.target as HTMLElement)?.closest?.(".timeline-range");
     const rangeItemId = rangeEl instanceof HTMLElement ? rangeEl.dataset.itemId : undefined;
     if (rangeItemId && callbacks.onMoveRange) {
       const item = getState().items.find((it) => it.id === rangeItemId);
@@ -199,14 +199,14 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
         return;
       }
     }
-    const onRuler = (e.target as HTMLElement)?.closest?.(".custom-timeline-ruler-wrap");
+    const onRuler = (e.target as HTMLElement)?.closest?.(".timeline-ruler-wrap");
     if (!onRuler) return;
     e.preventDefault();
     panning = true;
     panStartClientX = e.clientX;
     panStartSec = viewport.startSec;
-    rulerWrap.classList.add("custom-timeline-pan-cursor");
-    viewportWrap.classList.add("custom-timeline-pan-cursor");
+    rulerWrap.classList.add("timeline-pan-cursor");
+    viewportWrap.classList.add("timeline-pan-cursor");
   });
 
   document.addEventListener("mousemove", (e) => {
@@ -321,8 +321,8 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     }
     if (panning) {
       panning = false;
-      rulerWrap.classList.remove("custom-timeline-pan-cursor");
-      viewportWrap.classList.remove("custom-timeline-pan-cursor");
+      rulerWrap.classList.remove("timeline-pan-cursor");
+      viewportWrap.classList.remove("timeline-pan-cursor");
     }
   });
 
@@ -349,15 +349,15 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
     }
     if (panning) {
       panning = false;
-      rulerWrap.classList.remove("custom-timeline-pan-cursor");
-      viewportWrap.classList.remove("custom-timeline-pan-cursor");
+      rulerWrap.classList.remove("timeline-pan-cursor");
+      viewportWrap.classList.remove("timeline-pan-cursor");
     }
   });
 
   layersContent.addEventListener("mousemove", (e) => {
     if (resizeHandleSide != null || rangeDragItemId != null || eventDragItemId != null) return;
     const under = document.elementsFromPoint(e.clientX, e.clientY);
-    const eventEl = under.find((el) => el instanceof HTMLElement && el.classList?.contains("custom-timeline-event"));
+    const eventEl = under.find((el) => el instanceof HTMLElement && el.classList?.contains("timeline-event"));
     if (eventEl instanceof HTMLElement) {
       const eventId = eventEl.dataset.itemId ?? null;
       const cur = getHoverState();
@@ -383,7 +383,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
       viewportWrap.style.cursor = "ew-resize";
       return;
     }
-    const rangeEl = under.find((el) => el instanceof HTMLElement && el.classList?.contains("custom-timeline-range"));
+    const rangeEl = under.find((el) => el instanceof HTMLElement && el.classList?.contains("timeline-range"));
     if (rangeEl instanceof HTMLElement) {
       const cur = getHoverState();
       if (cur.hoveredEventId !== null || cur.hoveredRangeEdge !== null) {
@@ -408,7 +408,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
   });
 
   layersContent.addEventListener("click", (e) => {
-    const eventEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-event");
+    const eventEl = (e.target as HTMLElement)?.closest?.(".timeline-event");
     const eventItemId = eventEl instanceof HTMLElement ? eventEl.dataset.itemId : undefined;
     if (eventItemId) {
       e.preventDefault();
@@ -420,7 +420,7 @@ export function setupTimelineInteractions(options: SetupTimelineInteractionsOpti
       callbacks.onSelectItem(eventItemId);
       return;
     }
-    const rangeEl = (e.target as HTMLElement)?.closest?.(".custom-timeline-range");
+    const rangeEl = (e.target as HTMLElement)?.closest?.(".timeline-range");
     const rangeItemId = rangeEl instanceof HTMLElement ? rangeEl.dataset.itemId : undefined;
     if (rangeItemId) {
       e.preventDefault();

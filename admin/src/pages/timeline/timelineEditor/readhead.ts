@@ -8,10 +8,10 @@ export interface ReadheadState {
 
 export function createReadheadElement(): { element: HTMLElement; innerLine: HTMLElement } {
   const readheadLine = document.createElement("div");
-  readheadLine.className = "custom-timeline-readhead";
+  readheadLine.className = "timeline-readhead";
   readheadLine.setAttribute("aria-hidden", "true");
   const readheadLineInner = document.createElement("div");
-  readheadLineInner.className = "custom-timeline-readhead-line";
+  readheadLineInner.className = "timeline-readhead-line";
   readheadLineInner.style.position = "absolute";
   readheadLineInner.style.left = "50%";
   readheadLineInner.style.top = "0";
@@ -45,7 +45,7 @@ export function renderReadhead(
   readheadEl.style.zIndex = "10";
   readheadEl.style.visibility = inView ? "visible" : "hidden";
   if (state.readheadDraggable) {
-    readheadEl.classList.add("custom-timeline-readhead--draggable");
+    readheadEl.classList.add("timeline-readhead--draggable");
     readheadEl.style.pointerEvents = "auto";
     readheadEl.style.cursor = "ew-resize";
     readheadEl.style.width = `${readheadHitWidthPx}px`;
@@ -53,7 +53,7 @@ export function renderReadhead(
     readheadEl.style.background = "transparent";
     innerLine.style.display = "";
   } else {
-    readheadEl.classList.remove("custom-timeline-readhead--draggable");
+    readheadEl.classList.remove("timeline-readhead--draggable");
     readheadEl.style.pointerEvents = "none";
     readheadEl.style.cursor = "";
     readheadEl.style.width = "2px";

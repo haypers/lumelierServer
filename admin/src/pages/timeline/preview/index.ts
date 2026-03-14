@@ -32,7 +32,7 @@ const MIN_DIM = 5;
 const MAX_DIM = 25;
 const DEFAULT_DIM = 10;
 
-const PREVIEW_MAP_CONTAINER_ID = "timeline-preview-map";
+const PREVIEW_MAP_CONTAINER_ID = "preview-map";
 
 const STORAGE_KEY_PREFIX = "lumelier-timeline:";
 const STORAGE_KEY_SUFFIX = ":preview-array-dim";
@@ -63,13 +63,13 @@ export function renderPreviewPanel(
 ): void {
   container.innerHTML = "";
   const wrapper = document.createElement("div");
-  wrapper.className = "timeline-preview-widget";
+  wrapper.className = "preview-widget";
 
   const sliderBar = document.createElement("div");
-  sliderBar.className = "timeline-preview-slider-bar";
+  sliderBar.className = "preview-slider-bar";
 
   const sliderRow = document.createElement("div");
-  sliderRow.className = "timeline-preview-slider-row";
+  sliderRow.className = "preview-slider-row";
   let requestsGPS = false;
   let showLocation: ShowLocationData | null = null;
   const MIN_RADIUS_METERS = 10;
@@ -77,13 +77,13 @@ export function renderPreviewPanel(
   /** No default location: user must place the first circle. Used only for type when sending a known location. */
   if (options) {
     const gpsWrap = document.createElement("div");
-    gpsWrap.className = "timeline-preview-gps-wrap";
+    gpsWrap.className = "preview-gps-wrap";
     const gpsLabel = document.createElement("span");
-    gpsLabel.className = "timeline-preview-gps-label";
+    gpsLabel.className = "preview-gps-label";
     gpsLabel.textContent = "Use GPS";
     const gpsToggle = document.createElement("button");
     gpsToggle.type = "button";
-    gpsToggle.className = "mode-switch-toggle gps-toggle timeline-preview-gps-toggle";
+    gpsToggle.className = "mode-switch-toggle gps-toggle preview-gps-toggle";
     gpsToggle.setAttribute("aria-label", "Use GPS");
     gpsToggle.setAttribute("aria-pressed", "false");
     gpsToggle.title = "Use GPS";
@@ -144,7 +144,7 @@ export function renderPreviewPanel(
   }
 
   const sliderWrap = document.createElement("div");
-  sliderWrap.className = "timeline-preview-slider-wrap";
+  sliderWrap.className = "preview-slider-wrap";
 
   const storedDim = showId ? loadStoredDim(showId) : null;
   const initialDim = Math.min(MAX_DIM, storedDim ?? DEFAULT_DIM);
@@ -155,32 +155,32 @@ export function renderPreviewPanel(
   sliderInput.max = String(MAX_DIM);
   sliderInput.step = "1";
   sliderInput.value = String(initialDim);
-  sliderInput.className = "timeline-preview-array-slider";
+  sliderInput.className = "preview-array-slider";
   sliderInput.setAttribute("aria-label", "Array dimensions (grid size)");
 
   const gridArea = document.createElement("div");
-  gridArea.className = "timeline-preview-grid-area";
+  gridArea.className = "preview-grid-area";
 
   const gridContainer = document.createElement("div");
-  gridContainer.className = "timeline-preview-grid-container";
+  gridContainer.className = "preview-grid-container";
 
   let mapArea: HTMLElement | null = null;
   let previewMap: L.Map | null = null;
 
   if (options) {
     mapArea = document.createElement("div");
-    mapArea.className = "timeline-preview-map-area";
+    mapArea.className = "preview-map-area";
     const mapWrap = document.createElement("div");
-    mapWrap.className = "timeline-preview-map-wrap";
+    mapWrap.className = "preview-map-wrap";
     const mapContainer = document.createElement("div");
     mapContainer.id = PREVIEW_MAP_CONTAINER_ID;
-    mapContainer.className = "timeline-preview-map-container";
+    mapContainer.className = "preview-map-container";
     mapWrap.appendChild(mapContainer);
     const searchOverlay = document.createElement("div");
-    searchOverlay.className = "timeline-preview-map-overlay-search";
+    searchOverlay.className = "preview-map-overlay-search";
     searchOverlay.setAttribute("aria-label", "Search place");
     const bottomLeftOverlay = document.createElement("div");
-    bottomLeftOverlay.className = "timeline-preview-map-overlay-bottom-left";
+    bottomLeftOverlay.className = "preview-map-overlay-bottom-left";
     mapWrap.appendChild(searchOverlay);
     mapWrap.appendChild(bottomLeftOverlay);
     mapArea.appendChild(mapWrap);
@@ -196,10 +196,10 @@ export function renderPreviewPanel(
   container.appendChild(wrapper);
 
   container.addEventListener("mouseenter", () => {
-    container.querySelector(".timeline-preview-map-wrap")?.classList.add("timeline-preview-map-wrap--hover");
+    container.querySelector(".preview-map-wrap")?.classList.add("preview-map-wrap--hover");
   });
   container.addEventListener("mouseleave", () => {
-    container.querySelector(".timeline-preview-map-wrap")?.classList.remove("timeline-preview-map-wrap--hover");
+    container.querySelector(".preview-map-wrap")?.classList.remove("preview-map-wrap--hover");
   });
 
   let venueFeaturesInitialized = false;
@@ -222,7 +222,7 @@ export function renderPreviewPanel(
       } catch {
         /* map container may be detached */
       }
-      const mapWrap = container.querySelector(".timeline-preview-map-wrap") as HTMLElement | null;
+      const mapWrap = container.querySelector(".preview-map-wrap") as HTMLElement | null;
       if (previewMap && mapWrap && !venueFeaturesInitialized) {
         venueFeaturesInitialized = true;
         initPreviewMapVenueFeatures(previewMap, mapWrap, showId, {
@@ -260,7 +260,7 @@ export function renderPreviewPanel(
   }
 
   if (options && showId) {
-    const gpsToggleBtn = wrapper.querySelector(".timeline-preview-gps-toggle") as HTMLButtonElement | null;
+    const gpsToggleBtn = wrapper.querySelector(".preview-gps-toggle") as HTMLButtonElement | null;
     (async () => {
       try {
         const res = await fetch(`/api/admin/show-workspaces/${showId}/show-location`, {
@@ -330,7 +330,7 @@ export function renderPreviewPanel(
     const total = side * side;
     for (let i = 0; i < total; i++) {
       const cell = document.createElement("div");
-      cell.className = "timeline-preview-grid-cell";
+      cell.className = "preview-grid-cell";
       cell.setAttribute("aria-hidden", "true");
       gridContainer.appendChild(cell);
     }
@@ -353,8 +353,8 @@ export function renderPreviewPanel(
     const w = container.offsetWidth;
     const h = container.offsetHeight;
     const isPortrait = h > w;
-    wrapper.classList.toggle("timeline-preview-widget--portrait", isPortrait);
-    wrapper.classList.toggle("timeline-preview-widget--landscape", !isPortrait);
+    wrapper.classList.toggle("preview-widget--portrait", isPortrait);
+    wrapper.classList.toggle("preview-widget--landscape", !isPortrait);
   }
 
   const ro = new ResizeObserver(updateLayout);

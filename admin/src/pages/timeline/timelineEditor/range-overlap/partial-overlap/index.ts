@@ -17,7 +17,7 @@ export function createPartialOverlapOverlay(
   rowHeightPx: number
 ): HTMLElement {
   const overlayWrap = document.createElement("div");
-  overlayWrap.className = "custom-timeline-partial-overlap-overlay";
+  overlayWrap.className = "timeline-partial-overlap-overlay";
   overlayWrap.style.position = "absolute";
   overlayWrap.style.left = "0";
   overlayWrap.style.top = "0";
@@ -34,8 +34,8 @@ export function createPartialOverlapOverlay(
     const box = document.createElement("div");
     box.className =
       seg.variant === "coverEnd"
-        ? "custom-timeline-partial-overlap-body custom-timeline-partial-overlap-body--cover-end"
-        : "custom-timeline-partial-overlap-body custom-timeline-partial-overlap-body--cover-start";
+        ? "timeline-partial-overlap-body timeline-partial-overlap-body--cover-end"
+        : "timeline-partial-overlap-body timeline-partial-overlap-body--cover-start";
     box.style.position = "absolute";
     box.style.left = `${left}px`;
     box.style.width = `${wPx}px`;
@@ -46,7 +46,7 @@ export function createPartialOverlapOverlay(
     box.style.overflow = "hidden";
 
     const patternRow = document.createElement("div");
-    patternRow.className = "custom-timeline-partial-overlap-pattern";
+    patternRow.className = "timeline-partial-overlap-pattern";
     patternRow.style.display = "flex";
     patternRow.style.flexDirection = "row";
     patternRow.style.alignItems = "center";

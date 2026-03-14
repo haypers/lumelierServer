@@ -1,0 +1,20 @@
+/** Centralized selectors for the editor page DOM. Use these instead of string literals to avoid typos and simplify renames. */
+export const EDITOR_SELECTORS = {
+  mount: "#editor-timeline-mount",
+  detailsPanel: ".details-panel",
+  autosave: "#editor-autosave",
+  emptyState: ".editor-empty-state",
+  content: ".editor-content",
+  pageBody: ".editor-page-body",
+  liveStatusMessage: "#editor-live-status-message",
+  toolbarLeftEdit: "#editor-toolbar-left-edit",
+  toolbarSpacer: "#editor-toolbar-spacer",
+  toolbarCenter: "#editor-toolbar-center",
+  toolbarRight: "#editor-toolbar-right",
+  loading: "#editor-loading",
+  bottomRow: "#editor-bottom-row",
+  timelineWrap: ".editor-timeline-wrap",
+  detailsReadonlyBadge: ".details-readonly-badge",
+  detailsHeaderRow: ".details-header-row",
+  projectTitleInput: "#editor-project-title-input",
+} as const;

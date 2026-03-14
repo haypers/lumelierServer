@@ -1,5 +1,5 @@
 /* Shared layer/track picker (details panel + track-assignments Set Track row) */
-.timeline-details-panel .detail-layer-wrap .layer-track-picker {
+.details-panel .detail-layer-wrap .layer-track-picker {
   max-width: 200px;
 }
 .layer-track-picker {

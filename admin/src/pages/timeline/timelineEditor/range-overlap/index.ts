@@ -124,7 +124,7 @@ export function createEngulfedOverlay(
   rowHeightPx: number
 ): HTMLElement {
   const overlayWrap = document.createElement("div");
-  overlayWrap.className = "custom-timeline-range-engulfed-overlay";
+  overlayWrap.className = "timeline-range-engulfed-overlay";
   overlayWrap.style.position = "absolute";
   overlayWrap.style.left = "0";
   overlayWrap.style.top = "0";
@@ -137,7 +137,7 @@ export function createEngulfedOverlay(
     const left = (eng.startSec - startSec) * pixelsPerSec;
     const wPx = (eng.endSec - eng.startSec) * pixelsPerSec;
     const box = document.createElement("div");
-    box.className = "custom-timeline-range-engulfed-box";
+    box.className = "timeline-range-engulfed-box";
     box.style.position = "absolute";
     box.style.left = `${left}px`;
     box.style.width = `${Math.max(0, wPx)}px`;

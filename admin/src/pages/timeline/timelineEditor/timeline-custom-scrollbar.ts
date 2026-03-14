@@ -14,7 +14,7 @@ export function createCustomScrollbar(
   options: CustomScrollbarOptions
 ): { update: (opts: Partial<CustomScrollbarOptions>) => void } {
   const track = document.createElement("div");
-  track.className = "custom-timeline-scrollbar-track";
+  track.className = "timeline-scrollbar-track";
   track.style.position = "relative";
   track.style.width = "100%";
   track.style.height = `${TRACK_HEIGHT_PX}px`;
@@ -23,7 +23,7 @@ export function createCustomScrollbar(
   track.style.cursor = "pointer";
 
   const thumb = document.createElement("div");
-  thumb.className = "custom-timeline-scrollbar-thumb";
+  thumb.className = "timeline-scrollbar-thumb";
   thumb.style.position = "absolute";
   thumb.style.top = "0";
   thumb.style.height = "100%";

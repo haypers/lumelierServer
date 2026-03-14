@@ -52,10 +52,10 @@ export function renderEventElement(
     : 0;
 
   const eventWrap = document.createElement("div");
-  eventWrap.className = "custom-timeline-event";
-  if (selected) eventWrap.classList.add("custom-timeline-point--selected");
-  if (hovered) eventWrap.classList.add("custom-timeline-event--hovered");
-  if (insideEditingRange) eventWrap.classList.add("custom-timeline-event--inside-editing-range");
+  eventWrap.className = "timeline-event";
+  if (selected) eventWrap.classList.add("timeline-point--selected");
+  if (hovered) eventWrap.classList.add("timeline-event--hovered");
+  if (insideEditingRange) eventWrap.classList.add("timeline-event--inside-editing-range");
   eventWrap.style.position = "absolute";
   eventWrap.style.left = `${left - EVENT_POINT_SIZE_PX / 2}px`;
   eventWrap.style.top = "50%";
@@ -67,7 +67,7 @@ export function renderEventElement(
   eventWrap.dataset.itemId = item.id;
 
   const point = document.createElement("div");
-  point.className = "custom-timeline-point";
+  point.className = "timeline-point";
   point.style.width = `${EVENT_POINT_SIZE_PX}px`;
   point.style.height = `${EVENT_POINT_SIZE_PX}px`;
   point.style.borderRadius = "50%";
@@ -78,7 +78,7 @@ export function renderEventElement(
 
   if (showLabel && maxLabelWidthPx > 0) {
     const labelSpan = document.createElement("span");
-    labelSpan.className = "custom-timeline-event-label";
+    labelSpan.className = "timeline-event-label";
     labelSpan.textContent = item.label ?? item.id;
     labelSpan.style.maxWidth = `${maxLabelWidthPx}px`;
     eventWrap.appendChild(labelSpan);

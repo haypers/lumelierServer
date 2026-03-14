@@ -134,7 +134,7 @@ export function createCustomTimelineView(
     getState().items.map((it) => ({ startSec: it.startSec, endSec: it.endSec }));
 
   const root = document.createElement("div");
-  root.className = "custom-timeline";
+  root.className = "timeline-widget";
   root.style.display = "flex";
   root.style.flexDirection = "row";
   root.style.height = "100%";
@@ -145,7 +145,7 @@ export function createCustomTimelineView(
 
   // —— Left column: layer labels (180px)
   const leftCol = document.createElement("div");
-  leftCol.className = "custom-timeline-layer-labels";
+  leftCol.className = "timeline-layer-labels";
   leftCol.style.width = `${LAYER_LABELS_WIDTH_PX}px`;
   leftCol.style.minWidth = `${LAYER_LABELS_WIDTH_PX}px`;
   leftCol.style.height = "100%";
@@ -156,7 +156,7 @@ export function createCustomTimelineView(
   leftCol.style.borderRight = "1px solid var(--border)";
 
   const rulerSpacer = document.createElement("div");
-  rulerSpacer.className = "custom-timeline-ruler-spacer";
+  rulerSpacer.className = "timeline-ruler-spacer";
   rulerSpacer.style.height = `${RULER_HEIGHT_PX}px`;
   rulerSpacer.style.minHeight = `${RULER_HEIGHT_PX}px`;
   rulerSpacer.style.display = "flex";
@@ -171,17 +171,17 @@ export function createCustomTimelineView(
   rulerSpacer.appendChild(addLayerBtn);
 
   const layerLabelsScroll = document.createElement("div");
-  layerLabelsScroll.className = "custom-timeline-layer-labels-scroll";
+  layerLabelsScroll.className = "timeline-layer-labels-scroll";
   layerLabelsScroll.style.flex = "1";
   layerLabelsScroll.style.minHeight = "0";
   layerLabelsScroll.style.overflowY = "auto";
   layerLabelsScroll.style.overflowX = "hidden";
 
   const layerLabelsList = document.createElement("div");
-  layerLabelsList.className = "custom-timeline-layer-labels-list";
+  layerLabelsList.className = "timeline-layer-labels-list";
 
   const labelsScrollbarSpacer = document.createElement("div");
-  labelsScrollbarSpacer.className = "custom-timeline-labels-scrollbar-spacer";
+  labelsScrollbarSpacer.className = "timeline-labels-scrollbar-spacer";
   labelsScrollbarSpacer.style.height = `${HORIZONTAL_SCROLLBAR_HEIGHT_PX}px`;
   labelsScrollbarSpacer.style.minHeight = `${HORIZONTAL_SCROLLBAR_HEIGHT_PX}px`;
   labelsScrollbarSpacer.style.flexShrink = "0";
@@ -193,7 +193,7 @@ export function createCustomTimelineView(
 
   // —— Right column: viewport (ruler + layers) + custom scrollbar; no native horizontal scroll
   const rightCol = document.createElement("div");
-  rightCol.className = "custom-timeline-right";
+  rightCol.className = "timeline-right";
   rightCol.style.flex = "1";
   rightCol.style.minWidth = "0";
   rightCol.style.height = "100%";
@@ -204,7 +204,7 @@ export function createCustomTimelineView(
   rightCol.style.webkitUserSelect = "none";
 
   const viewportWrap = document.createElement("div");
-  viewportWrap.className = "custom-timeline-viewport-wrap";
+  viewportWrap.className = "timeline-viewport-wrap";
   viewportWrap.style.flex = "1";
   viewportWrap.style.minHeight = "0";
   viewportWrap.style.overflow = "hidden";
@@ -212,26 +212,26 @@ export function createCustomTimelineView(
   viewportWrap.style.flexDirection = "column";
 
   const rightContent = document.createElement("div");
-  rightContent.className = "custom-timeline-right-content";
+  rightContent.className = "timeline-right-content";
   rightContent.style.position = "relative";
   rightContent.style.flex = "1";
   rightContent.style.minHeight = "0";
   rightContent.style.overflow = "hidden";
 
   const rulerWrap = document.createElement("div");
-  rulerWrap.className = "custom-timeline-ruler-wrap";
+  rulerWrap.className = "timeline-ruler-wrap";
   rulerWrap.style.height = `${RULER_HEIGHT_PX}px`;
   rulerWrap.style.minHeight = `${RULER_HEIGHT_PX}px`;
   rulerWrap.style.flexShrink = "0";
   rulerWrap.style.borderBottom = "1px solid var(--border)";
 
   const rulerCanvas = document.createElement("div");
-  rulerCanvas.className = "custom-timeline-ruler";
+  rulerCanvas.className = "timeline-ruler";
   rulerCanvas.style.position = "relative";
   rulerCanvas.style.height = "100%";
 
   const layersContent = document.createElement("div");
-  layersContent.className = "custom-timeline-layers";
+  layersContent.className = "timeline-layers";
   layersContent.style.position = "relative";
   layersContent.style.flex = "1";
   layersContent.style.minHeight = "0";
@@ -241,7 +241,7 @@ export function createCustomTimelineView(
   const { element: readheadLine, innerLine: readheadLineInner } = createReadheadElement();
 
   const scrollbarContainer = document.createElement("div");
-  scrollbarContainer.className = "custom-timeline-scrollbar-container";
+  scrollbarContainer.className = "timeline-scrollbar-container";
   scrollbarContainer.style.flexShrink = "0";
   scrollbarContainer.style.padding = "4px 0";
 

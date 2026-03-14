@@ -1,6 +1,6 @@
 /* Layer label row (shared by custom timeline left column) */
 .timeline-layer-label,
-.custom-timeline-layer-label-row {
+.timeline-layer-label-row {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -12,7 +12,7 @@
   padding: 0 6px;
   box-sizing: border-box;
 }
-.custom-timeline-layer-label-row {
+.timeline-layer-label-row {
   border-bottom: 1px solid var(--border);
 }
 .timeline-layer-label-name,
@@ -66,7 +66,7 @@
   height: 14px;
 }
 .timeline-layer-label:hover .timeline-layer-label-remove,
-.custom-timeline-layer-label-row:hover .timeline-layer-label-remove {
+.timeline-layer-label-row:hover .timeline-layer-label-remove {
   visibility: visible;
 }
 .timeline-layer-label--only-one .timeline-layer-label-remove {
@@ -86,6 +86,6 @@
   background: var(--accent-current);
   border-color: var(--accent);
 }
-.timeline-content--broadcast .timeline-layer-label-remove {
+.editor-content--broadcast .timeline-layer-label-remove {
   display: none !important;
 }

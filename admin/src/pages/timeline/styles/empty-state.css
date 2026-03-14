@@ -1,11 +1,11 @@
-.timeline {
+.editor-timeline-wrap {
   display: flex;
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
   position: relative;
 }
-.timeline-empty-state {
+.editor-empty-state {
   flex: 1;
   min-height: 0;
   display: flex;
@@ -15,19 +15,19 @@
   gap: var(--space);
   padding: var(--space);
 }
-.timeline-empty-state--hidden {
+.editor-empty-state--hidden {
   display: none !important;
 }
-.timeline-empty-state-message {
+.editor-empty-state-message {
   margin: 0;
   font-size: 14px;
   color: var(--text-muted);
 }
-.timeline-empty-state-actions {
+.editor-empty-state-actions {
   display: flex;
   gap: var(--space);
 }
-.timeline-empty-state-actions .btn {
+.editor-empty-state-actions .btn {
   padding: 8px 14px;
   font-size: 13px;
   color: var(--text);
@@ -36,22 +36,22 @@
   border-radius: var(--radius);
   cursor: pointer;
 }
-.timeline-empty-state-actions .btn:hover {
+.editor-empty-state-actions .btn:hover {
   background: var(--border);
 }
-.timeline-empty-state-actions .btn-primary {
+.editor-empty-state-actions .btn-primary {
   background: var(--accent);
   color: #fff;
   border-color: var(--accent);
 }
-.timeline-empty-state-actions .btn-primary:hover {
+.editor-empty-state-actions .btn-primary:hover {
   filter: brightness(1.1);
 }
-.timeline-default-show-dropdown {
+.editor-default-show-dropdown {
   position: relative;
   display: inline-block;
 }
-.timeline-default-show-menu {
+.editor-default-show-menu {
   position: absolute;
   top: calc(100% + 4px);
   left: 0;
@@ -63,10 +63,10 @@
   z-index: 100;
   overflow: hidden;
 }
-.timeline-default-show-menu[hidden] {
+.editor-default-show-menu[hidden] {
   display: none;
 }
-.timeline-default-show-option {
+.editor-default-show-option {
   display: block;
   width: 100%;
   padding: 10px 14px;
@@ -79,30 +79,30 @@
   transition: background 0.15s;
   border-bottom: 1px solid var(--border);
 }
-.timeline-default-show-option:last-child {
+.editor-default-show-option:last-child {
   border-bottom: none;
 }
-.timeline-default-show-option:hover {
+.editor-default-show-option:hover {
   background: var(--border);
 }
-.timeline-default-show-option:active {
+.editor-default-show-option:active {
   background: var(--accent);
   color: #fff;
 }
-.timeline-content {
+.editor-content {
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
 }
-.timeline-content--hidden {
+.editor-content--hidden {
   display: none !important;
 }
-.timeline .timeline-toolbar {
+.editor-timeline-wrap .editor-toolbar {
   flex-shrink: 0;
 }
-.timeline .timeline-container-wrap {
+.editor-timeline-wrap .editor-container-wrap {
   flex: 1;
   min-height: 0;
   overflow: hidden;

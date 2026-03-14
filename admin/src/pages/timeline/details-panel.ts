@@ -54,7 +54,7 @@ export function updateDetailsPanel(
   options?: { showId: string | null; readonly?: boolean }
 ): void {
   const h3 = container.querySelector("h3");
-  const body = container.querySelector(".timeline-details-body");
+  const body = container.querySelector(".details-body");
   if (!h3 || !body) return;
   const showId = options?.showId ?? null;
   const readonly = options?.readonly ?? false;

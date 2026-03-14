@@ -18,7 +18,7 @@ export function buildLayerLabelRow(
   callbacks: LayerLabelCallbacks
 ): HTMLElement {
   const wrap = document.createElement("div");
-  wrap.className = "timeline-layer-label custom-timeline-layer-label-row";
+  wrap.className = "timeline-layer-label timeline-layer-label-row";
   wrap.style.height = `${rowHeightPx}px`;
   wrap.style.minHeight = `${rowHeightPx}px`;
   const label = String(layer.label ?? "");

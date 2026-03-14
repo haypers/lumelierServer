@@ -36,7 +36,7 @@ export function renderRuler(
   for (let t = firstTick; t < endSec; t += step) {
     const left = (t - startSec) * pixelsPerSec;
     const tick = document.createElement("div");
-    tick.className = "custom-timeline-ruler-tick";
+    tick.className = "timeline-ruler-tick";
     tick.style.position = "absolute";
     tick.style.left = `${left}px`;
     tick.style.top = "0";
@@ -44,7 +44,7 @@ export function renderRuler(
     tick.style.height = "100%";
     tick.style.background = "var(--border)";
     const label = document.createElement("span");
-    label.className = "custom-timeline-ruler-label";
+    label.className = "timeline-ruler-label";
     label.style.position = "absolute";
     label.style.left = `${left + 2}px`;
     label.style.top = "50%";

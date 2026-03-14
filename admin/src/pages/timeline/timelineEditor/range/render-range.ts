@@ -44,12 +44,12 @@ export function renderRangeElement(
   const isEditingWithOverlap = edgeState?.isEditingWithOverlap === true;
 
   const range = document.createElement("div");
-  range.className = "custom-timeline-range" + (selected ? " custom-timeline-range--selected" : "");
-  if (isEditingWithOverlap) range.classList.add("custom-timeline-range--editing-overlap");
-  if (highlightLeft) range.classList.add("custom-timeline-range--edge-left-highlight");
-  if (highlightRight) range.classList.add("custom-timeline-range--edge-right-highlight");
-  if (resizeLeft) range.classList.add("custom-timeline-range--resize-left");
-  if (resizeRight) range.classList.add("custom-timeline-range--resize-right");
+  range.className = "timeline-range" + (selected ? " timeline-range--selected" : "");
+  if (isEditingWithOverlap) range.classList.add("timeline-range--editing-overlap");
+  if (highlightLeft) range.classList.add("timeline-range--edge-left-highlight");
+  if (highlightRight) range.classList.add("timeline-range--edge-right-highlight");
+  if (resizeLeft) range.classList.add("timeline-range--resize-left");
+  if (resizeRight) range.classList.add("timeline-range--resize-right");
   range.style.position = "absolute";
   range.style.left = `${left}px`;
   range.style.top = "4px";
@@ -63,7 +63,7 @@ export function renderRangeElement(
   range.dataset.itemId = item.id;
 
   const inner = document.createElement("div");
-  inner.className = "custom-timeline-range-inner";
+  inner.className = "timeline-range-inner";
   inner.style.display = "flex";
   inner.style.alignItems = "center";
   inner.style.height = "100%";
@@ -74,7 +74,7 @@ export function renderRangeElement(
   inner.style.width = "100%";
 
   const labelSpan = document.createElement("span");
-  labelSpan.className = "custom-timeline-range-label";
+  labelSpan.className = "timeline-range-label";
   labelSpan.textContent = item.label ?? item.id;
   labelSpan.style.overflow = "hidden";
   labelSpan.style.textOverflow = "ellipsis";

@@ -32,12 +32,24 @@ import {
 import { getDefaultTrackAssignments } from "./track-assignments";
 import type { TrackAssignmentsRoot } from "./track-assignments";
 export type { TimelineItemPayload, TimelineStateJSON } from "./types";
+export type { TemplateType } from "./templates";
+export { getTemplateState, applyTemplateToShow, getDefaultNewShowState } from "./templates";
+import { getDefaultNewShowState } from "./templates";
 import { openModal as openVideoImportModal } from "./import-from-video";
 import type { VideoImportEvent } from "./import-from-video";
 import {
   getOverlapResolution,
   isEditingRangeEngulfed,
 } from "./timelineEditor/range-overlap";
+import {
+  initBroadcast,
+  postBroadcastReadheadDebounced,
+  stopBroadcastReadheadTick,
+} from "./broadcast";
+import { initAutosave, scheduleAutosave, setAutosaveUI } from "./autosave";
+import { getEditorPageMarkup } from "./page-markup";
+import { attachToolbarHandlers } from "./toolbar-handlers";
+import { EDITOR_SELECTORS } from "./editor-selectors";
 
 let layers: LayersArray = [];
 let items: ItemsArray = [];
@@ -55,10 +67,6 @@ const EVENT_TYPE_SET_COLOR_BROADCAST = "Set Color Broadcast";
 let hasLoadedShow = false;
 /** Show ID from URL when timeline is scoped to a show; used for load and autosave. */
 let currentShowId: string | null = null;
-const AUTOSAVE_DEBOUNCE_MS = 1000;
-/** Minimum time to show "Syncing" so the user sees the state change even when the request is very fast. */
-const MIN_SYNCING_DISPLAY_MS = 400;
-let autosaveTimerId: ReturnType<typeof setTimeout> | null = null;
 let timelineAutosaveEl: HTMLElement | null = null;
 /** True when in Broadcasting mode; used to guard layer edit/remove and drive broadcast UI. */
 let isBroadcastMode = false;
@@ -78,21 +86,6 @@ let timelineLoadingEl: HTMLElement | null = null;
 let dragUpdateRafId: number | null = null;
 let dragUpdateItemId: string | null = null;
 
-/** Offset (ms) from client time to server time: serverTimeMs ≈ Date.now() + serverTimeOffsetMs */
-let serverTimeOffsetMs = 0;
-let broadcastPlayAtMs: number | null = null;
-let broadcastReadheadSec = 0;
-let broadcastPauseAtMs: number | null = null;
-let broadcastReadheadTickId: ReturnType<typeof setInterval> | null = null;
-
-const BROADCAST_READHEAD_TICK_MS = 100;
-const BROADCAST_READHEAD_POST_DEBOUNCE_MS = 150;
-let broadcastReadheadPostTimer: ReturnType<typeof setTimeout> | null = null;
-
-function getServerTimeMs(): number {
-  return Date.now() + serverTimeOffsetMs;
-}
-
 function setReadheadSec(sec: number): void {
   readheadSec = Math.max(0, sec);
   if (customTimelineView?.scheduleUpdate) {
@@ -100,54 +93,6 @@ function setReadheadSec(sec: number): void {
   } else {
     customTimelineView?.update();
   }
-}
-
-function tickBroadcastReadhead(): void {
-  if (broadcastPlayAtMs == null) return;
-  const nowMs = getServerTimeMs();
-  if (nowMs < broadcastPlayAtMs) return;
-  if (broadcastPauseAtMs != null && nowMs >= broadcastPauseAtMs) {
-    return;
-  }
-  const sec = broadcastReadheadSec + (nowMs - broadcastPlayAtMs) / 1000;
-  setReadheadSec(sec);
-}
-
-function postBroadcastReadheadDebounced(sec: number): void {
-  if (!isBroadcastMode) return;
-  if (broadcastPlayAtMs != null && broadcastPauseAtMs == null) return;
-  if (broadcastReadheadPostTimer != null) {
-    clearTimeout(broadcastReadheadPostTimer);
-    broadcastReadheadPostTimer = null;
-  }
-  const clamped = Math.max(0, sec);
-  broadcastReadheadPostTimer = setTimeout(() => {
-    broadcastReadheadPostTimer = null;
-    if (!currentShowId) return;
-    fetch(`/api/admin/shows/${currentShowId}/broadcast/readhead`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ readheadSec: clamped }),
-      credentials: "include",
-    }).catch(() => {});
-  }, BROADCAST_READHEAD_POST_DEBOUNCE_MS);
-}
-
-function startBroadcastReadheadTick(): void {
-  if (broadcastReadheadTickId != null) {
-    clearInterval(broadcastReadheadTickId);
-    broadcastReadheadTickId = null;
-  }
-  broadcastReadheadTickId = setInterval(tickBroadcastReadhead, BROADCAST_READHEAD_TICK_MS);
-}
-
-function stopBroadcastReadheadTick(): void {
-  if (broadcastReadheadTickId != null) {
-    clearInterval(broadcastReadheadTickId);
-    broadcastReadheadTickId = null;
-  }
-  broadcastPlayAtMs = null;
-  broadcastPauseAtMs = null;
 }
 
 function ensureGroups(): void {
@@ -313,215 +258,6 @@ function getReadheadSecClamped(): number {
   return Math.max(0, readheadSec);
 }
 
-/** Default state for "Create New Show": one layer, one event at 5s (no range). */
-function getDefaultNewShowState(): TimelineStateJSON {
-  return {
-    version: 1,
-    title: "Untitled Show",
-    layers: [{ id: "layer-1", label: "Layer 1" }],
-    items: [
-      {
-        id: "item-1",
-        layerId: "layer-1",
-        kind: "event",
-        startSec: 5,
-        label: "Event item-1",
-        effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-      },
-    ],
-    readheadSec: 0,
-  };
-}
-
-/** Rainbow Cycle: uses 3 layers with different rainbow progressions over 60 seconds */
-function getRainbowCycleTemplate(): TimelineStateJSON {
-  const layers = [
-    { id: "layer-1", label: "Primary Rainbow" },
-    { id: "layer-2", label: "Secondary Colors" },
-    { id: "layer-3", label: "Accent Colors" },
-  ];
-  
-  // Layer 1: Main rainbow sequence (every 5 seconds)
-  const layer1Colors = [
-    { hex: "#FF0000", name: "Red" },
-    { hex: "#FF7F00", name: "Orange" },
-    { hex: "#FFFF00", name: "Yellow" },
-    { hex: "#00FF00", name: "Green" },
-    { hex: "#0000FF", name: "Blue" },
-    { hex: "#8B00FF", name: "Violet" },
-  ];
-  
-  // Layer 2: Complementary colors (every 6 seconds, offset by 1s)
-  const layer2Colors = [
-    { hex: "#00FFFF", name: "Cyan" },
-    { hex: "#FF00FF", name: "Magenta" },
-    { hex: "#7FFF00", name: "Chartreuse" },
-    { hex: "#FF1493", name: "Deep Pink" },
-    { hex: "#00CED1", name: "Turquoise" },
-  ];
-  
-  // Layer 3: Accent colors (every 4 seconds, offset by 2s)
-  const layer3Colors = [
-    { hex: "#FFD700", name: "Gold" },
-    { hex: "#FF69B4", name: "Hot Pink" },
-    { hex: "#00FA9A", name: "Spring Green" },
-    { hex: "#BA55D3", name: "Orchid" },
-    { hex: "#FF4500", name: "Orange Red" },
-    { hex: "#1E90FF", name: "Dodger Blue" },
-  ];
-  
-  const items: TimelineStateJSON["items"] = [];
-  let itemId = 1;
-  
-  // Layer 1: Events every 5 seconds for full 60 seconds
-  for (let i = 0; i < 12; i++) {
-    const color = layer1Colors[i % layer1Colors.length];
-    items.push({
-      id: `rainbow-1-${itemId++}`,
-      layerId: "layer-1",
-      kind: "event",
-      startSec: i * 5,
-      label: color.name,
-      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-      color: color.hex,
-    });
-  }
-  
-  // Layer 2: Events every 6 seconds, offset by 1 second
-  for (let i = 0; i < 10; i++) {
-    const color = layer2Colors[i % layer2Colors.length];
-    items.push({
-      id: `rainbow-2-${itemId++}`,
-      layerId: "layer-2",
-      kind: "event",
-      startSec: 1 + i * 6,
-      label: color.name,
-      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-      color: color.hex,
-    });
-  }
-  
-  // Layer 3: Events every 4 seconds, offset by 2 seconds
-  for (let i = 0; i < 15; i++) {
-    const color = layer3Colors[i % layer3Colors.length];
-    items.push({
-      id: `rainbow-3-${itemId++}`,
-      layerId: "layer-3",
-      kind: "event",
-      startSec: 2 + i * 4,
-      label: color.name,
-      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-      color: color.hex,
-    });
-  }
-  
-  return {
-    version: 1,
-    title: "Rainbow Cycle",
-    layers,
-    items,
-    readheadSec: 0,
-  };
-}
-
-/** Breathe: gentle pulse between blue shades for a full minute */
-function getBreatheTemplate(): TimelineStateJSON {
-  const items: TimelineStateJSON["items"] = [];
-  const colors = [
-    { hex: "#001f3f", name: "Navy" },
-    { hex: "#0047AB", name: "Cobalt" },
-    { hex: "#4169E1", name: "Royal Blue" },
-    { hex: "#87CEEB", name: "Sky Blue" },
-    { hex: "#ADD8E6", name: "Light Blue" },
-    { hex: "#87CEEB", name: "Sky Blue" },
-    { hex: "#4169E1", name: "Royal Blue" },
-    { hex: "#0047AB", name: "Cobalt" },
-  ];
-  
-  // Create 20 events over 60 seconds (every 3 seconds)
-  for (let i = 0; i < 20; i++) {
-    const color = colors[i % colors.length];
-    items.push({
-      id: `breathe-${i + 1}`,
-      layerId: "layer-1",
-      kind: "event",
-      startSec: i * 3,
-      label: color.name,
-      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-      color: color.hex,
-    });
-  }
-  
-  return {
-    version: 1,
-    title: "Breathe",
-    layers: [{ id: "layer-1", label: "Layer 1" }],
-    items,
-    readheadSec: 0,
-  };
-}
-
-/** Party Mode: energetic rapid color changes between vibrant colors */
-function getPartyModeTemplate(): TimelineStateJSON {
-  const items: TimelineStateJSON["items"] = [];
-  const colors = [
-    { hex: "#FF0000", name: "Red" },
-    { hex: "#00FF00", name: "Green" },
-    { hex: "#0000FF", name: "Blue" },
-    { hex: "#FFFF00", name: "Yellow" },
-  ];
-  
-  // Create 20 events over 60 seconds (every 3 seconds)
-  for (let i = 0; i < 20; i++) {
-    const color = colors[i % colors.length];
-    items.push({
-      id: `party-${i + 1}`,
-      layerId: "layer-1",
-      kind: "event",
-      startSec: i * 3,
-      label: color.name,
-      effectType: EVENT_TYPE_SET_COLOR_BROADCAST,
-      color: color.hex,
-    });
-  }
-  
-  return {
-    version: 1,
-    title: "Party Mode",
-    layers: [{ id: "layer-1", label: "Layer 1" }],
-    items,
-    readheadSec: 0,
-  };
-}
-
-export type TemplateType = "blank" | "rainbow" | "breathe" | "party";
-
-/** Get a template show state by type */
-export function getTemplateState(templateType: TemplateType): TimelineStateJSON {
-  switch (templateType) {
-    case "rainbow":
-      return getRainbowCycleTemplate();
-    case "breathe":
-      return getBreatheTemplate();
-    case "party":
-      return getPartyModeTemplate();
-    case "blank":
-    default:
-      return getDefaultNewShowState();
-  }
-}
-
-/** Load a template into an existing show by showId */
-export async function applyTemplateToShow(showId: string, templateType: TemplateType): Promise<void> {
-  const state = getTemplateState(templateType);
-  await fetch(`/api/admin/show-workspaces/${showId}/timeline`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    credentials: "include",
-    body: JSON.stringify(state),
-  });
-}
-
 function getItemForDetails(id: string): import("./details-panel").DetailsPanelItem | null {
   const it = items.find((i) => i.id === id);
   if (!it) return null;
@@ -573,7 +309,7 @@ function refreshDetailsPanel(forceItemId?: string): void {
 
 function ensureReadOnlyBadge(): void {
   if (!isBroadcastMode || !timelineDetailsPanelEl) return;
-  if (timelineDetailsPanelEl.querySelector(".timeline-details-readonly-badge")) return;
+  if (timelineDetailsPanelEl.querySelector(EDITOR_SELECTORS.detailsReadonlyBadge)) return;
   ensureReadOnlyHeaderRow();
 }
 
@@ -582,33 +318,33 @@ function ensureReadOnlyHeaderRow(): void {
   if (!timelineDetailsPanelEl) return;
   const detailsH3 = timelineDetailsPanelEl.querySelector("h3");
   if (!detailsH3) return;
-  let wrapper = timelineDetailsPanelEl.querySelector(".timeline-details-header-row") as HTMLElement | null;
+  let wrapper = timelineDetailsPanelEl.querySelector(".details-header-row") as HTMLElement | null;
   if (!wrapper) {
     wrapper = document.createElement("div");
-    wrapper.className = "timeline-details-header-row";
+    wrapper.className = "details-header-row";
     timelineDetailsPanelEl.insertBefore(wrapper, detailsH3);
     wrapper.appendChild(detailsH3);
   }
-  if (wrapper.querySelector(".timeline-details-readonly-badge")) return;
+  if (wrapper.querySelector(EDITOR_SELECTORS.detailsReadonlyBadge)) return;
   const badge = document.createElement("span");
-  badge.className = "timeline-details-readonly-badge";
+  badge.className = "details-readonly-badge";
   badge.textContent = "Read Only";
   wrapper.appendChild(badge);
   const infoBubble = createInfoBubble({
     tooltipText: "When in Broadcasting mode, no changes to the timeline can be made.",
     ariaLabel: "Read only info",
   });
-  infoBubble.classList.add("timeline-details-readonly-info");
+  infoBubble.classList.add("details-readonly-info");
   wrapper.appendChild(infoBubble);
 }
 
 function showTimelineContent(): void {
   if (!timelineWrapEl) return;
-  const emptyState = timelineWrapEl.querySelector(".timeline-empty-state");
-  const content = timelineWrapEl.querySelector(".timeline-content");
-  emptyState?.classList.add("timeline-empty-state--hidden");
-  content?.classList.remove("timeline-content--hidden");
-  timelinePageBodyEl?.classList.remove("timeline-page-body--details-hidden");
+  const emptyState = timelineWrapEl.querySelector(EDITOR_SELECTORS.emptyState);
+  const content = timelineWrapEl.querySelector(EDITOR_SELECTORS.content);
+  emptyState?.classList.add("editor-empty-state--hidden");
+  content?.classList.remove("editor-content--hidden");
+  timelinePageBodyEl?.classList.remove("editor-page-body--details-hidden");
   hasLoadedShow = true;
 }
 
@@ -631,8 +367,8 @@ function ensureCustomTimelineCreated(): void {
   if (!timelineMountEl?.isConnected || !timelineDetailsPanelEl?.isConnected) {
     const main = document.getElementById("admin-content");
     if (main) {
-      const mount = main.querySelector("#timeline-mount");
-      const details = main.querySelector(".timeline-details-panel");
+      const mount = main.querySelector(EDITOR_SELECTORS.mount);
+      const details = main.querySelector(EDITOR_SELECTORS.detailsPanel);
       if (mount && details) {
         timelineMountEl = mount as HTMLElement;
         timelineDetailsPanelEl = details as HTMLElement;
@@ -649,7 +385,7 @@ function ensureCustomTimelineCreated(): void {
       readheadSec,
       selectedItemId,
       draggingRangeId,
-      readheadDraggable: !timelineContentEl?.classList.contains("timeline-readhead-no-drag"),
+      readheadDraggable: !timelineContentEl?.classList.contains("editor-readhead-no-drag"),
     }),
     {
       onAddLayer: () => {
@@ -806,7 +542,7 @@ function ensureCustomTimelineCreated(): void {
   );
   requestAnimationFrame(() => {
     if (loadingEl) {
-      loadingEl.classList.add("timeline-loading--hidden");
+      loadingEl.classList.add("editor-loading--hidden");
       loadingEl.setAttribute("aria-hidden", "true");
     }
   });
@@ -839,64 +575,13 @@ function loadShowState(state: TimelineStateJSON): void {
     },
     (title) => {
       projectTitle = title;
-      const el = document.getElementById("timeline-project-title-input");
+      const el = document.getElementById(EDITOR_SELECTORS.projectTitleInput.slice(1));
       if (el instanceof HTMLInputElement) el.value = title;
     }
   );
   ensureCustomTimelineCreated();
   customTimelineView?.update();
   showTimelineContent();
-}
-
-function setAutosaveUI(state: "saved" | "syncing"): void {
-  if (!timelineAutosaveEl) return;
-  if (state === "saved") {
-    timelineAutosaveEl.innerHTML = `<span class="timeline-autosave-icon">${circleCheckIcon}</span><span>Saved</span>`;
-    timelineAutosaveEl.classList.remove("timeline-autosave--syncing");
-  } else {
-    if (timelineAutosaveEl.classList.contains("timeline-autosave--syncing")) return;
-    timelineAutosaveEl.innerHTML = `<span class="timeline-autosave-icon timeline-autosave-icon--spin">${animatedLoadingIcon}</span><span>Syncing</span>`;
-    timelineAutosaveEl.classList.add("timeline-autosave--syncing");
-  }
-}
-
-function scheduleAutosave(): void {
-  setAutosaveUI("syncing");
-  if (autosaveTimerId != null) {
-    clearTimeout(autosaveTimerId);
-    autosaveTimerId = null;
-  }
-  autosaveTimerId = setTimeout(() => {
-    autosaveTimerId = null;
-    runAutosave();
-  }, AUTOSAVE_DEBOUNCE_MS);
-}
-
-async function runAutosave(): Promise<void> {
-  if (!currentShowId || !hasLoadedShow) return;
-  const syncingStartedAt = Date.now();
-  setAutosaveUI("syncing");
-  try {
-    await fetch(`/api/admin/show-workspaces/${currentShowId}/timeline`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      credentials: "include",
-      body: JSON.stringify(getExportState()),
-    });
-    const elapsed = Date.now() - syncingStartedAt;
-    const minDisplayRemaining = Math.max(0, MIN_SYNCING_DISPLAY_MS - elapsed);
-    if (minDisplayRemaining > 0) {
-      await new Promise((r) => setTimeout(r, minDisplayRemaining));
-    }
-    setAutosaveUI("saved");
-  } catch {
-    const elapsed = Date.now() - syncingStartedAt;
-    const minDisplayRemaining = Math.max(0, MIN_SYNCING_DISPLAY_MS - elapsed);
-    if (minDisplayRemaining > 0) {
-      await new Promise((r) => setTimeout(r, minDisplayRemaining));
-    }
-    setAutosaveUI("saved");
-  }
 }
 
 async function loadTrackSplitterTree(showId: string): Promise<void> {
@@ -990,72 +675,38 @@ export function render(container: HTMLElement, showId: string | null): void {
   const MESSAGE_NOT_LIVE = "Because the show is not live, you can edit this timeline.";
   const MESSAGE_LIVE = "Because the show is live, you can NOT edit this show, but you can now broadcast it.";
 
-  container.innerHTML = `
-    <div class="timeline-page">
-      <div class="timeline-page-body timeline-page-body--details-hidden">
-        <div class="timeline">
-          <div class="timeline-empty-state" id="timeline-empty-state">
-            <p class="timeline-empty-state-message">Loading…</p>
-          </div>
-          <div class="timeline-content timeline-content--hidden">
-            <div class="timeline-toolbar timeline-toolbar-row2">
-              <div class="timeline-toolbar-left">
-                <div class="timeline-toolbar-left-edit" id="timeline-toolbar-left-edit">
-                  <div class="timeline-save-status-wrap">
-                    <span class="timeline-autosave" id="timeline-autosave"><span class="timeline-autosave-icon">${circleCheckIcon}</span><span>Saved</span></span>
-                  </div>
-                </div>
-                <p class="timeline-live-status-message" id="timeline-live-status-message">${MESSAGE_NOT_LIVE}</p>
-              </div>
-              <div class="timeline-toolbar-spacer" id="timeline-toolbar-spacer"></div>
-              <div class="timeline-toolbar-center" id="timeline-toolbar-center" hidden>
-                <button type="button" class="btn btn-icon-only" data-action="restart" aria-label="Restart from beginning">${resetIcon}</button>
-                <button type="button" class="btn btn-icon-only" data-action="play" aria-label="Play">${playIcon}</button>
-                <button type="button" class="btn btn-icon-only" data-action="pause" aria-label="Pause">${pauseIcon}</button>
-              </div>
-              <div class="timeline-toolbar-right" id="timeline-toolbar-right">
-                <button type="button" class="btn btn-icon-label" data-action="split-devices-tracks" aria-label="Split Devices Into Tracks">${treeIcon}Split Devices Into Tracks</button>
-                <button type="button" class="btn btn-primary" data-action="import-from-video">Import from video</button>
-                <button type="button" class="btn btn-primary" data-action="add-range">Add Range</button>
-                <button type="button" class="btn btn-primary" data-action="add-event">Add event</button>
-                <button type="button" class="btn btn-danger" data-action="remove-item">Remove selected</button>
-              </div>
-            </div>
-            <div class="timeline-container-wrap">
-              <div class="timeline-loading timeline-loading--hidden" id="timeline-loading" aria-hidden="true">
-                <span class="timeline-loading-icon">${animatedLoadingIcon}</span>
-              </div>
-              <div id="timeline-mount"></div>
-            </div>
-          </div>
-        </div>
-        <div class="timeline-bottom-row" id="timeline-bottom-row">
-          <!-- Filled by JS with resizable split (details | preview) -->
-        </div>
-      </div>
-    </div>
-  `;
+  container.innerHTML = getEditorPageMarkup(
+    {
+      circleCheck: circleCheckIcon,
+      play: playIcon,
+      pause: pauseIcon,
+      reset: resetIcon,
+      tree: treeIcon,
+      loading: animatedLoadingIcon,
+    },
+    { notLive: MESSAGE_NOT_LIVE, live: MESSAGE_LIVE }
+  );
 
-  const timelineWrap = container.querySelector(".timeline") as HTMLElement | null;
-  const pageBody = container.querySelector(".timeline-page-body") as HTMLElement | null;
-  const mount = container.querySelector("#timeline-mount");
-  const loadingEl = container.querySelector("#timeline-loading");
-  const bottomRowEl = container.querySelector("#timeline-bottom-row") as HTMLElement | null;
+  const timelineWrap = container.querySelector(EDITOR_SELECTORS.timelineWrap) as HTMLElement | null;
+  const pageBody = container.querySelector(EDITOR_SELECTORS.pageBody) as HTMLElement | null;
+  const mount = container.querySelector(EDITOR_SELECTORS.mount);
+  const loadingEl = container.querySelector(EDITOR_SELECTORS.loading);
+  const bottomRowEl = container.querySelector(EDITOR_SELECTORS.bottomRow) as HTMLElement | null;
 
   /* Build bottom row: resizable split with details (left) and preview (right).
    * Storage keys include showId so tab selection and split sizes are persisted per show. */
   if (bottomRowEl) {
     const detailsSection = document.createElement("section");
-    detailsSection.className = "timeline-details-panel";
+    detailsSection.className = "details-panel";
     detailsSection.setAttribute("aria-label", "Selected item details");
     detailsSection.innerHTML = `
       <h3>Selection</h3>
-      <div class="timeline-details-body">
+      <div class="details-body">
         <p class="no-selection">Select an item on the timeline to view or edit its details.</p>
       </div>
     `;
     const bottomRightSection = document.createElement("section");
-    bottomRightSection.className = "timeline-bottom-right-panel";
+    bottomRightSection.className = "bottom-right-panel";
     bottomRightSection.setAttribute("aria-label", "Preview and assets");
 
     const { container: splitContainer, panelA, panelB } = createResizableSplit("horizontal", {
@@ -1075,7 +726,7 @@ export function render(container: HTMLElement, showId: string | null): void {
           label: "Preview",
           getContent: () => {
             const el = document.createElement("div");
-            el.className = "timeline-tab-content timeline-tab-content--preview";
+            el.className = "editor-tab-content editor-tab-content--preview";
             renderPreviewPanel(el, showId, {
               onShowSyncing: () => setAutosaveUI("syncing"),
               onShowSaved: () => setAutosaveUI("saved"),
@@ -1088,7 +739,7 @@ export function render(container: HTMLElement, showId: string | null): void {
           label: "Assets",
           getContent: () => {
             const el = document.createElement("div");
-            el.className = "timeline-tab-content timeline-tab-content--assets";
+            el.className = "editor-tab-content editor-tab-content--assets";
             ensureCustomTimelineCreated();
             renderAssetsPanel(el, currentShowId, {
               getAssetDragCallbacks: () =>
@@ -1121,20 +772,20 @@ export function render(container: HTMLElement, showId: string | null): void {
     pageBody.appendChild(verticalSplitContainer);
   }
 
-  const detailsPanel = container.querySelector(".timeline-details-panel");
+  const detailsPanel = container.querySelector(EDITOR_SELECTORS.detailsPanel);
 
   timelineWrapEl = timelineWrap;
   timelinePageBodyEl = pageBody;
-  timelineContentEl = container.querySelector(".timeline-content") as HTMLElement | null;
+  timelineContentEl = container.querySelector(EDITOR_SELECTORS.content) as HTMLElement | null;
   timelineMountEl = mount as HTMLElement | null;
   timelineDetailsPanelEl = detailsPanel as HTMLElement | null;
   timelineLoadingEl = loadingEl as HTMLElement | null;
 
-  const statusMessageEl = container.querySelector("#timeline-live-status-message") as HTMLElement | null;
-  const toolbarLeftEditEl = container.querySelector("#timeline-toolbar-left-edit") as HTMLElement | null;
-  const toolbarSpacerEl = container.querySelector("#timeline-toolbar-spacer") as HTMLElement | null;
-  const toolbarCenterEl = container.querySelector("#timeline-toolbar-center") as HTMLElement | null;
-  const toolbarRightEl = container.querySelector("#timeline-toolbar-right") as HTMLElement | null;
+  const statusMessageEl = container.querySelector(EDITOR_SELECTORS.liveStatusMessage) as HTMLElement | null;
+  const toolbarLeftEditEl = container.querySelector(EDITOR_SELECTORS.toolbarLeftEdit) as HTMLElement | null;
+  const toolbarSpacerEl = container.querySelector(EDITOR_SELECTORS.toolbarSpacer) as HTMLElement | null;
+  const toolbarCenterEl = container.querySelector(EDITOR_SELECTORS.toolbarCenter) as HTMLElement | null;
+  const toolbarRightEl = container.querySelector(EDITOR_SELECTORS.toolbarRight) as HTMLElement | null;
 
   function updateLiveStatusMessage(liveOrPending: boolean): void {
     if (statusMessageEl) {
@@ -1148,8 +799,8 @@ export function render(container: HTMLElement, showId: string | null): void {
 
   function applyBroadcastUI(): void {
     isBroadcastMode = true;
-    timelineContentEl?.classList.add("timeline-content--broadcast");
-    timelineDetailsPanelEl?.classList.add("timeline-details-panel--readonly");
+    timelineContentEl?.classList.add("editor-content--broadcast");
+    timelineDetailsPanelEl?.classList.add("details-panel--readonly");
     ensureReadOnlyHeaderRow();
     updateLiveStatusMessage(true);
   }
@@ -1157,10 +808,10 @@ export function render(container: HTMLElement, showId: string | null): void {
   function revertBroadcastUI(): void {
     isBroadcastMode = false;
     stopBroadcastReadheadTick();
-    timelineContentEl?.classList.remove("timeline-readhead-no-drag");
-    timelineContentEl?.classList.remove("timeline-content--broadcast");
-    timelineDetailsPanelEl?.classList.remove("timeline-details-panel--readonly");
-    const wrapper = timelineDetailsPanelEl?.querySelector(".timeline-details-header-row");
+    timelineContentEl?.classList.remove("editor-readhead-no-drag");
+    timelineContentEl?.classList.remove("editor-content--broadcast");
+    timelineDetailsPanelEl?.classList.remove("details-panel--readonly");
+    const wrapper = timelineDetailsPanelEl?.querySelector(".details-header-row");
     if (wrapper && wrapper.parentNode) {
       const h3 = wrapper.querySelector("h3");
       if (h3) timelineDetailsPanelEl?.insertBefore(h3, wrapper);
@@ -1193,136 +844,45 @@ export function render(container: HTMLElement, showId: string | null): void {
   };
   window.addEventListener(LIVE_STATE_EVENT_NAME, timelineLiveStateListenerRef);
 
-  timelineAutosaveEl = container.querySelector("#timeline-autosave");
+  timelineAutosaveEl = container.querySelector(EDITOR_SELECTORS.autosave);
 
   if (!mount || !detailsPanel) return;
 
-  container.querySelectorAll("[data-action]").forEach((el) => {
-    el.addEventListener("click", async (e) => {
-      const action = (el as HTMLElement).getAttribute("data-action");
-      switch (action) {
-        case "restart": {
-          setReadheadSec(0);
-          console.log("User hit restart, playing from beginning.");
-          try {
-            if (!currentShowId) throw new Error("No show selected");
-            const res = await fetch(`/api/admin/shows/${currentShowId}/broadcast/play`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ readheadSec: 0 }),
-              credentials: "include",
-            });
-            if (!res.ok) throw new Error(String(res.status));
-            const data = (await res.json()) as { playAtMs?: number; serverTimeMs?: number };
-            const playAtMs = data.playAtMs ?? 0;
-            if (data.serverTimeMs != null) {
-              serverTimeOffsetMs = data.serverTimeMs - Date.now();
-            }
-            broadcastPlayAtMs = playAtMs;
-            broadcastReadheadSec = 0;
-            broadcastPauseAtMs = null;
-            startBroadcastReadheadTick();
-            timelineContentEl?.classList.add("timeline-readhead-no-drag");
-            console.log("Restarting timeline from beginning at", playAtMs);
-          } catch (e) {
-            console.error("Broadcast restart failed:", e);
-          }
-          break;
-        }
-        case "play": {
-          const readheadSec = getReadheadSecClamped();
-          console.log("User hit play from", readheadSec, "(readhead sec).");
-          try {
-            if (!currentShowId) throw new Error("No show selected");
-            const res = await fetch(`/api/admin/shows/${currentShowId}/broadcast/play`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ readheadSec }),
-              credentials: "include",
-            });
-            if (!res.ok) throw new Error(String(res.status));
-            const data = (await res.json()) as { playAtMs?: number; serverTimeMs?: number };
-            const playAtMs = data.playAtMs ?? 0;
-            if (data.serverTimeMs != null) {
-              serverTimeOffsetMs = data.serverTimeMs - Date.now();
-            }
-            broadcastPlayAtMs = playAtMs;
-            broadcastReadheadSec = readheadSec;
-            broadcastPauseAtMs = null;
-            startBroadcastReadheadTick();
-            timelineContentEl?.classList.add("timeline-readhead-no-drag");
-            console.log("Planning to start playing timeline at", playAtMs);
-            console.log("Starting to send json to all clients");
-            console.log("Finished sending to all clients");
-            setTimeout(() => {
-              console.log("All clients should have started playing the timeline now.");
-            }, 1000);
-          } catch (e) {
-            console.error("Broadcast play failed:", e);
-          }
-          break;
-        }
-        case "pause": {
-          try {
-            if (!currentShowId) throw new Error("No show selected");
-            const res = await fetch(`/api/admin/shows/${currentShowId}/broadcast/pause`, { method: "POST", credentials: "include" });
-            if (!res.ok) throw new Error(String(res.status));
-            const data = (await res.json()) as { pauseAtMs?: number; serverTimeMs?: number };
-            const pauseAtMs = data.pauseAtMs ?? 0;
-            if (data.serverTimeMs != null) {
-              serverTimeOffsetMs = data.serverTimeMs - Date.now();
-            }
-            broadcastPauseAtMs = pauseAtMs;
-            timelineContentEl?.classList.remove("timeline-readhead-no-drag");
-            console.log("User requested a pause. Planning to pause at", pauseAtMs);
-            console.log("Sending pause instruction to clients to pause at", pauseAtMs);
-            console.log("Finished sending pause request");
-            setTimeout(() => {
-              console.log("All clients should be pausing NOW");
-            }, 1000);
-          } catch (e) {
-            console.error("Broadcast pause failed:", e);
-          }
-          break;
-        }
-        case "add-range":
-          addRange();
-          customTimelineView?.update();
-          break;
-        case "import-from-video":
-          openVideoImportModal({
-            getLayers,
-            addEventsFromVideo,
-            inBroadcastMode: () => isBroadcastMode,
-          });
-          break;
-        case "add-event":
-          addEvent();
-          break;
-        case "remove-item":
-          removeSelected();
-          updateDetailsPanel(
-            detailsPanel as HTMLElement,
-            null,
-            () => null,
-            () => {},
-            () => [],
-            undefined,
-            { showId: currentShowId, readonly: isBroadcastMode }
-          );
-          break;
-        case "split-devices-tracks": {
-          const btn = el as HTMLElement;
-          (e as MouseEvent).stopPropagation();
-          if (isTrackAssignmentsDropdownOpen()) {
-            closeTrackAssignmentsDropdown();
-          } else {
-            openTrackAssignmentsDropdown(btn, getLayers, saveTrackSplitterTreeToServer);
-          }
-          break;
-        }
-      }
-    });
+  initBroadcast({
+    setReadheadSec,
+    getIsBroadcastMode: () => isBroadcastMode,
+    getCurrentShowId: () => currentShowId,
+  });
+
+  initAutosave({
+    getExportState,
+    getCurrentShowId: () => currentShowId,
+    getHasLoadedShow: () => hasLoadedShow,
+    getAutosaveEl: () => timelineAutosaveEl,
+    getIcons: () => ({ circleCheck: circleCheckIcon, loading: animatedLoadingIcon }),
+  });
+
+  attachToolbarHandlers(container, {
+    getCurrentShowId: () => currentShowId,
+    setReadheadSec,
+    getReadheadSecClamped,
+    addContentReadheadNoDrag: () => timelineContentEl?.classList.add("editor-readhead-no-drag"),
+    removeContentReadheadNoDrag: () => timelineContentEl?.classList.remove("editor-readhead-no-drag"),
+    addRange,
+    updateTimelineView: () => customTimelineView?.update(),
+    getLayers,
+    addEventsFromVideo,
+    inBroadcastMode: () => isBroadcastMode,
+    openVideoImportModal: (opts) => openVideoImportModal(opts),
+    addEvent,
+    removeSelected,
+    getDetailsPanelEl: () => detailsPanel as HTMLElement,
+    getIsBroadcastMode: () => isBroadcastMode,
+    isTrackAssignmentsDropdownOpen,
+    closeTrackAssignmentsDropdown,
+    openTrackAssignmentsDropdown: (btn, getLayersFn, saveFn) =>
+      openTrackAssignmentsDropdown(btn, getLayersFn, saveFn),
+    saveTrackSplitterTreeToServer,
   });
 
   // Defer load so the DOM from this render is committed and in the document before we create the timeline.
