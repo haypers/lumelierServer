@@ -1,0 +1,62 @@
+/* Global only: layout, shell, shared components, base modals.
+   Page-specific styles live in each page's styles.css. Do not add tab-specific rules here. */
+/* Dark enterprise, low scale, minimal */
+:root {
+  --bg: #1a1d21;
+  --bg-elevated: #23262b;
+  --border: #2d3139;
+  --text: #e2e4e8;
+  --text-muted: #8b909a;
+  --accent: #4a7dc7;
+  --accent-current: rgba(74, 125, 199, 0.2);
+  --header-h: 36px;
+  --radius: 3px;
+  --space: 8px;
+  --font-sans: system-ui, -apple-system, Segoe UI, sans-serif;
+  --asset-pill-audio: #2d7d4a;
+  --asset-pill-video: #2563eb;
+  --asset-pill-image: #7c3aed;
+  --asset-status-uploading: #e67e22;
+  --asset-status-uploaded: #27ae60;
+}
+
+* {
+  box-sizing: border-box;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) var(--bg);
+}
+
+/* Global scrollbars – match app color scheme (WebKit: Chrome, Safari, Edge) */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-track {
+  background: var(--bg);
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 5px;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-muted);
+}
+*::-webkit-scrollbar-corner {
+  background: var(--bg);
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.4 var(--font-sans);
+  min-height: 100vh;
+}
+
+#app {
+  height: 100vh;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}

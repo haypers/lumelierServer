@@ -318,7 +318,7 @@ function ensureReadOnlyHeaderRow(): void {
   if (!timelineDetailsPanelEl) return;
   const detailsH3 = timelineDetailsPanelEl.querySelector("h3");
   if (!detailsH3) return;
-  let wrapper = timelineDetailsPanelEl.querySelector(".details-header-row") as HTMLElement | null;
+  let wrapper = timelineDetailsPanelEl.querySelector(EDITOR_SELECTORS.detailsHeaderRow) as HTMLElement | null;
   if (!wrapper) {
     wrapper = document.createElement("div");
     wrapper.className = "details-header-row";
@@ -811,7 +811,7 @@ export function render(container: HTMLElement, showId: string | null): void {
     timelineContentEl?.classList.remove("editor-readhead-no-drag");
     timelineContentEl?.classList.remove("editor-content--broadcast");
     timelineDetailsPanelEl?.classList.remove("details-panel--readonly");
-    const wrapper = timelineDetailsPanelEl?.querySelector(".details-header-row");
+    const wrapper = timelineDetailsPanelEl?.querySelector(EDITOR_SELECTORS.detailsHeaderRow);
     if (wrapper && wrapper.parentNode) {
       const h3 = wrapper.querySelector("h3");
       if (h3) timelineDetailsPanelEl?.insertBefore(h3, wrapper);

@@ -1,0 +1,309 @@
+/* Gate (auth) */
+.gate {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  min-height: 80vh;
+  gap: var(--space);
+  color: var(--text-muted);
+}
+.gate button {
+  padding: 6px 14px;
+  font-size: 12px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.gate button:hover {
+  filter: brightness(1.1);
+}
+
+/* Shared toolbar buttons (used by Connected Devices List and Simulate Devices) */
+.devices-toolbar-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.devices-toolbar-btn:hover {
+  background: var(--border);
+}
+.devices-toolbar-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+.devices-toolbar-btn-danger {
+  color: #e87a7a;
+}
+.devices-toolbar-btn-danger:hover {
+  background: rgba(232, 122, 122, 0.15);
+}
+
+/* Shared: info-bubble and portal tooltip (header, simulate-devices, refresh-every) */
+.info-bubble {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-left: 4px;
+  color: var(--text-muted);
+  cursor: help;
+  flex-shrink: 0;
+}
+.info-bubble:hover {
+  color: var(--accent);
+}
+.info-bubble svg {
+  width: 16px;
+  height: 16px;
+}
+.info-bubble .info-tooltip {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 320px;
+  max-width: min(380px, calc(100vw - 24px));
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  white-space: normal;
+  visibility: hidden;
+  opacity: 0;
+  transition: visibility 0.15s ease, opacity 0.15s ease;
+  z-index: 200;
+  pointer-events: none;
+}
+.info-bubble .info-tooltip--above {
+  bottom: 100%;
+  margin-bottom: 6px;
+}
+.info-bubble .info-tooltip--below {
+  top: 100%;
+  margin-top: 6px;
+}
+.info-bubble:hover .info-tooltip:not(.info-tooltip--inline-only) {
+  visibility: visible;
+  opacity: 1;
+}
+.info-tooltip--inline-only {
+  display: none !important;
+}
+.info-tooltip--portal {
+  position: fixed;
+  z-index: 10000;
+  min-width: 200px;
+  max-width: min(380px, calc(100vw - 24px));
+  padding: 10px 14px;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--text);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  white-space: normal;
+  visibility: hidden;
+  opacity: 0;
+  transition: visibility 0.15s ease, opacity 0.15s ease;
+  pointer-events: none;
+}
+.info-tooltip--portal.info-tooltip--visible {
+  visibility: visible;
+  opacity: 1;
+}
+
+/* Shared button/action classes (used inside modal content and elsewhere) */
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space);
+}
+.btn-cancel,
+.btn-confirm {
+  padding: 6px 12px;
+  font-size: 12px;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.btn-cancel {
+  background: var(--border);
+  color: var(--text);
+}
+.btn-confirm {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-cancel:hover,
+.btn-confirm:hover {
+  filter: brightness(1.1);
+}
+.btn-confirm--danger {
+  background: #b54a4a;
+  color: #fff;
+  border-color: #b54a4a;
+}
+.btn-confirm--danger:hover:not(:disabled) {
+  filter: brightness(1.1);
+}
+.modal-actions button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.modal-actions button:hover:disabled {
+  filter: none;
+}
+.modal-btn-tooltip-wrap {
+  display: inline-flex;
+}
+
+/* Open Show modal content (inside global modal) — table-like list */
+.open-show-modal-content .open-show-modal-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-bottom: var(--space);
+  min-height: 120px;
+  max-height: 70vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.open-show-modal-list-header,
+.open-show-tile {
+  display: grid;
+  grid-template-columns: 1fr minmax(80px, 100px) minmax(100px, 110px) minmax(100px, 110px);
+  gap: 0  var(--space);
+  align-items: center;
+  padding: 6px 12px;
+  text-align: left;
+  font-size: 12px;
+  box-sizing: border-box;
+}
+
+.open-show-modal-list-header {
+  color: var(--text-muted);
+  font-weight: 600;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  min-height: 32px;
+}
+
+.open-show-tile {
+  min-height: 40px;
+  color: var(--text);
+  background: var(--bg);
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  cursor: pointer;
+}
+
+.open-show-tile:last-child {
+  border-bottom: none;
+}
+
+.open-show-tile:hover {
+  background: var(--border);
+}
+
+.open-show-tile--selected {
+  background: var(--accent-current);
+  border-left: 3px solid var(--accent);
+  padding-left: 9px;
+}
+
+.open-show-tile--selected:hover {
+  background: var(--accent-current);
+}
+
+.open-show-tile-cell-name {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.open-show-tile-cell-muted {
+  color: var(--text-muted);
+  font-size: 11px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.open-show-modal-error {
+  font-size: 12px;
+  color: #e87a7a;
+  margin-bottom: var(--space);
+}
+.open-show-modal-empty {
+  margin: 0 0 var(--space);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+.open-show-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space);
+  margin-top: auto;
+}
+
+.modal-show-list {
+  list-style: none;
+  margin: 0 0 var(--space);
+  padding: 0;
+  max-height: 200px;
+  overflow: auto;
+}
+.modal-show-item {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.modal-show-item:hover {
+  background: var(--border);
+}
+
+/* Shared empty state when a show is required (timeline, venue map, etc.) */
+.show-required-empty-state {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space);
+  padding: var(--space);
+}
+.show-required-empty-state-message {
+  margin: 0;
+  font-size: 14px;
+  color: var(--text-muted);
+}

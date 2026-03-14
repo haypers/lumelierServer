@@ -11,6 +11,19 @@ import { type RoutePath, getVisibleRoutes } from "./routing";
 import { type TemplateType, getTemplateState } from "../pages/timeline";
 import { createInfoBubble } from "../components/info-bubble";
 import { openModal } from "../components/modal";
+import { HEADER_SELECTORS } from "./header-selectors";
+import {
+  initLiveState,
+  setSyncShowStatusUIRef,
+  refreshLiveStateUI,
+  fetchLiveStateFromServer,
+  clearLiveStatePollTimer,
+  scheduleNextLiveStatePoll,
+  broadcastLiveState,
+  dispatchLiveStateEvent,
+  LIVE_STATE_INITIAL_POLL_MS,
+} from "./live-state";
+import { openOpenShowModal as openOpenShowModalFromModule, type ShowListItem } from "./open-show-modal";
 
 export type ShowCallbacks = {
   navigateToPathWithShow: (path: RoutePath, show: { id: string } | null) => void;
@@ -22,16 +35,13 @@ let callbacks: ShowCallbacks | null = null;
 
 export function initShowManagement(cb: ShowCallbacks): void {
   callbacks = cb;
+  initLiveState({ getCurrentShow, setShowLiveState });
 }
 
 function getCb(): ShowCallbacks {
   if (!callbacks) throw new Error("show-management: initShowManagement must be called first");
   return callbacks;
 }
-
-const ACCOUNT_DROPDOWN_ID = "account-dropdown";
-const SHOW_NAME_DROPDOWN_ID = "show-name-dropdown";
-const SHOW_STATUS_DROPDOWN_ID = "show-status-dropdown";
 
 let currentShow: { id: string; name: string } | null = null;
 let lastUsername = "";
@@ -55,82 +65,12 @@ export function setShowLiveState(s: ShowLiveState): void {
   showLiveState = s;
 }
 
-const LIVE_STATE_CHANNEL_NAME = "lumelier-live-state";
-const LIVE_STATE_INITIAL_POLL_MS = 15000;
-const LIVE_STATE_VOICE_INTERVAL_MS = 30000;
-const LIVE_STATE_LISTENER_BACKOFF_MS = 40000;
-const LIVE_STATE_LISTENER_BACKOFF_RANDOM_MS = 10000;
-
-const liveStateChannel: BroadcastChannel | null =
-  typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(LIVE_STATE_CHANNEL_NAME) : null;
-let liveStatePollTimerId: ReturnType<typeof setTimeout> | null = null;
-let syncShowStatusUIRef: (() => void) | null = null;
-
-export async function fetchLiveStateFromServer(showId: string): Promise<boolean> {
-  const res = await fetch(`/api/admin/show-workspaces/${showId}/live-join-url`, { credentials: "include" });
-  if (!res.ok) return false;
-  const data = (await res.json()) as { live?: boolean };
-  return data.live === true;
-}
-
-export function clearLiveStatePollTimer(): void {
-  if (liveStatePollTimerId != null) {
-    clearTimeout(liveStatePollTimerId);
-    liveStatePollTimerId = null;
-  }
-}
-
-export function scheduleNextLiveStatePoll(ms: number): void {
-  clearLiveStatePollTimer();
-  if (!currentShow) return;
-  const showId = currentShow.id;
-  liveStatePollTimerId = setTimeout(() => {
-    liveStatePollTimerId = null;
-    if (!currentShow || currentShow.id !== showId) return;
-    fetchLiveStateFromServer(showId)
-      .then((live) => {
-        if (!currentShow || currentShow.id !== showId) return;
-        showLiveState = live ? "live" : "not_live";
-        syncShowStatusUIRef?.();
-        if (liveStateChannel) {
-          liveStateChannel.postMessage({ showId, live });
-        }
-        dispatchLiveStateEvent(showId, live);
-        scheduleNextLiveStatePoll(LIVE_STATE_VOICE_INTERVAL_MS);
-      })
-      .catch(() => {
-        if (currentShow?.id === showId) scheduleNextLiveStatePoll(LIVE_STATE_VOICE_INTERVAL_MS);
-      });
-  }, ms);
-}
-
-function dispatchLiveStateEvent(showId: string, live: boolean, pending?: boolean): void {
-  if (typeof window !== "undefined") {
-    const detail = pending === true ? { showId, live: false, pending: true } : { showId, live, pending: false };
-    window.dispatchEvent(new CustomEvent("lumelier-live-state", { detail }));
-  }
-}
-
-function broadcastLiveState(showId: string, live: boolean): void {
-  if (liveStateChannel) liveStateChannel.postMessage({ showId, live });
-  dispatchLiveStateEvent(showId, live);
-}
-
-export function setupLiveStateBroadcastListener(): void {
-  if (!liveStateChannel) return;
-  liveStateChannel.onmessage = (e: MessageEvent) => {
-    const msg = e.data as { showId?: string; live?: boolean } | null;
-    if (msg == null || typeof msg.showId !== "string" || typeof msg.live !== "boolean") return;
-    if (currentShow?.id !== msg.showId) return;
-    showLiveState = msg.live ? "live" : "not_live";
-    syncShowStatusUIRef?.();
-    dispatchLiveStateEvent(msg.showId, msg.live);
-    const backoffMs =
-      LIVE_STATE_LISTENER_BACKOFF_MS +
-      Math.random() * LIVE_STATE_LISTENER_BACKOFF_RANDOM_MS;
-    scheduleNextLiveStatePoll(backoffMs);
-  };
-}
+export {
+  fetchLiveStateFromServer,
+  clearLiveStatePollTimer,
+  scheduleNextLiveStatePoll,
+  setupLiveStateBroadcastListener,
+} from "./live-state";
 
 function renderSelectedShowBlock(): string {
   if (currentShow) {
@@ -140,11 +80,11 @@ function renderSelectedShowBlock(): string {
     const statusHasDropdown = showLiveState === "not_live" || showLiveState === "live";
     return `
       <div class="admin-header-show-name-wrap">
-        <button type="button" class="admin-header-show-name-btn" id="show-name-dropdown-btn" aria-haspopup="true" aria-expanded="false" aria-controls="${SHOW_NAME_DROPDOWN_ID}">
+        <button type="button" class="admin-header-show-name-btn" id="show-name-dropdown-btn" aria-haspopup="true" aria-expanded="false" aria-controls="${HEADER_SELECTORS.showNameDropdown}">
           <span class="admin-header-selected-show-name">${name}</span>
           <span class="admin-header-show-name-caret" aria-hidden="true">${carrotIcon}</span>
         </button>
-        <div class="admin-header-show-name-dropdown" id="${SHOW_NAME_DROPDOWN_ID}" hidden role="menu" aria-label="Show actions">
+        <div class="admin-header-show-name-dropdown" id="${HEADER_SELECTORS.showNameDropdown}" hidden role="menu" aria-label="Show actions">
           <button type="button" class="admin-header-show-name-menu-item" data-action="close-show" role="menuitem"><span class="admin-header-show-name-menu-icon">${closeIcon}</span>Close This Show</button>
           <button type="button" class="admin-header-show-name-menu-item" data-action="open-another" role="menuitem"><span class="admin-header-show-name-menu-icon">${openIcon}</span>Open Another Show</button>
           <button type="button" class="admin-header-show-name-menu-item" data-action="add-admin" role="menuitem"><span class="admin-header-show-name-menu-icon">${shareIcon}</span>Add Another Admin To This Show</button>
@@ -152,11 +92,11 @@ function renderSelectedShowBlock(): string {
         </div>
       </div>
       <div class="admin-header-status-wrap-container">
-        <button type="button" class="admin-header-status-wrap ${statusClass}" id="show-status-btn" aria-haspopup="true" aria-expanded="false" aria-controls="${SHOW_STATUS_DROPDOWN_ID}" ${!statusHasDropdown ? "disabled" : ""}>
+        <button type="button" class="admin-header-status-wrap ${statusClass}" id="show-status-btn" aria-haspopup="true" aria-expanded="false" aria-controls="${HEADER_SELECTORS.showStatusDropdown}" ${!statusHasDropdown ? "disabled" : ""}>
           <span class="admin-header-status-tag">${statusLabel}</span>
           ${statusHasDropdown ? `<span class="admin-header-status-caret" aria-hidden="true">${carrotIcon}</span>` : ""}
         </button>
-        <div class="admin-header-status-dropdown" id="${SHOW_STATUS_DROPDOWN_ID}" hidden role="menu" aria-label="Live status"></div>
+        <div class="admin-header-status-dropdown" id="${HEADER_SELECTORS.showStatusDropdown}" hidden role="menu" aria-label="Live status"></div>
       </div>`;
   }
   return `
@@ -177,12 +117,11 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
   const visibleRoutes = getVisibleRoutes();
   const current = visibleRoutes.find((r) => r.path === currentPath) ?? visibleRoutes[0];
   document.title = current.title;
-  const dropdownId = "menu-dropdown";
   const escapedUsername = username.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
   container.innerHTML = `
     <header class="admin-header">
-      <button type="button" class="menu-btn" id="menu-btn" aria-expanded="false" aria-haspopup="true" aria-controls="${dropdownId}">${menuIcon}</button>
-      <span class="page-title">${current.title}</span>${currentPath === "/simulateDevices" ? '<span id="page-header-extra"></span>' : ""}
+      <button type="button" class="menu-btn" id="${HEADER_SELECTORS.menuBtn}" aria-expanded="false" aria-haspopup="true" aria-controls="${HEADER_SELECTORS.menuDropdown}">${menuIcon}</button>
+      <span class="page-title">${current.title}</span>${currentPath === "/simulateDevices" ? `<span id="${HEADER_SELECTORS.pageHeaderExtra}"></span>` : ""}
       <div class="admin-header-spacer"></div>
       <div class="admin-header-selected-show" id="selected-show-wrap">
         ${renderSelectedShowBlock()}
@@ -190,13 +129,13 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
       <div class="admin-header-spacer"></div>
       <div class="admin-header-account-wrap">
         <span class="admin-header-branding">Lumelier</span>
-        <button type="button" class="admin-header-account-btn" id="account-btn" aria-expanded="false" aria-haspopup="true" aria-controls="${ACCOUNT_DROPDOWN_ID}"><span class="admin-header-account-icon">${userIcon}</span></button>
-        <div id="${ACCOUNT_DROPDOWN_ID}" class="admin-header-account-dropdown" hidden role="menu" aria-label="Account">
+        <button type="button" class="admin-header-account-btn" id="${HEADER_SELECTORS.accountBtn}" aria-expanded="false" aria-haspopup="true" aria-controls="${HEADER_SELECTORS.accountDropdown}"><span class="admin-header-account-icon">${userIcon}</span></button>
+        <div id="${HEADER_SELECTORS.accountDropdown}" class="admin-header-account-dropdown" hidden role="menu" aria-label="Account">
           <div class="admin-header-account-username" role="none">${escapedUsername}</div>
-          <button type="button" id="account-logout-btn" class="admin-header-account-logout" role="menuitem">Log out</button>
+          <button type="button" id="${HEADER_SELECTORS.accountLogoutBtn}" class="admin-header-account-logout" role="menuitem">Log out</button>
         </div>
       </div>
-      <div id="${dropdownId}" class="menu-dropdown" hidden role="menu">
+      <div id="${HEADER_SELECTORS.menuDropdown}" class="menu-dropdown" hidden role="menu">
         ${visibleRoutes.map((r) => {
           const fullPath = currentShow ? `${r.path}/${currentShow.id}` : r.path;
           return `<div class="menu-dropdown-item" role="menuitem" data-path="${r.path}" data-full-path="${fullPath}">
@@ -209,47 +148,47 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
     <main class="admin-content" id="admin-content"></main>
   `;
 
-  const menuBtn = document.getElementById("menu-btn");
-  const dropdown = document.getElementById(dropdownId);
+  const menuBtn = document.getElementById(HEADER_SELECTORS.menuBtn);
+  const dropdown = document.getElementById(HEADER_SELECTORS.menuDropdown);
   if (menuBtn && dropdown) {
     menuBtn.addEventListener("click", (e) => {
       e.stopPropagation();
       const open = dropdown.hidden;
       dropdown.hidden = !open;
       menuBtn.setAttribute("aria-expanded", String(!open));
-      const ad = document.getElementById(ACCOUNT_DROPDOWN_ID) as HTMLElement | null;
+      const ad = document.getElementById(HEADER_SELECTORS.accountDropdown) as HTMLElement | null;
       if (!open && ad) ad.hidden = true;
     });
     dropdown.addEventListener("click", (e) => e.stopPropagation());
     if (!(window as unknown as { _adminMenuClosed?: boolean })._adminMenuClosed) {
       (window as unknown as { _adminMenuClosed: boolean })._adminMenuClosed = true;
       document.addEventListener("click", () => {
-        const d = document.getElementById(dropdownId);
-        const b = document.getElementById("menu-btn");
+        const d = document.getElementById(HEADER_SELECTORS.menuDropdown);
+        const b = document.getElementById(HEADER_SELECTORS.menuBtn);
         if (d) d.hidden = true;
         if (b) b.setAttribute("aria-expanded", "false");
-        const ad = document.getElementById(ACCOUNT_DROPDOWN_ID);
-        const ab = document.getElementById("account-btn");
+        const ad = document.getElementById(HEADER_SELECTORS.accountDropdown);
+        const ab = document.getElementById(HEADER_SELECTORS.accountBtn);
         if (ad) ad.hidden = true;
         if (ab) ab.setAttribute("aria-expanded", "false");
-        const showNameD = document.getElementById(SHOW_NAME_DROPDOWN_ID);
-        const showNameB = document.getElementById("show-name-dropdown-btn");
+        const showNameD = document.getElementById(HEADER_SELECTORS.showNameDropdown);
+        const showNameB = document.getElementById(HEADER_SELECTORS.showNameDropdownBtn);
         if (showNameD) showNameD.hidden = true;
         if (showNameB) showNameB.setAttribute("aria-expanded", "false");
-        const statusD = document.getElementById(SHOW_STATUS_DROPDOWN_ID);
-        const statusB = document.getElementById("show-status-btn");
+        const statusD = document.getElementById(HEADER_SELECTORS.showStatusDropdown);
+        const statusB = document.getElementById(HEADER_SELECTORS.showStatusBtn);
         if (statusD) statusD.hidden = true;
         if (statusB) statusB.setAttribute("aria-expanded", "false");
-        const defaultShowsD = document.getElementById("default-shows-dropdown");
-        const defaultShowsB = document.getElementById("default-shows-btn");
+        const defaultShowsD = document.getElementById(HEADER_SELECTORS.defaultShowsDropdown);
+        const defaultShowsB = document.getElementById(HEADER_SELECTORS.defaultShowsBtn);
         if (defaultShowsD) defaultShowsD.hidden = true;
         if (defaultShowsB) defaultShowsB.setAttribute("aria-expanded", "false");
       });
     }
   }
 
-  const accountBtn = document.getElementById("account-btn");
-  const accountDropdown = document.getElementById(ACCOUNT_DROPDOWN_ID);
+  const accountBtn = document.getElementById(HEADER_SELECTORS.accountBtn);
+  const accountDropdown = document.getElementById(HEADER_SELECTORS.accountDropdown);
   if (accountBtn && accountDropdown) {
     accountBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -261,22 +200,22 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
     accountDropdown.addEventListener("click", (e) => e.stopPropagation());
   }
 
-  document.getElementById("account-logout-btn")?.addEventListener("click", async () => {
+  document.getElementById(HEADER_SELECTORS.accountLogoutBtn)?.addEventListener("click", async () => {
     await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     window.location.href = "/login";
   });
 
-  dropdown?.querySelectorAll(".menu-dropdown-item-link").forEach((link) => {
+  dropdown?.querySelectorAll(HEADER_SELECTORS.menuDropdownItemLink).forEach((link) => {
     link.addEventListener("click", () => {
       dropdown!.hidden = true;
       menuBtn?.setAttribute("aria-expanded", "false");
     });
   });
-  dropdown?.querySelectorAll(".menu-dropdown-newtab-btn").forEach((btn) => {
+  dropdown?.querySelectorAll(HEADER_SELECTORS.menuDropdownNewtabBtn).forEach((btn) => {
     btn.addEventListener("click", (e) => {
       e.preventDefault();
       e.stopPropagation();
-      const item = (e.currentTarget as HTMLElement).closest(".menu-dropdown-item");
+      const item = (e.currentTarget as HTMLElement).closest(HEADER_SELECTORS.menuDropdownItem);
       const fullPath = item?.getAttribute("data-full-path");
       if (fullPath) {
         const url = new URL(fullPath, window.location.origin).href;
@@ -287,17 +226,17 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
     });
   });
 
-  const newShowBtn = document.getElementById("new-show-btn");
+  const newShowBtn = document.getElementById(HEADER_SELECTORS.newShowBtn);
   if (newShowBtn) {
     newShowBtn.addEventListener("click", () => openNewShowModal());
   }
-  const openShowBtn = document.getElementById("open-saved-show-btn");
+  const openShowBtn = document.getElementById(HEADER_SELECTORS.openSavedShowBtn);
   if (openShowBtn) {
     openShowBtn.addEventListener("click", () => openOpenShowModal());
   }
 
-  const defaultShowsBtn = document.getElementById("default-shows-btn");
-  const defaultShowsDropdown = document.getElementById("default-shows-dropdown");
+  const defaultShowsBtn = document.getElementById(HEADER_SELECTORS.defaultShowsBtn);
+  const defaultShowsDropdown = document.getElementById(HEADER_SELECTORS.defaultShowsDropdown);
   if (defaultShowsBtn && defaultShowsDropdown) {
     const templates: Array<{ type: TemplateType; label: string }> = [
       { type: "rainbow", label: "Rainbow Cycle" },
@@ -317,12 +256,12 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
       defaultShowsDropdown.hidden = !open;
       defaultShowsBtn.setAttribute("aria-expanded", String(!open));
       if (!open) {
-        const ad = document.getElementById(ACCOUNT_DROPDOWN_ID) as HTMLElement | null;
+        const ad = document.getElementById(HEADER_SELECTORS.accountDropdown) as HTMLElement | null;
         if (ad) ad.hidden = true;
       }
     });
 
-    defaultShowsDropdown.querySelectorAll("[data-template]").forEach((btn) => {
+    defaultShowsDropdown.querySelectorAll(HEADER_SELECTORS.dataTemplate).forEach((btn) => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const template = (e.currentTarget as HTMLElement).dataset.template as TemplateType;
@@ -333,8 +272,8 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
     });
   }
 
-  const showNameDropdownBtn = document.getElementById("show-name-dropdown-btn");
-  const showNameDropdown = document.getElementById(SHOW_NAME_DROPDOWN_ID);
+  const showNameDropdownBtn = document.getElementById(HEADER_SELECTORS.showNameDropdownBtn);
+  const showNameDropdown = document.getElementById(HEADER_SELECTORS.showNameDropdown);
   if (showNameDropdownBtn && showNameDropdown) {
     showNameDropdownBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -342,13 +281,13 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
       showNameDropdown.hidden = !open;
       showNameDropdownBtn.setAttribute("aria-expanded", String(!open));
       if (!open) {
-        const ad = document.getElementById(ACCOUNT_DROPDOWN_ID) as HTMLElement | null;
+        const ad = document.getElementById(HEADER_SELECTORS.accountDropdown) as HTMLElement | null;
         if (ad) ad.hidden = true;
         if (dropdown) dropdown.hidden = true;
       }
     });
     showNameDropdown.addEventListener("click", (e) => e.stopPropagation());
-    showNameDropdown.querySelectorAll(".admin-header-show-name-menu-item").forEach((btn) => {
+    showNameDropdown.querySelectorAll(HEADER_SELECTORS.adminHeaderShowNameMenuItem).forEach((btn) => {
       btn.addEventListener("click", () => {
         showNameDropdown.hidden = true;
         showNameDropdownBtn?.setAttribute("aria-expanded", "false");
@@ -362,10 +301,10 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
   }
 
   function syncShowStatusUI(): void {
-    const statusBtn = document.getElementById("show-status-btn");
-    const statusDropdown = document.getElementById(SHOW_STATUS_DROPDOWN_ID);
+    const statusBtn = document.getElementById(HEADER_SELECTORS.showStatusBtn);
+    const statusDropdown = document.getElementById(HEADER_SELECTORS.showStatusDropdown);
     if (!statusBtn || !statusDropdown) return;
-    const tag = statusBtn.querySelector(".admin-header-status-tag");
+    const tag = statusBtn.querySelector(HEADER_SELECTORS.adminHeaderStatusTag);
     const label = showLiveState === "not_live" ? "Not Live" : showLiveState === "requesting" ? "Requesting Server" : "Live";
     const stateClass = showLiveState === "not_live" ? "admin-header-status-wrap--not-live" : showLiveState === "requesting" ? "admin-header-status-wrap--requesting" : "admin-header-status-wrap--live";
     statusBtn.className = "admin-header-status-wrap " + stateClass;
@@ -373,7 +312,7 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
     if (tag) tag.textContent = label;
     const hasDropdown = showLiveState === "not_live" || showLiveState === "live";
     if (hasDropdown) {
-      if (!statusBtn.querySelector(".admin-header-status-caret")) {
+      if (!statusBtn.querySelector(HEADER_SELECTORS.adminHeaderStatusCaret)) {
         const caret = document.createElement("span");
         caret.className = "admin-header-status-caret";
         caret.setAttribute("aria-hidden", "true");
@@ -382,7 +321,7 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
       }
     } else {
       statusBtn.setAttribute("disabled", "");
-      const caret = statusBtn.querySelector(".admin-header-status-caret");
+      const caret = statusBtn.querySelector(HEADER_SELECTORS.adminHeaderStatusCaret);
       if (caret) caret.remove();
     }
     if (showLiveState === "not_live") {
@@ -395,10 +334,10 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
     statusDropdown.hidden = true;
     statusBtn.setAttribute("aria-expanded", "false");
   }
-  syncShowStatusUIRef = syncShowStatusUI;
+  setSyncShowStatusUIRef(syncShowStatusUI);
 
-  const statusBtn = document.getElementById("show-status-btn");
-  const statusDropdown = document.getElementById(SHOW_STATUS_DROPDOWN_ID);
+  const statusBtn = document.getElementById(HEADER_SELECTORS.showStatusBtn);
+  const statusDropdown = document.getElementById(HEADER_SELECTORS.showStatusDropdown);
   if (statusBtn && statusDropdown && currentShow) {
     statusBtn.addEventListener("click", (e) => {
       e.stopPropagation();
@@ -407,11 +346,11 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
       statusDropdown.hidden = open;
       statusBtn.setAttribute("aria-expanded", String(!open));
       if (!open) {
-        const ad = document.getElementById(ACCOUNT_DROPDOWN_ID) as HTMLElement | null;
+        const ad = document.getElementById(HEADER_SELECTORS.accountDropdown) as HTMLElement | null;
         if (ad) ad.hidden = true;
         if (dropdown) dropdown.hidden = true;
-        const showNameD = document.getElementById(SHOW_NAME_DROPDOWN_ID);
-        const showNameB = document.getElementById("show-name-dropdown-btn");
+        const showNameD = document.getElementById(HEADER_SELECTORS.showNameDropdown);
+        const showNameB = document.getElementById(HEADER_SELECTORS.showNameDropdownBtn);
         if (showNameD) showNameD.hidden = true;
         if (showNameB) showNameB.setAttribute("aria-expanded", "false");
       }
@@ -468,7 +407,7 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
   }
 
   if (currentPath === "/simulateDevices") {
-    const extra = document.getElementById("page-header-extra");
+    const extra = document.getElementById(HEADER_SELECTORS.pageHeaderExtra);
     if (extra) {
       extra.appendChild(
         createInfoBubble({
@@ -483,13 +422,12 @@ export function renderHeader(container: HTMLElement, currentPath: RoutePath, use
 
 function openNewShowModal(): void {
   const cb = getCb();
-  const nameId = "new-show-name-input";
   const content = document.createElement("div");
   content.innerHTML = `
-    <label for="${nameId}" style="display:block;margin-bottom:4px;font-size:12px;color:var(--text-muted);">Show name</label>
-    <input type="text" id="${nameId}" class="modal-input" placeholder="e.g. My Show" style="width:100%;margin-bottom:12px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);box-sizing:border-box;" />
-    <div id="new-show-error" style="font-size:12px;color:#e87a7a;margin-bottom:8px;" hidden></div>`;
-  const input = content.querySelector(`#${nameId}`) as HTMLInputElement;
+    <label for="${HEADER_SELECTORS.newShowNameInput}" style="display:block;margin-bottom:4px;font-size:12px;color:var(--text-muted);">Show name</label>
+    <input type="text" id="${HEADER_SELECTORS.newShowNameInput}" class="modal-input" placeholder="e.g. My Show" style="width:100%;margin-bottom:12px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);box-sizing:border-box;" />
+    <div id="${HEADER_SELECTORS.newShowError}" style="font-size:12px;color:#e87a7a;margin-bottom:8px;" hidden></div>`;
+  const input = content.querySelector(`#${HEADER_SELECTORS.newShowNameInput}`) as HTMLInputElement;
   const errorEl = content.querySelector("#new-show-error") as HTMLElement;
 
   const { close } = openModal({
@@ -523,7 +461,7 @@ function openNewShowModal(): void {
           fetchLiveStateFromServer(currentShow.id)
             .then((live) => {
               showLiveState = live ? "live" : "not_live";
-              syncShowStatusUIRef?.();
+              refreshLiveStateUI();
               scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
             })
             .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
@@ -539,21 +477,6 @@ function openNewShowModal(): void {
   });
 
   input?.focus();
-}
-
-type ShowListItem = {
-  show_id: string;
-  name: string;
-  created_by: string;
-  created_at_ms: number;
-  last_modified_ms: number;
-};
-
-function formatShowDate(ms: number): string {
-  return new Date(ms).toLocaleString(undefined, {
-    dateStyle: "short",
-    timeStyle: "short",
-  });
 }
 
 function escapeHtml(s: string): string {
@@ -582,7 +505,7 @@ async function createAndOpenDefaultShow(templateType: TemplateType): Promise<voi
         fetchLiveStateFromServer(currentShow.id)
           .then((live) => {
             showLiveState = live ? "live" : "not_live";
-            syncShowStatusUIRef?.();
+            refreshLiveStateUI();
             scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
           })
           .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
@@ -624,7 +547,7 @@ async function createAndOpenDefaultShow(templateType: TemplateType): Promise<voi
     fetchLiveStateFromServer(currentShow.id)
       .then((live) => {
         showLiveState = live ? "live" : "not_live";
-        syncShowStatusUIRef?.();
+        refreshLiveStateUI();
         scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
       })
       .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
@@ -636,114 +559,19 @@ async function createAndOpenDefaultShow(templateType: TemplateType): Promise<voi
 
 function openOpenShowModal(): void {
   const cb = getCb();
-  const content = document.createElement("div");
-  content.className = "open-show-modal-content";
-  content.innerHTML = `
-    <div class="open-show-modal-grid" id="open-show-grid"></div>
-    <div id="open-show-error" class="open-show-modal-error" hidden></div>`;
-  const grid = content.querySelector("#open-show-grid") as HTMLElement;
-  const errorEl = content.querySelector("#open-show-error") as HTMLElement;
-
-  let shows: ShowListItem[] = [];
-  let selectedShowId: string | null = null;
-
-  const DOUBLE_CLICK_MS = 500;
-  let lastRowClickTime = 0;
-  let lastRowClickShowId: string | null = null;
-
-  function openSelectedShow(): void {
-    if (!selectedShowId) return;
-    const show = shows.find((s) => s.show_id === selectedShowId);
-    if (!show) return;
-    currentShow = { id: show.show_id, name: show.name };
+  openOpenShowModalFromModule((show) => {
+    currentShow = show;
     showLiveState = "not_live";
-    close();
     cb.navigateToPathWithShow(cb.getPath(), currentShow);
     cb.renderApp(lastUsername);
-    fetchLiveStateFromServer(currentShow.id)
+    fetchLiveStateFromServer(show.id)
       .then((live) => {
         showLiveState = live ? "live" : "not_live";
-        syncShowStatusUIRef?.();
+        refreshLiveStateUI();
         scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS);
       })
       .catch(() => scheduleNextLiveStatePoll(LIVE_STATE_INITIAL_POLL_MS));
-  }
-
-  const { close } = openModal({
-    size: "medium",
-    clickOutsideToClose: true,
-    title: "Select a Show to load:",
-    content,
-    cancel: {},
-    actions: [
-      {
-        preset: "primary",
-        label: "Open",
-        onClick: openSelectedShow,
-      },
-    ],
   });
-
-  const openBtn = content.closest(".global-modal-panel")?.querySelector(".global-modal-footer-right button") as HTMLButtonElement | null;
-  if (openBtn) openBtn.disabled = true;
-
-  function renderTiles(): void {
-    grid.innerHTML = "";
-    const header = document.createElement("div");
-    header.className = "open-show-modal-list-header";
-    header.setAttribute("role", "presentation");
-    header.innerHTML = `<span>Name</span><span>Created By</span><span>Created</span><span>Modified</span>`;
-    grid.appendChild(header);
-
-    for (const show of shows) {
-      const tile = document.createElement("button");
-      tile.type = "button";
-      tile.className = "open-show-tile" + (selectedShowId === show.show_id ? " open-show-tile--selected" : "");
-      tile.dataset.showId = show.show_id;
-      tile.innerHTML = `
-        <span class="open-show-tile-cell-name">${escapeHtml(show.name)}</span>
-        <span class="open-show-tile-cell-muted">${escapeHtml(show.created_by)}</span>
-        <span class="open-show-tile-cell-muted">${formatShowDate(show.created_at_ms)}</span>
-        <span class="open-show-tile-cell-muted">${formatShowDate(show.last_modified_ms)}</span>`;
-      tile.addEventListener("click", () => {
-        const now = Date.now();
-        const isDoubleClick = show.show_id === lastRowClickShowId && now - lastRowClickTime < DOUBLE_CLICK_MS;
-        lastRowClickShowId = show.show_id;
-        lastRowClickTime = now;
-
-        selectedShowId = show.show_id;
-        grid.querySelectorAll(".open-show-tile").forEach((t) => t.classList.remove("open-show-tile--selected"));
-        tile.classList.add("open-show-tile--selected");
-        const btn = content.closest(".global-modal-panel")?.querySelector(".global-modal-footer-right button") as HTMLButtonElement | null;
-        if (btn) btn.disabled = false;
-
-        if (isDoubleClick) {
-          openSelectedShow();
-        }
-      });
-      grid.appendChild(tile);
-    }
-  }
-
-  (async () => {
-    try {
-      const res = await fetch("/api/admin/show-workspaces", { credentials: "include" });
-      if (!res.ok) {
-        errorEl.textContent = "Failed to load shows.";
-        errorEl.hidden = false;
-        return;
-      }
-      shows = (await res.json()) as ShowListItem[];
-      if (shows.length === 0) {
-        grid.innerHTML = '<p class="open-show-modal-empty">No shows yet. Create one with the New Show button.</p>';
-        return;
-      }
-      renderTiles();
-    } catch {
-      errorEl.textContent = "Network error.";
-      errorEl.hidden = false;
-    }
-  })();
 }
 
 function closeCurrentShow(): void {
@@ -848,17 +676,16 @@ function openDeleteShowModal(): void {
   if (!currentShow) return;
   const showId = currentShow.id;
   const showName = currentShow.name;
-  const confirmInputId = "delete-show-confirm-input";
   const content = document.createElement("div");
   content.innerHTML = `
     <p style="font-size:13px;color:var(--text-muted);margin:0 0 8px;">Everyone with access will lose access. People with access:</p>
-    <ul id="delete-show-members-list" style="margin:0 0 12px;padding-left:20px;font-size:13px;color:var(--text);"></ul>
+    <ul id="${HEADER_SELECTORS.deleteShowMembersList}" style="margin:0 0 12px;padding-left:20px;font-size:13px;color:var(--text);"></ul>
     <p style="font-size:13px;color:var(--text-muted);margin:0 0 4px;">Type the show name below to confirm:</p>
-    <input type="text" id="${confirmInputId}" class="modal-input" placeholder="Show name" style="width:100%;margin-bottom:12px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);box-sizing:border-box;" />
-    <div id="delete-show-error" style="font-size:12px;color:#e87a7a;margin-bottom:8px;" hidden></div>`;
-  const membersList = content.querySelector("#delete-show-members-list") as HTMLElement;
-  const confirmInput = content.querySelector(`#${confirmInputId}`) as HTMLInputElement;
-  const errorEl = content.querySelector("#delete-show-error") as HTMLElement;
+    <input type="text" id="${HEADER_SELECTORS.deleteShowConfirmInput}" class="modal-input" placeholder="Show name" style="width:100%;margin-bottom:12px;padding:6px 8px;font-size:13px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);color:var(--text);box-sizing:border-box;" />
+    <div id="${HEADER_SELECTORS.deleteShowError}" style="font-size:12px;color:#e87a7a;margin-bottom:8px;" hidden></div>`;
+  const membersList = content.querySelector(`#${HEADER_SELECTORS.deleteShowMembersList}`) as HTMLElement;
+  const confirmInput = content.querySelector(`#${HEADER_SELECTORS.deleteShowConfirmInput}`) as HTMLInputElement;
+  const errorEl = content.querySelector(`#${HEADER_SELECTORS.deleteShowError}`) as HTMLElement;
 
   (async () => {
     try {
@@ -904,7 +731,7 @@ function openDeleteShowModal(): void {
     ],
   });
 
-  const deleteBtn = content.closest(".global-modal-panel")?.querySelector(".global-modal-footer-right button") as HTMLButtonElement | null;
+  const deleteBtn = content.closest(HEADER_SELECTORS.globalModalPanel)?.querySelector(HEADER_SELECTORS.globalModalFooterRightButton) as HTMLButtonElement | null;
   function updateDeleteButton(): void {
     const typed = (confirmInput?.value ?? "").trim();
     if (deleteBtn) deleteBtn.disabled = typed !== showName;
