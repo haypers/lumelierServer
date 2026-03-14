@@ -38,6 +38,15 @@ export interface GpsData {
   lng: number;
 }
 
+/** Range only (Video/Image): position overlay in details-pane widget. x/y in % of diameter; angle in degrees; hs/vs = horizontal/vertical scale (1 = smaller dim = 1 diameter). */
+export interface RangePositionOverlay {
+  x: number;
+  y: number;
+  angle: number;
+  hs: number;
+  vs: number;
+}
+
 /** Extended item payload for ranges and events (stored in item and in JSON). */
 export interface TimelineItemPayload {
   kind: "range" | "event";
@@ -52,6 +61,8 @@ export interface TimelineItemPayload {
   filePath?: string;
   /** Range only (Video/Image): optional GPS position. */
   gpsData?: GpsData;
+  /** Range only (Video/Image): position overlay for details-pane widget. */
+  positionOverlay?: RangePositionOverlay;
 }
 
 /** Serializable timeline state for server (timeline.json). Track splitter tree is stored in trackSplitterTree.json. */
@@ -72,6 +83,7 @@ export interface TimelineStateJSON {
     rangeType?: RangeType;
     filePath?: string;
     gpsData?: GpsData;
+    positionOverlay?: RangePositionOverlay;
   }[];
   /** Readhead position in seconds. */
   readheadSec: number;

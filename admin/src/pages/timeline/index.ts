@@ -286,6 +286,16 @@ function updateItemInTimeline(id: string, updates: DetailsPanelUpdates): void {
   if (updates.filePath !== undefined && item.kind === "range") {
     item.filePath = updates.filePath;
   }
+  if (updates.positionOverlay !== undefined && item.kind === "range") {
+    const prev = item.positionOverlay ?? { x: 0, y: 0, angle: 0, hs: 1, vs: 1 };
+    item.positionOverlay = {
+      x: updates.positionOverlay.x ?? prev.x,
+      y: updates.positionOverlay.y ?? prev.y,
+      angle: updates.positionOverlay.angle ?? prev.angle,
+      hs: updates.positionOverlay.hs ?? prev.hs,
+      vs: updates.positionOverlay.vs ?? prev.vs,
+    };
+  }
   customTimelineView?.update();
   scheduleAutosave();
 }
@@ -528,6 +538,7 @@ function getItemForDetails(id: string): import("./details-panel").DetailsPanelIt
       rangeType: it.kind === "range" ? it.rangeType : undefined,
       filePath: it.kind === "range" ? it.filePath : undefined,
       gpsData: it.kind === "range" ? it.gpsData : undefined,
+      positionOverlay: it.kind === "range" ? it.positionOverlay : undefined,
     },
   };
 }
@@ -541,7 +552,9 @@ function refreshDetailsPanel(forceItemId?: string): void {
       null,
       () => null,
       () => {},
-      () => []
+      () => [],
+      undefined,
+      { showId: currentShowId, readonly: isBroadcastMode }
     );
     ensureReadOnlyBadge();
     return;
@@ -552,7 +565,8 @@ function refreshDetailsPanel(forceItemId?: string): void {
     getItemForDetails,
     updateItemInTimeline,
     getLayers,
-    (currentItemId) => refreshDetailsPanel(currentItemId)
+    (currentItemId) => refreshDetailsPanel(currentItemId),
+    { showId: currentShowId, readonly: isBroadcastMode }
   );
   ensureReadOnlyBadge();
 }
@@ -703,12 +717,17 @@ function ensureCustomTimelineCreated(): void {
         }
         customTimelineView?.update();
       },
-      onRangeDragEnd: () => {
+      onRangeDragEnd: (didDragOrResize) => {
         const editingId = draggingRangeId;
         draggingRangeId = null;
         const snapshot = rangeEditingSnapshot;
         rangeEditingSnapshot = null;
         if (editingId == null || snapshot == null) {
+          customTimelineView?.update();
+          refreshDetailsPanel(selectedItemId ?? undefined);
+          return;
+        }
+        if (!didDragOrResize) {
           customTimelineView?.update();
           refreshDetailsPanel(selectedItemId ?? undefined);
           return;
@@ -1287,7 +1306,9 @@ export function render(container: HTMLElement, showId: string | null): void {
             null,
             () => null,
             () => {},
-            () => []
+            () => [],
+            undefined,
+            { showId: currentShowId, readonly: isBroadcastMode }
           );
           break;
         case "split-devices-tracks": {

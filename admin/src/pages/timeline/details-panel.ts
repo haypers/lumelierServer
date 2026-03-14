@@ -1,11 +1,8 @@
-import "leaflet/dist/leaflet.css";
-import L from "leaflet";
 import type { TimelineItemPayload } from "./types";
+import type { RangePositionOverlay } from "./types";
 import { dateToSecFloat } from "./types";
 import { createLayerTrackPicker } from "./layer-track-picker";
-
-const TIMELINE_DETAILS_MAP_ID = "timeline-details-map";
-let detailsPanelMap: L.Map | null = null;
+import { renderPositionWidget } from "./details-panel/position-widget";
 
 /** Item shape used by the details panel (id, start/end/group, payload). */
 export interface DetailsPanelItem {
@@ -32,6 +29,7 @@ export interface DetailsPanelUpdates {
   color?: string;
   rangeType?: "Image" | "Video" | "Audio";
   filePath?: string;
+  positionOverlay?: Partial<RangePositionOverlay>;
 }
 
 export type UpdateItemFn = (id: string, updates: DetailsPanelUpdates) => void;
@@ -52,16 +50,14 @@ export function updateDetailsPanel(
   getItem: GetItemFn,
   updateItem: UpdateItemFn,
   getLayers: GetLayersFn,
-  onUpdated?: OnDetailsUpdatedFn
+  onUpdated?: OnDetailsUpdatedFn,
+  options?: { showId: string | null; readonly?: boolean }
 ): void {
   const h3 = container.querySelector("h3");
   const body = container.querySelector(".timeline-details-body");
   if (!h3 || !body) return;
-
-  if (detailsPanelMap) {
-    detailsPanelMap.remove();
-    detailsPanelMap = null;
-  }
+  const showId = options?.showId ?? null;
+  const readonly = options?.readonly ?? false;
 
   if (itemId == null) {
     h3.textContent = "Selection";
@@ -119,14 +115,14 @@ export function updateDetailsPanel(
         `<option value="${escapeAttr(t)}" ${t === (payload.rangeType ?? "Audio") ? "selected" : ""}>${escapeHtml(t)}</option>`
     ).join("");
 
-  const showPositionMap =
+  const showPositionWidget =
     payload.kind === "range" &&
     (payload.rangeType === "Video" || payload.rangeType === "Image");
-  const positionMapHtml = showPositionMap
+  const positionWidgetHtml = showPositionWidget
     ? `
       <dt>Position</dt>
-      <dd class="detail-map-wrap">
-        <div id="${TIMELINE_DETAILS_MAP_ID}" class="timeline-details-map"></div>
+      <dd class="detail-position-widget-wrap">
+        <div id="detail-position-widget-container" class="detail-position-widget-container"></div>
       </dd>`
     : "";
 
@@ -163,7 +159,7 @@ export function updateDetailsPanel(
       <dd>
         <input type="text" class="detail-input detail-file-path" value="${escapeAttr(payload.filePath ?? "")}" aria-label="File path" placeholder="Path to media file" />
       </dd>
-      ${positionMapHtml}
+      ${positionWidgetHtml}
     </dl>
       ` : payload.kind === "event" ? `
       <dt>Event Type</dt>
@@ -189,25 +185,19 @@ export function updateDetailsPanel(
     );
   }
 
-  if (showPositionMap) {
-    const mapContainer = body.querySelector(`#${TIMELINE_DETAILS_MAP_ID}`) as HTMLElement | null;
-    if (mapContainer) {
-      const map = L.map(mapContainer).setView([20, 0], 2);
-      L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
-        subdomains: "abcd",
-        maxZoom: 20,
-      }).addTo(map);
-      detailsPanelMap = map;
-      requestAnimationFrame(() => {
-        try {
-          if (map.getContainer().isConnected) {
-            map.invalidateSize();
-          }
-        } catch {
-          /* map may already be removed */
-        }
+  if (showPositionWidget) {
+    const widgetContainer = body.querySelector("#detail-position-widget-container") as HTMLElement | null;
+    if (widgetContainer) {
+      renderPositionWidget({
+        container: widgetContainer,
+        initial: payload.positionOverlay ?? null,
+        filePath: payload.filePath ?? "",
+        rangeType: (payload.rangeType === "Image" || payload.rangeType === "Video" ? payload.rangeType : "Video") as "Video" | "Image",
+        showId,
+        readonly,
+        onUpdate: (positionOverlay) => {
+          updateItem(itemIdStr, { positionOverlay });
+        },
       });
     }
   }

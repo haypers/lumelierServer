@@ -24,6 +24,7 @@ export function exportState(
       color: it.color,
       rangeType: it.kind === "range" ? it.rangeType : undefined,
       filePath: it.kind === "range" ? it.filePath : undefined,
+      positionOverlay: it.kind === "range" ? it.positionOverlay : undefined,
     })),
     readheadSec: getReadheadSec(),
   };
@@ -50,11 +51,22 @@ export function importState(
         kind: string;
         rangeType?: "Image" | "Video" | "Audio";
         filePath?: string;
+        positionOverlay?: { x: number; y: number; angle: number; hs: number; vs: number };
       };
       const kind = raw.kind === "clip" ? "range" : it.kind;
       const rangeType =
         kind === "range" ? (raw.rangeType ?? "Audio") : undefined;
       const filePath = kind === "range" ? raw.filePath : undefined;
+      const positionOverlay =
+        kind === "range" && raw.positionOverlay != null
+          ? {
+              x: Number.isFinite(raw.positionOverlay.x) ? raw.positionOverlay.x : 0,
+              y: Number.isFinite(raw.positionOverlay.y) ? raw.positionOverlay.y : 0,
+              angle: Number.isFinite(raw.positionOverlay.angle) ? raw.positionOverlay.angle : 0,
+              hs: Number.isFinite(raw.positionOverlay.hs) && raw.positionOverlay.hs > 0 ? raw.positionOverlay.hs : 1,
+              vs: Number.isFinite(raw.positionOverlay.vs) && raw.positionOverlay.vs > 0 ? raw.positionOverlay.vs : 1,
+            }
+          : undefined;
       return {
         id: it.id,
         layerId: it.layerId,
@@ -66,6 +78,7 @@ export function importState(
         color: it.color,
         rangeType,
         filePath,
+        positionOverlay,
       };
     })
   );

@@ -48,7 +48,8 @@ export interface CustomTimelineCallbacks {
   onMoveRange?: (itemId: string, newStartSec: number) => void;
   onResizeRange?: (itemId: string, startSec: number, endSec: number) => void;
   onRangeDragStart?: (id: string) => void;
-  onRangeDragEnd?: () => void;
+  /** Called when range drag or resize ends. didDragOrResize is true only if the user actually moved or resized (not a simple click). */
+  onRangeDragEnd?: (didDragOrResize: boolean) => void;
   /** Move the dragged item to another layer (event or range body drag). */
   onMoveItemToLayer?: (itemId: string, layerId: string) => void;
 }
