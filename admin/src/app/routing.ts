@@ -1,12 +1,10 @@
 import timelineIcon from "../icons/timeline.svg?raw";
-import mapIcon from "../icons/map.svg?raw";
 import qrcodeIcon from "../icons/qrcode.svg?raw";
 import tableIcon from "../icons/table.svg?raw";
 import robotIcon from "../icons/robot.svg?raw";
 
 export type RoutePath =
   | "/timeline"
-  | "/venueMap"
   | "/connectedDevicesList"
   | "/simulateDevices"
   | "/sessionManager"
@@ -15,7 +13,6 @@ export type RoutePath =
 
 export const ROUTES: { path: RoutePath; title: string; icon: string }[] = [
   { path: "/timeline", title: "Timeline", icon: timelineIcon },
-  { path: "/venueMap", title: "Venue Map", icon: mapIcon },
   { path: "/sessionManager", title: "Attendee Access Point", icon: qrcodeIcon },
   { path: "/connectedDevicesList", title: "Connected Devices List", icon: tableIcon },
   { path: "/simulateDevices", title: "Simulate Extra Devices", icon: robotIcon },
@@ -38,7 +35,6 @@ export function getVisibleRoutes(): { path: RoutePath; title: string; icon: stri
 
 export const KNOWN_APP_PATHS: RoutePath[] = [
   "/timeline",
-  "/venueMap",
   "/sessionManager",
   "/connectedDevicesList",
   "/simulateDevices",

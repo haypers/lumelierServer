@@ -20,7 +20,6 @@ import {
 } from "./show-management";
 import { render as renderTimeline } from "../pages/timeline";
 import { render as renderConnectedDevicesList } from "../pages/connected-devices-list";
-import { render as renderVenueMap } from "../pages/venue-map";
 import { render as renderSimulateDevices } from "../pages/simulate-devices";
 import { render as renderSessionManager } from "../pages/session-manager";
 import { render as renderLogin } from "../pages/login";
@@ -48,7 +47,6 @@ function renderPageContent(path: RoutePath): void {
   const isShowRoute =
     path === "/timeline" ||
     path === "/connectedDevicesList" ||
-    path === "/venueMap" ||
     path === "/simulateDevices" ||
     path === "/sessionManager";
   if (isShowRoute && showIdFromPath != null && showIdFromPath === showNotFoundShowId) {
@@ -59,8 +57,6 @@ function renderPageContent(path: RoutePath): void {
       return renderTimeline(main, getShowIdFromPath());
     case "/connectedDevicesList":
       return renderConnectedDevicesList(main, getShowIdFromPath());
-    case "/venueMap":
-      return renderVenueMap(main, getShowIdFromPath());
     case "/simulateDevices":
       return renderSimulateDevices(main, getShowIdFromPath());
     case "/sessionManager":
