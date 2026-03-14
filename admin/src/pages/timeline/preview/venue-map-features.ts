@@ -13,10 +13,12 @@ import carrotIcon from "../../../icons/carrot.svg?raw";
 import lightOffIcon from "../../../icons/light-off.svg?raw";
 import lightOnIcon from "../../../icons/light-on.svg?raw";
 import robotIcon from "../../../icons/robot.svg?raw";
+import crosshairIcon from "../../../icons/crosshair.svg?raw";
 import { createInfoBubble } from "../../../components/info-bubble";
 
 const NOMINATIM_USER_AGENT = "Lumelier Light Show Planner";
 const SEARCH_TIMEOUT_MS = 12_000;
+const MIN_SYNCING_DISPLAY_MS = 400;
 
 interface NominatimResult {
   lat: string;
@@ -36,9 +38,9 @@ const MAP_CLIENTS_TOOLTIP: Record<MapClientsSubMode, string> = {
   locationOnly:
     "This is the least resource intensive operation, simply plotting the locations of the connected clients with a grey dot",
   plannedColor:
-    "This opperation will additionally request the timeline for each client, and set the points to the intended color. This will require significant resources.",
+    "This operation will additionally request the timeline for each client, and set the points to the intended color. This will require significant resources.",
   simulatedColors:
-    "This opperation will connect to the simulated clients server, and plot the color of simulated clients in real time, allowing a simulation preview. This is very resource intensive.",
+    "This operation will connect to the simulated clients server, and plot the color of simulated clients in real time, allowing a simulation preview. This is very resource intensive.",
 };
 
 function clampInt(n: number, min: number, max: number): number {
@@ -52,12 +54,15 @@ export interface ShowLocationData {
   lng: number;
   radiusMeters: number;
   requestsGPS: boolean;
+  angle?: number;
 }
 
 export interface PreviewMapVenueFeaturesOptions {
   onShowSyncing?: () => void;
   onShowSaved?: () => void;
   onShowLocationUpdated?: (data: ShowLocationData) => void;
+  /** Current "Use GPS" toggle state; used when saving so we don't overwrite it with false. */
+  getRequestsGPS?: () => boolean;
 }
 
 export function initPreviewMapVenueFeatures(
@@ -102,19 +107,31 @@ export function initPreviewMapVenueFeatures(
   const searchInputId = "timeline-preview-map-search-input";
   const searchBtnId = "timeline-preview-map-search-btn";
   const searchResultsId = "timeline-preview-map-search-results";
+  const centerOnMapBtnId = "timeline-preview-map-center-on-map-btn";
 
   searchOverlay.innerHTML = `
-    <div class="timeline-preview-map-search-wrap" id="${searchWrapId}">
-      <div class="timeline-preview-map-search-group">
-        <input type="text" id="${searchInputId}" placeholder="Search for a place…" aria-label="Search place" />
-        <button type="button" class="timeline-preview-map-search-btn" id="${searchBtnId}" aria-label="Search">${searchIcon}</button>
+    <div class="timeline-preview-map-overlay-top-right-inner">
+      <div class="timeline-preview-map-center-wrap" id="timeline-preview-map-center-wrap">
+        <button type="button" class="timeline-preview-map-btn timeline-preview-map-center-btn" id="${centerOnMapBtnId}" aria-label="Center map on venue" title="Center map on venue">${crosshairIcon}</button>
       </div>
-      <div class="timeline-preview-map-search-results" id="${searchResultsId}" hidden role="listbox" aria-label="Search results"></div>
+      <div class="timeline-preview-map-search-wrap" id="${searchWrapId}">
+        <div class="timeline-preview-map-search-group">
+          <input type="text" id="${searchInputId}" placeholder="Search for a place…" aria-label="Search place" />
+          <button type="button" class="timeline-preview-map-search-btn" id="${searchBtnId}" aria-label="Search">${searchIcon}</button>
+        </div>
+        <div class="timeline-preview-map-search-results" id="${searchResultsId}" hidden role="listbox" aria-label="Search results"></div>
+      </div>
     </div>
   `;
 
+  const centerOnMapBtnEl = searchOverlay.querySelector(`#${centerOnMapBtnId}`) as HTMLButtonElement;
   const searchBtnEl = searchOverlay.querySelector(`#${searchBtnId}`) as HTMLButtonElement;
   const searchResultsEl = searchOverlay.querySelector(`#${searchResultsId}`) as HTMLElement;
+
+  centerOnMapBtnEl?.addEventListener("click", (e) => {
+    e.stopPropagation();
+    centerOnCircle();
+  });
 
   function setSearchButtonIcon(loading: boolean): void {
     if (!searchBtnEl) return;
@@ -250,24 +267,51 @@ export function initPreviewMapVenueFeatures(
         <span class="timeline-preview-map-clients-icon" data-map-clients-btn-icon aria-hidden="true">${eyeIcon}</span>
         <span class="timeline-preview-map-clients-label">Map Clients<span class="timeline-preview-map-clients-caret" aria-hidden="true">${carrotIcon}</span></span>
       </button>
-      <div class="timeline-preview-map-clients-dropdown" id="${mapClientsDropdownId}" hidden role="menu"></div>
     </div>
+    <div class="timeline-preview-map-clients-dropdown" id="${mapClientsDropdownId}" hidden role="menu"></div>
   `;
 
   const editLocationBtn = bottomLeftOverlay.querySelector(`#${editLocationBtnId}`) as HTMLButtonElement;
   const mapClientsBtnEl = bottomLeftOverlay.querySelector(`#${mapClientsBtnId}`) as HTMLButtonElement;
   const mapClientsDropdownEl = bottomLeftOverlay.querySelector(`#${mapClientsDropdownId}`) as HTMLElement;
-
   let editLocationMode = false;
   let showLocation: ShowLocationData | null = null;
   let circleLayer: L.Circle | null = null;
   let circleCenterMarker: L.Marker | null = null;
   let circleHandleMarker: L.Marker | null = null;
+  let circleCenterToHandleLine: L.Polyline | null = null;
   const circleEditLayer = L.layerGroup().addTo(map);
   const EDIT_BTN_CONFIRM_CLASS = "timeline-preview-map-edit-btn--confirm";
+  let handleDragInProgress = false;
+
+  /** True only when we have a full valid circle: all 4 values non-null, lat/lng/radius non-zero. Crosshairs and Map Clients only show then. */
+  function hasValidCircle(): boolean {
+    if (showLocation == null) return false;
+    const { lat, lng, radiusMeters, angle } = showLocation;
+    return (
+      typeof lat === "number" &&
+      Number.isFinite(lat) &&
+      lat !== 0 &&
+      typeof lng === "number" &&
+      Number.isFinite(lng) &&
+      lng !== 0 &&
+      typeof radiusMeters === "number" &&
+      Number.isFinite(radiusMeters) &&
+      radiusMeters > 0 &&
+      typeof angle === "number" &&
+      Number.isFinite(angle)
+    );
+  }
+
+  /** Single source of truth: apply editing and has-location state to the wrap. CSS uses these classes to show/hide search bar, Map Clients, and crosshairs. */
+  function applyMapWrapState(): void {
+    wrapEl.classList.toggle("timeline-preview-map-wrap--editing", editLocationMode);
+    wrapEl.classList.toggle("timeline-preview-map-wrap--has-location", hasValidCircle());
+  }
 
   function setEditLocationMode(active: boolean): void {
     editLocationMode = active;
+    applyMapWrapState();
     if (active) {
       closeSearchResults();
       closeMapClientsDropdown();
@@ -275,16 +319,6 @@ export function initPreviewMapVenueFeatures(
   }
 
   const MIN_RADIUS_METERS = 10;
-
-  function getDefaultRadiusMeters(): number {
-    const bounds = map.getBounds();
-    const center = map.getCenter();
-    const east = L.latLng(center.lat, bounds.getEast());
-    const north = L.latLng(bounds.getNorth(), center.lng);
-    const w = map.distance(center, east);
-    const h = map.distance(center, north);
-    return Math.max(MIN_RADIUS_METERS, Math.min(w, h) / 4);
-  }
 
   function latLngAtBearing(center: L.LatLng, radiusMeters: number, bearingDeg: number): L.LatLng {
     const R = 6371000;
@@ -302,6 +336,35 @@ export function initPreviewMapVenueFeatures(
         Math.cos(radiusMeters / R) - Math.sin(lat0) * Math.sin(lat1)
       );
     return L.latLng((lat1 * 180) / Math.PI, (lng1 * 180) / Math.PI);
+  }
+
+  /** Center and zoom so the circle fits with comfortable padding around it (zoomed out a bit). */
+  function centerOnCircle(): void {
+    if (!showLocation || showLocation.radiusMeters <= 0) return;
+    try {
+      if (map.getContainer().isConnected) map.invalidateSize();
+    } catch {
+      /* container may be detached */
+    }
+    const center = L.latLng(showLocation.lat, showLocation.lng);
+    const r = showLocation.radiusMeters;
+    const padding = r * 0.55; /* extra margin around circle so we don't zoom in quite as much */
+    const bounds = L.latLngBounds(
+      latLngAtBearing(center, r + padding, 225),
+      latLngAtBearing(center, r + padding, 45)
+    );
+    const zoom = map.getBoundsZoom(bounds, false);
+    map.setView(center, Math.min(zoom, map.getMaxZoom()));
+  }
+
+  /** Bearing in degrees from center to point (0 = north, 90 = east). */
+  function bearingDeg(center: L.LatLng, point: L.LatLng): number {
+    const dLng = ((point.lng - center.lng) * Math.PI) / 180;
+    const lat0 = (center.lat * Math.PI) / 180;
+    const lat1 = (point.lat * Math.PI) / 180;
+    const y = Math.sin(dLng) * Math.cos(lat1);
+    const x = Math.cos(lat0) * Math.sin(lat1) - Math.sin(lat0) * Math.cos(lat1) * Math.cos(dLng);
+    return ((Math.atan2(y, x) * 180) / Math.PI + 360) % 360;
   }
 
   function closeMapClientsDropdown(): void {
@@ -350,12 +413,14 @@ export function initPreviewMapVenueFeatures(
     circleLayer = null;
     circleCenterMarker = null;
     circleHandleMarker = null;
+    circleCenterToHandleLine = null;
   }
 
   function drawCircleState(fitBounds = false): void {
     removeCircleEditLayers();
     if (!showLocation || showLocation.radiusMeters <= 0) {
       updateEditButtonLabel();
+      applyMapWrapState();
       return;
     }
     const center = L.latLng(showLocation.lat, showLocation.lng);
@@ -380,7 +445,14 @@ export function initPreviewMapVenueFeatures(
         }),
         interactive: false,
       }).addTo(circleEditLayer);
-      const handleLatLng = latLngAtBearing(center, showLocation.radiusMeters, 0);
+      const angle = showLocation.angle ?? 0;
+      const handleLatLng = latLngAtBearing(center, showLocation.radiusMeters, angle);
+      circleCenterToHandleLine = L.polyline([center, handleLatLng], {
+        color: "#e07800",
+        weight: 2,
+        opacity: 0.95,
+        dashArray: "8, 6",
+      }).addTo(circleEditLayer);
       circleHandleMarker = L.marker(handleLatLng, {
         draggable: true,
         icon: L.divIcon({
@@ -391,39 +463,69 @@ export function initPreviewMapVenueFeatures(
         }),
       }).addTo(circleEditLayer);
       circleHandleMarker.on("click", (e) => L.DomEvent.stopPropagation(e));
+      circleHandleMarker.on("dragstart", () => {
+        handleDragInProgress = true;
+      });
+      circleHandleMarker.on("dragend", () => {
+        setTimeout(() => {
+          handleDragInProgress = false;
+        }, 120);
+      });
       circleHandleMarker.on("drag", () => {
         if (!showLocation || !circleHandleMarker) return;
         const handleLl = circleHandleMarker.getLatLng();
         const centerLl = L.latLng(showLocation.lat, showLocation.lng);
         const newRadius = map.distance(centerLl, handleLl);
-        if (newRadius < 10) return;
-        showLocation = { ...showLocation, radiusMeters: newRadius };
-        circleHandleMarker!.setLatLng(latLngAtBearing(centerLl, newRadius, 0));
+        if (newRadius < MIN_RADIUS_METERS) return;
+        const newAngle = bearingDeg(centerLl, handleLl);
+        showLocation = { ...showLocation, radiusMeters: newRadius, angle: newAngle };
+        circleHandleMarker!.setLatLng(latLngAtBearing(centerLl, newRadius, newAngle));
         if (circleLayer) circleLayer.setRadius(newRadius);
+        if (circleCenterToHandleLine) circleCenterToHandleLine.setLatLngs([centerLl, handleLl]);
       });
+    } else {
+      /* Not editing: show a small blue dot at the radius and a short orange tick pointing inward */
+      const angle = showLocation.angle ?? 0;
+      const r = showLocation.radiusMeters;
+      const dotLatLng = latLngAtBearing(center, r, angle);
+      const tickEndLatLng = latLngAtBearing(center, r * 0.9, angle);
+      L.marker(dotLatLng, {
+        icon: L.divIcon({
+          className: "timeline-preview-map-show-location-radius-dot",
+          html: "<span></span>",
+          iconSize: [8, 8],
+          iconAnchor: [4, 4],
+        }),
+        interactive: false,
+      }).addTo(circleEditLayer);
+      L.polyline([dotLatLng, tickEndLatLng], {
+        color: "#e07800",
+        weight: 2,
+        opacity: 0.95,
+      }).addTo(circleEditLayer);
     }
     if (fitBounds) {
-      const r = showLocation.radiusMeters;
-      const padding = r * 0.2;
-      const bounds = L.latLngBounds(
-        latLngAtBearing(center, r + padding, 225),
-        latLngAtBearing(center, r + padding, 45)
-      );
-      map.fitBounds(bounds, { padding: [20, 20] });
+      centerOnCircle();
     }
     updateEditButtonLabel();
+    applyMapWrapState();
   }
 
   function putShowLocationOnConfirm(): void {
     if (!showId || !showLocation) return;
     const radiusMeters = Math.max(MIN_RADIUS_METERS, showLocation.radiusMeters);
+    const angle = showLocation.angle ?? 0;
+    const requestsGPS = options?.getRequestsGPS?.() ?? showLocation.requestsGPS;
     const payload = {
       lat: showLocation.lat,
       lng: showLocation.lng,
       radiusMeters,
-      requestsGPS: showLocation.requestsGPS,
+      requestsGPS,
+      angle,
     };
     options?.onShowSyncing?.();
+    const startedAt = Date.now();
+    if (editLocationBtn) editLocationBtn.disabled = true;
     fetch(`/api/admin/show-workspaces/${showId}/show-location`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
@@ -431,15 +533,26 @@ export function initPreviewMapVenueFeatures(
       body: JSON.stringify(payload),
     })
       .then((res) => {
+        const elapsed = Date.now() - startedAt;
+        const minRemaining = Math.max(0, MIN_SYNCING_DISPLAY_MS - elapsed);
         if (res.ok) {
-          options?.onShowSaved?.();
-          options?.onShowLocationUpdated?.(payload);
+          setTimeout(() => {
+            options?.onShowSaved?.();
+            options?.onShowLocationUpdated?.(payload);
+          }, minRemaining);
         } else {
           res.text().then((t) => alert(`Failed to save show location: ${res.status} ${t || res.statusText}`));
+          setTimeout(() => options?.onShowSaved?.(), minRemaining);
         }
       })
       .catch((e) => {
         alert(`Failed to save show location: ${e instanceof Error ? e.message : String(e)}`);
+        const elapsed = Date.now() - startedAt;
+        const minRemaining = Math.max(0, MIN_SYNCING_DISPLAY_MS - elapsed);
+        setTimeout(() => options?.onShowSaved?.(), minRemaining);
+      })
+      .finally(() => {
+        if (editLocationBtn) editLocationBtn.disabled = false;
       });
   }
 
@@ -621,17 +734,21 @@ export function initPreviewMapVenueFeatures(
 
   map.on("click", (e: L.LeafletMouseEvent) => {
     if (!editLocationMode) return;
+    if (handleDragInProgress) return;
     const { lat, lng } = e.latlng;
     if (showLocation) {
-      showLocation = { ...showLocation, lat, lng };
+      const angle = showLocation.angle ?? 0;
+      showLocation = { ...showLocation, lat, lng, angle };
       drawCircleState();
       if (circleCenterMarker) circleCenterMarker.setLatLng(e.latlng);
       if (circleHandleMarker)
-        circleHandleMarker.setLatLng(latLngAtBearing(e.latlng, showLocation.radiusMeters, 0));
+        circleHandleMarker.setLatLng(latLngAtBearing(e.latlng, showLocation.radiusMeters, angle));
     } else {
-      const radiusMeters = getDefaultRadiusMeters();
-      showLocation = { lat, lng, radiusMeters, requestsGPS: false };
-      drawCircleState(true);
+      const radiusMeters = 100;
+      const requestsGPS = options?.getRequestsGPS?.() ?? false;
+      showLocation = { lat, lng, radiusMeters, requestsGPS, angle: 0 };
+      drawCircleState(false);
+      centerOnCircle();
     }
   });
 
@@ -639,15 +756,28 @@ export function initPreviewMapVenueFeatures(
     if (e.key === "Escape") {
       closeSearchResults();
       closeMapClientsDropdown();
-      if (editLocationMode && !showLocation) {
+      if (editLocationMode) {
         setEditLocationMode(false);
+        if (showLocation) drawCircleState();
         updateEditButtonLabel();
       }
     }
   };
   document.addEventListener("keydown", onKeydown);
 
-  const onDocClick = (): void => closeSearchResults();
+  const onDocClick = (e: MouseEvent): void => {
+    closeSearchResults();
+    const target = e.target as Node | null;
+    if (
+      mapClientsDropdownEl &&
+      !mapClientsDropdownEl.hidden &&
+      target &&
+      !mapClientsDropdownEl.contains(target) &&
+      !mapClientsBtnEl?.contains(target)
+    ) {
+      closeMapClientsDropdown();
+    }
+  };
   document.addEventListener("click", onDocClick);
 
   editLocationBtn?.addEventListener("click", () => {
@@ -677,10 +807,15 @@ export function initPreviewMapVenueFeatures(
       if (res.status === 403 || res.status === 404) {
         showLocation = null;
         removeCircleEditLayers();
+        applyMapWrapState();
         syncMapClientsDropdown();
         return;
       }
-      if (!res.ok) return;
+      if (!res.ok) {
+        showLocation = null;
+        removeCircleEditLayers();
+        return;
+      }
       const raw = (await res.json()) as unknown;
       if (!raw || typeof raw !== "object") return;
       const obj = raw as Record<string, unknown>;
@@ -691,13 +826,29 @@ export function initPreviewMapVenueFeatures(
           ? obj.radiusMeters
           : null;
       const requestsGPS = obj.requestsGPS === true;
-      if (lat != null && lng != null && radiusMeters != null) {
-        showLocation = { lat, lng, radiusMeters, requestsGPS };
-        drawCircleState(true);
+      const angle =
+        typeof obj.angle === "number" && Number.isFinite(obj.angle) ? obj.angle : 0;
+      const isLegacyUnset = lat === 0 && lng === 0 && radiusMeters === 100 && angle === 0;
+      const hasValid =
+        lat != null &&
+        lng != null &&
+        radiusMeters != null &&
+        typeof angle === "number" &&
+        Number.isFinite(angle) &&
+        !isLegacyUnset &&
+        lat !== 0 &&
+        lng !== 0;
+      if (hasValid) {
+        showLocation = { lat, lng, radiusMeters, requestsGPS, angle };
+        drawCircleState(false);
+        /* Delay centering so the map has time to load before we fit bounds */
+        setTimeout(() => centerOnCircle(), 450);
       } else {
         showLocation = null;
+        drawCircleState(); /* clear circle, update buttons, hide crosshairs/map-clients */
       }
     } finally {
+      applyMapWrapState();
       syncMapClientsDropdown();
     }
   }
@@ -719,5 +870,7 @@ export function initPreviewMapVenueFeatures(
           syncMapClientsDropdown();
         });
     });
+  } else {
+    applyMapWrapState();
   }
 }

@@ -16,6 +16,7 @@ export interface ShowLocationData {
   lng: number;
   radiusMeters: number;
   requestsGPS: boolean;
+  angle?: number;
 }
 
 export interface PreviewPanelOptions {
@@ -23,6 +24,8 @@ export interface PreviewPanelOptions {
   onShowSaved?: () => void;
   /** Called when show location is saved from the map (e.g. after confirming circle edit) so preview can keep its copy in sync. */
   onShowLocationUpdated?: (data: ShowLocationData) => void;
+  /** Current "Use GPS" toggle state; used when saving location so we don't overwrite it with false. */
+  getRequestsGPS?: () => boolean;
 }
 
 const MIN_DIM = 5;
@@ -70,12 +73,8 @@ export function renderPreviewPanel(
   let requestsGPS = false;
   let showLocation: ShowLocationData | null = null;
   const MIN_RADIUS_METERS = 10;
-  const defaultShowLocation = (): ShowLocationData => ({
-    lat: 0,
-    lng: 0,
-    radiusMeters: Math.max(MIN_RADIUS_METERS, 100),
-    requestsGPS: false,
-  });
+  let enableGpsToggle: (() => void) | null = null;
+  /** No default location: user must place the first circle. Used only for type when sending a known location. */
   if (options) {
     const gpsWrap = document.createElement("div");
     gpsWrap.className = "timeline-preview-gps-wrap";
@@ -87,6 +86,8 @@ export function renderPreviewPanel(
     gpsToggle.className = "mode-switch-toggle gps-toggle timeline-preview-gps-toggle";
     gpsToggle.setAttribute("aria-label", "Use GPS");
     gpsToggle.setAttribute("aria-pressed", "false");
+    gpsToggle.title = "Use GPS";
+    if (showId) gpsToggle.disabled = true;
     gpsToggle.innerHTML = `
       <span class="mode-switch-track">
         <span class="mode-switch-knob"></span>
@@ -95,19 +96,25 @@ export function renderPreviewPanel(
     gpsToggle.addEventListener("click", async () => {
       if (!showId || !options?.onShowSyncing || !options?.onShowSaved) return;
       const next = !requestsGPS;
-      const payload = showLocation ?? defaultShowLocation();
-      const lat = Number(payload.lat);
-      const lng = Number(payload.lng);
-      const radiusMeters = Math.max(
-        MIN_RADIUS_METERS,
-        Number.isFinite(payload.radiusMeters) ? payload.radiusMeters : 100
-      );
-      const body = {
-        lat: Number.isFinite(lat) ? lat : 0,
-        lng: Number.isFinite(lng) ? lng : 0,
-        radiusMeters,
-        requestsGPS: next,
-      };
+      const body =
+        showLocation == null
+          ? {
+              lat: null as number | null,
+              lng: null as number | null,
+              radiusMeters: null as number | null,
+              angle: null as number | null,
+              requestsGPS: next,
+            }
+          : {
+              lat: showLocation.lat,
+              lng: showLocation.lng,
+              radiusMeters: Math.max(
+                MIN_RADIUS_METERS,
+                Number.isFinite(showLocation.radiusMeters) ? showLocation.radiusMeters : 100
+              ),
+              angle: Number.isFinite(showLocation.angle) ? showLocation.angle : 0,
+              requestsGPS: next,
+            };
       options.onShowSyncing();
       try {
         const res = await fetch(`/api/admin/show-workspaces/${showId}/show-location`, {
@@ -118,7 +125,7 @@ export function renderPreviewPanel(
         });
         if (res.ok) {
           requestsGPS = next;
-          showLocation = { ...payload, requestsGPS: next };
+          if (showLocation) showLocation = { ...showLocation, requestsGPS: next };
           gpsToggle.classList.toggle("gps-toggle--on", next);
           gpsToggle.setAttribute("aria-pressed", String(next));
           setGpsModeView(next);
@@ -129,6 +136,9 @@ export function renderPreviewPanel(
       }
     });
     gpsWrap.appendChild(gpsLabel);
+    enableGpsToggle = () => {
+      gpsToggle.disabled = false;
+    };
     gpsWrap.appendChild(gpsToggle);
     sliderRow.appendChild(gpsWrap);
   }
@@ -185,6 +195,13 @@ export function renderPreviewPanel(
   if (mapArea) wrapper.appendChild(mapArea);
   container.appendChild(wrapper);
 
+  container.addEventListener("mouseenter", () => {
+    container.querySelector(".timeline-preview-map-wrap")?.classList.add("timeline-preview-map-wrap--hover");
+  });
+  container.addEventListener("mouseleave", () => {
+    container.querySelector(".timeline-preview-map-wrap")?.classList.remove("timeline-preview-map-wrap--hover");
+  });
+
   let venueFeaturesInitialized = false;
 
   function initPreviewMap(): void {
@@ -215,6 +232,7 @@ export function renderPreviewPanel(
             showLocation = data;
             options?.onShowLocationUpdated?.(data);
           },
+          getRequestsGPS: () => requestsGPS,
         });
       }
     });
@@ -248,26 +266,57 @@ export function renderPreviewPanel(
         const res = await fetch(`/api/admin/show-workspaces/${showId}/show-location`, {
           credentials: "include",
         });
-        if (res.ok) {
-          const data = (await res.json()) as ShowLocationData;
-          if (
-            typeof data.lat === "number" &&
-            typeof data.lng === "number" &&
-            typeof data.radiusMeters === "number" &&
-            typeof data.requestsGPS === "boolean"
-          ) {
-            showLocation = data;
-            requestsGPS = data.requestsGPS;
-            setGpsModeView(requestsGPS);
-            if (gpsToggleBtn) {
-              gpsToggleBtn.classList.toggle("gps-toggle--on", requestsGPS);
-              gpsToggleBtn.setAttribute("aria-pressed", String(requestsGPS));
-            }
+        if (!res.ok) {
+          /* 404 or other error: treat as no location (backend may create file on first GET) */
+          showLocation = null;
+          enableGpsToggle?.();
+          return;
+        }
+        const data = (await res.json()) as Record<string, unknown>;
+        const lat = typeof data.lat === "number" && Number.isFinite(data.lat) ? data.lat : null;
+        const lng = typeof data.lng === "number" && Number.isFinite(data.lng) ? data.lng : null;
+        const radiusMeters =
+          typeof data.radiusMeters === "number" &&
+          Number.isFinite(data.radiusMeters) &&
+          (data.radiusMeters as number) > 0
+            ? (data.radiusMeters as number)
+            : null;
+        const angle =
+          typeof data.angle === "number" && Number.isFinite(data.angle) ? (data.angle as number) : 0;
+        const isLegacyUnset =
+          lat === 0 && lng === 0 && radiusMeters === 100 && angle === 0;
+        const hasLocation =
+          lat != null &&
+          lng != null &&
+          radiusMeters != null &&
+          typeof angle === "number" &&
+          Number.isFinite(angle) &&
+          !isLegacyUnset &&
+          lat !== 0 &&
+          lng !== 0;
+        if (typeof data.requestsGPS === "boolean") {
+          requestsGPS = data.requestsGPS;
+          setGpsModeView(requestsGPS);
+          if (gpsToggleBtn) {
+            gpsToggleBtn.classList.toggle("gps-toggle--on", requestsGPS);
+            gpsToggleBtn.setAttribute("aria-pressed", String(requestsGPS));
           }
         }
+        if (hasLocation) {
+          showLocation = {
+            lat: lat as number,
+            lng: lng as number,
+            radiusMeters: radiusMeters as number,
+            requestsGPS: data.requestsGPS === true,
+            angle,
+          };
+        } else {
+          showLocation = null;
+        }
       } catch {
-        /* keep defaults */
+        showLocation = null;
       }
+      enableGpsToggle?.();
     })();
   }
 

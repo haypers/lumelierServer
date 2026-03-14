@@ -172,15 +172,16 @@ pub async fn post_create_show(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write timeline.json"))?;
 
-    let show_location_json = serde_json::json!({
-        "lat": 0.0,
-        "lng": 0.0,
-        "radiusMeters": 100.0,
-        "requestsGPS": false
-    });
+    let show_location_initial = ShowLocationFile {
+        lat: None,
+        lng: None,
+        radius_meters: None,
+        angle: None,
+        requests_gps: false,
+    };
     fs::write(
         show_dir.join(SHOW_LOCATION_FILENAME),
-        serde_json::to_string(&show_location_json).unwrap(),
+        serde_json::to_string(&show_location_initial).unwrap(),
     )
     .await
     .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to write ShowLocation.json"))?;
@@ -391,30 +392,56 @@ pub async fn put_track_splitter_tree(
 
 const SHOW_LOCATION_FILENAME: &str = "ShowLocation.json";
 
-#[derive(Deserialize)]
-struct ShowLocationBody {
-    lat: f64,
-    lng: f64,
+/// ShowLocation.json on disk: null lat/lng/radius/angle means no pin placed yet.
+#[derive(Serialize, Deserialize)]
+struct ShowLocationFile {
+    lat: Option<f64>,
+    lng: Option<f64>,
     #[serde(rename = "radiusMeters")]
-    radius_meters: f64,
-    #[serde(rename = "requestsGPS")]
+    radius_meters: Option<f64>,
+    #[serde(default)]
+    angle: Option<f64>,
+    #[serde(rename = "requestsGPS", default)]
     requests_gps: bool,
 }
 
-fn validate_show_location(body: &ShowLocationBody) -> Result<(), StatusCode> {
-    if !body.lat.is_finite() || !body.lng.is_finite() || !body.radius_meters.is_finite() {
-        return Err(StatusCode::BAD_REQUEST);
+fn validate_show_location_optional(body: &ShowLocationFile) -> Result<(), StatusCode> {
+    if let Some(lat) = body.lat {
+        if !lat.is_finite() || !(-90.0..=90.0).contains(&lat) {
+            return Err(StatusCode::BAD_REQUEST);
+        }
     }
-    if !(-90.0..=90.0).contains(&body.lat) || !(-180.0..=180.0).contains(&body.lng) {
-        return Err(StatusCode::BAD_REQUEST);
+    if let Some(lng) = body.lng {
+        if !lng.is_finite() || !(-180.0..=180.0).contains(&lng) {
+            return Err(StatusCode::BAD_REQUEST);
+        }
     }
-    if body.radius_meters <= 0.0 {
-        return Err(StatusCode::BAD_REQUEST);
+    if let Some(r) = body.radius_meters {
+        if !r.is_finite() || r <= 0.0 {
+            return Err(StatusCode::BAD_REQUEST);
+        }
+    }
+    if let Some(a) = body.angle {
+        if !a.is_finite() {
+            return Err(StatusCode::BAD_REQUEST);
+        }
     }
     Ok(())
 }
 
-/// GET /api/admin/show-workspaces/:show_id/show-location — returns ShowLocation.json for the show. 404 if file missing.
+/// Default show location (no circle): all null, requestsGPS false. Used when creating a new show or when file is missing.
+fn show_location_default_json() -> String {
+    let default = ShowLocationFile {
+        lat: None,
+        lng: None,
+        radius_meters: None,
+        angle: None,
+        requests_gps: false,
+    };
+    serde_json::to_string(&default).unwrap()
+}
+
+/// GET /api/admin/show-workspaces/:show_id/show-location — returns ShowLocation.json for the show. If file is missing, creates it with null values and returns that.
 pub async fn get_show_location(
     State(state): State<AdminAppState>,
     Path(show_id): Path<String>,
@@ -429,16 +456,22 @@ pub async fn get_show_location(
         .ok_or(StatusCode::UNAUTHORIZED)?;
     check_show_access(&state, &username, &show_id).await?;
     let path = state.shows_path.join(&show_id).join(SHOW_LOCATION_FILENAME);
-    let bytes = fs::read(&path)
-        .await
-        .map_err(|e| match e.kind() {
-            std::io::ErrorKind::NotFound => StatusCode::NOT_FOUND,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+    let bytes = match fs::read(&path).await {
+        Ok(b) => b,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let default_json = show_location_default_json();
+            if fs::write(&path, &default_json).await.is_err() {
+                return Err(StatusCode::INTERNAL_SERVER_ERROR);
+            }
+            default_json.into_bytes()
+        }
+        Err(_) => return Err(StatusCode::INTERNAL_SERVER_ERROR),
+    };
     Ok(([("content-type", "application/json")], bytes))
 }
 
-/// PUT /api/admin/show-workspaces/:show_id/show-location — write ShowLocation.json. Expects { lat, lng, radiusMeters, requestsGPS }.
+/// PUT /api/admin/show-workspaces/:show_id/show-location — write ShowLocation.json.
+/// Accepts { lat?, lng?, radiusMeters?, angle?, requestsGPS }; null location fields mean no pin placed.
 pub async fn put_show_location(
     State(state): State<AdminAppState>,
     Path(show_id): Path<String>,
@@ -461,17 +494,23 @@ pub async fn put_show_location(
     check_show_access(&state, &username, &show_id)
         .await
         .map_err(|code| (code, "Access denied".to_string()))?;
-    let value: ShowLocationBody = serde_json::from_slice(&body).map_err(|e| {
+    let value: ShowLocationFile = serde_json::from_slice(&body).map_err(|e| {
         (StatusCode::BAD_REQUEST, format!("Invalid JSON: {}", e))
     })?;
-    validate_show_location(&value).map_err(|_| {
+    validate_show_location_optional(&value).map_err(|_| {
         (
             StatusCode::BAD_REQUEST,
-            "Validation failed: lat in [-90,90], lng in [-180,180], radiusMeters > 0".to_string(),
+            "Validation failed: lat in [-90,90], lng in [-180,180], radiusMeters > 0 when set".to_string(),
         )
     })?;
     let path = state.shows_path.join(&show_id).join(SHOW_LOCATION_FILENAME);
-    fs::write(&path, &body).await.map_err(|_| {
+    let json = serde_json::to_string(&value).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Failed to serialize".to_string(),
+        )
+    })?;
+    fs::write(&path, &json).await.map_err(|_| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             "Failed to write file".to_string(),
@@ -488,7 +527,7 @@ pub async fn merge_requests_gps_into_timeline(
 ) {
     let path = state.shows_path.join(show_id).join(SHOW_LOCATION_FILENAME);
     if let Ok(bytes) = fs::read(&path).await {
-        if let Ok(show_loc) = serde_json::from_slice::<ShowLocationBody>(&bytes) {
+        if let Ok(show_loc) = serde_json::from_slice::<ShowLocationFile>(&bytes) {
             timeline["requestsGPS"] = serde_json::json!(show_loc.requests_gps);
         }
     }

@@ -222,13 +222,47 @@
   right: 8px;
   z-index: 500;
   pointer-events: none;
+  transition: opacity 0.2s ease;
 }
 .timeline-preview-map-overlay-search > * {
   pointer-events: auto;
 }
+.timeline-preview-map-wrap:not(.timeline-preview-map-wrap--hover):not(.timeline-preview-map-wrap--editing) .timeline-preview-map-overlay-search {
+  opacity: 0;
+  pointer-events: none;
+}
+.timeline-preview-map-overlay-top-right-inner {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: flex-end;
+}
+.timeline-preview-map-center-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 34px;
+  padding: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-elevated);
+  color: var(--text);
+}
+.timeline-preview-map-center-btn:hover {
+  background: var(--border);
+}
+.timeline-preview-map-center-btn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
+}
 .timeline-preview-map-overlay-bottom-left {
   position: absolute;
-  bottom: 8px;
+  bottom: 24px;
   left: 8px;
   right: 8px;
   z-index: 500;
@@ -238,10 +272,35 @@
   gap: 8px;
   align-items: center;
   pointer-events: none;
+  transition: opacity 0.2s ease;
 }
 .timeline-preview-map-overlay-bottom-left > * {
   pointer-events: auto;
 }
+.timeline-preview-map-wrap:not(.timeline-preview-map-wrap--hover):not(.timeline-preview-map-wrap--editing) .timeline-preview-map-overlay-bottom-left {
+  opacity: 0;
+  pointer-events: none;
+}
+.timeline-preview-map-wrap:not(.timeline-preview-map-wrap--hover):not(.timeline-preview-map-wrap--editing) .timeline-preview-map-container .leaflet-control-zoom {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+/* Explicit editing state: hide/show UI by mode (CSS so it stays in sync).
+ * Crosshairs and Map Clients use the same rule: only visible when --has-location (valid circle). */
+.timeline-preview-map-wrap--editing .timeline-preview-map-clients-wrap,
+.timeline-preview-map-wrap:not(.timeline-preview-map-wrap--has-location) .timeline-preview-map-clients-wrap,
+.timeline-preview-map-wrap:not(.timeline-preview-map-wrap--has-location) .timeline-preview-map-center-wrap {
+  display: none !important;
+}
+.timeline-preview-map-wrap:not(.timeline-preview-map-wrap--editing) .timeline-preview-map-search-wrap {
+  display: none !important;
+}
+.timeline-preview-map-center-wrap {
+  display: inline-flex;
+}
+
 .timeline-preview-map-clients-btn {
   white-space: nowrap;
 }
@@ -363,6 +422,10 @@
 .timeline-preview-map-btn:hover:not(:disabled) {
   background: var(--border);
 }
+.timeline-preview-map-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
 .timeline-preview-map-btn svg {
   width: 16px;
   height: 16px;
@@ -399,10 +462,11 @@
 .timeline-preview-map-clients-dropdown {
   position: absolute;
   bottom: 100%;
-  left: 0;
+  left: 50%;
+  transform: translateX(-50%);
   margin-bottom: 4px;
-  min-width: 320px;
-  max-width: min(400px, calc(100vw - 24px));
+  width: min(360px, calc(100% - 16px));
+  min-width: 280px;
   max-height: 320px;
   overflow: auto;
   background: var(--bg-elevated);
@@ -411,6 +475,7 @@
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
   z-index: 1000;
   padding: 8px;
+  box-sizing: border-box;
 }
 .timeline-preview-map-wrap .map-clients-section {
   display: flex;
@@ -531,6 +596,17 @@
   border: none;
 }
 .timeline-preview-map-show-location-center span {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #4a7dc7;
+}
+.timeline-preview-map-show-location-radius-dot {
+  background: none;
+  border: none;
+}
+.timeline-preview-map-show-location-radius-dot span {
   display: block;
   width: 8px;
   height: 8px;
