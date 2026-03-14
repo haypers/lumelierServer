@@ -8,7 +8,6 @@
 
 import "leaflet/dist/leaflet.css";
 import L from "leaflet";
-import "./styles.css";
 import { initPreviewMapVenueFeatures } from "./venue-map-features";
 
 export interface ShowLocationData {

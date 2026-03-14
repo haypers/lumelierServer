@@ -11,11 +11,11 @@ import { createCustomTimelineView, type CustomTimelineView } from "./timelineEdi
 import { createInfoBubble } from "../../components/info-bubble";
 import { createResizableSplit } from "../../components/resizable-split";
 import { createTabbedPane } from "../../components/tabbed-pane";
-import type { DetailsPanelUpdates } from "./details-panel";
-import { updateDetailsPanel } from "./details-panel";
-import { renderPreviewPanel } from "./preview";
-import { renderAssetsPanel } from "./assets";
-import { createAssetDropOnTimelineHandler } from "./asset-drop-onto-timeline";
+import type { DetailsPanelUpdates } from "./pageComponents/details-panel";
+import { updateDetailsPanel } from "./pageComponents/details-panel";
+import { renderPreviewPanel } from "./pageComponents/preview";
+import { renderAssetsPanel } from "./pageComponents/assets";
+import { createAssetDropOnTimelineHandler } from "./timelineEditor/asset-drop-onto-timeline";
 import {
   exportState,
   importState,
@@ -28,15 +28,15 @@ import {
   openTrackAssignmentsDropdown,
   setTrackAssignmentsRoot,
   isTrackAssignmentsDropdownOpen,
-} from "./track-assignments";
-import { getDefaultTrackAssignments } from "./track-assignments";
-import type { TrackAssignmentsRoot } from "./track-assignments";
+} from "./pageComponents/track-assignments";
+import { getDefaultTrackAssignments } from "./pageComponents/track-assignments";
+import type { TrackAssignmentsRoot } from "./pageComponents/track-assignments";
 export type { TimelineItemPayload, TimelineStateJSON } from "./types";
 export type { TemplateType } from "./templates";
 export { getTemplateState, applyTemplateToShow, getDefaultNewShowState } from "./templates";
 import { getDefaultNewShowState } from "./templates";
-import { openModal as openVideoImportModal } from "./import-from-video";
-import type { VideoImportEvent } from "./import-from-video";
+import { openModal as openVideoImportModal } from "./pageComponents/import-from-video";
+import type { VideoImportEvent } from "./pageComponents/import-from-video";
 import {
   getOverlapResolution,
   isEditingRangeEngulfed,
@@ -258,7 +258,7 @@ function getReadheadSecClamped(): number {
   return Math.max(0, readheadSec);
 }
 
-function getItemForDetails(id: string): import("./details-panel").DetailsPanelItem | null {
+function getItemForDetails(id: string): import("./pageComponents/details-panel").DetailsPanelItem | null {
   const it = items.find((i) => i.id === id);
   if (!it) return null;
   return {

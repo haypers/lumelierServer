@@ -1,6 +1,6 @@
-import type { TimelineItemPayload } from "./types";
-import type { RangePositionOverlay } from "./types";
-import { dateToSecFloat } from "./types";
+import type { TimelineItemPayload } from "../types";
+import type { RangePositionOverlay } from "../types";
+import { dateToSecFloat } from "../types";
 import { createLayerTrackPicker } from "./layer-track-picker";
 import { renderPositionWidget } from "./details-panel/position-widget";
 
@@ -179,7 +179,7 @@ export function updateDetailsPanel(
       createLayerTrackPicker({
         layers,
         value: String(item.group),
-        onChange: (layerId) => updateItem(itemIdStr, { layerId }),
+        onChange: (layerId: string) => updateItem(itemIdStr, { layerId }),
         ariaLabel: "Layer by name",
       })
     );

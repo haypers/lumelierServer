@@ -3,8 +3,8 @@
  * create a range with the right duration (file duration for audio/video, 15% viewport for images/no duration) and hand off to timeline drag.
  */
 
-import type { CustomTimelineView } from "./timelineEditor/custom-timeline";
-import type { AssetDragCallbacks, AssetDragFileInfo } from "./assets/asset-drag";
+import type { CustomTimelineView } from "./custom-timeline";
+import type { AssetDragCallbacks, AssetDragFileInfo } from "../pageComponents/assets/asset-drag";
 
 export interface AssetDropOnTimelineOptions {
   getView: () => CustomTimelineView | null;

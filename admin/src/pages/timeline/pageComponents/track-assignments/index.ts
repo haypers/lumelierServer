@@ -1,6 +1,5 @@
-import "./styles.css";
-import { openModal } from "../../../components/modal";
-import trashIcon from "../../../icons/trash.svg?raw";
+import { openModal } from "../../../../components/modal";
+import trashIcon from "../../../../icons/trash.svg?raw";
 import type { TrackAssignmentNode, TrackAssignmentsRoot } from "./types";
 import {
   type TrackAssignmentPath,

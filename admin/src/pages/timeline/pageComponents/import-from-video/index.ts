@@ -1,5 +1,4 @@
-import "./styles.css";
-import { openModal as openGlobalModal } from "../../../components/modal";
+import { openModal as openGlobalModal } from "../../../../components/modal";
 
 export interface LayerInfo {
   id: string;

@@ -5,5 +5,9 @@
 @import "./details-panel.css";
 @import "./layer-track-picker.css";
 @import "./timeline.css";
-@import "../timelineEditor/range-overlap/partial-overlap/styles.css";
+@import "./partial-overlap.css";
 @import "./layer-labels.css";
+@import "./import-from-video.css";
+@import "./track-assignments.css";
+@import "./assets.css";
+@import "./preview.css";

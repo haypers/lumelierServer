@@ -3,7 +3,7 @@
  * Used when dragging an asset toward the timeline (no drop target yet).
  */
 
-import dragHandleIcon from "../../../icons/drag-handle.svg?raw";
+import dragHandleIcon from "../../../../icons/drag-handle.svg?raw";
 
 export const DRAGGING_CLIP_WIDTH_PX = 120;
 export const DRAGGING_CLIP_HEIGHT_PX = 20;

@@ -5,7 +5,7 @@
  * At hs=vs=1 the media's shortest side equals the circle diameter (portrait: width=diameter; landscape: height=diameter).
  */
 
-import type { RangePositionOverlay } from "../types";
+import type { RangePositionOverlay } from "../../types";
 
 const DEFAULT_OVERLAY: RangePositionOverlay = {
   x: 0,

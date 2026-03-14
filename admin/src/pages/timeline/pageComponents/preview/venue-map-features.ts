@@ -3,18 +3,18 @@
  */
 
 import L from "leaflet";
-import searchIcon from "../../../icons/search.svg?raw";
-import dragHandleIcon from "../../../icons/drag-handle.svg?raw";
-import animatedLoadingIcon from "../../../icons/animatedLoadingIcon.svg?raw";
-import mapIcon from "../../../icons/map.svg?raw";
-import eyeIcon from "../../../icons/eye.svg?raw";
-import noEyeIcon from "../../../icons/no-eye.svg?raw";
-import carrotIcon from "../../../icons/carrot.svg?raw";
-import lightOffIcon from "../../../icons/light-off.svg?raw";
-import lightOnIcon from "../../../icons/light-on.svg?raw";
-import robotIcon from "../../../icons/robot.svg?raw";
-import crosshairIcon from "../../../icons/crosshair.svg?raw";
-import { createInfoBubble } from "../../../components/info-bubble";
+import searchIcon from "../../../../icons/search.svg?raw";
+import dragHandleIcon from "../../../../icons/drag-handle.svg?raw";
+import animatedLoadingIcon from "../../../../icons/animatedLoadingIcon.svg?raw";
+import mapIcon from "../../../../icons/map.svg?raw";
+import eyeIcon from "../../../../icons/eye.svg?raw";
+import noEyeIcon from "../../../../icons/no-eye.svg?raw";
+import carrotIcon from "../../../../icons/carrot.svg?raw";
+import lightOffIcon from "../../../../icons/light-off.svg?raw";
+import lightOnIcon from "../../../../icons/light-on.svg?raw";
+import robotIcon from "../../../../icons/robot.svg?raw";
+import crosshairIcon from "../../../../icons/crosshair.svg?raw";
+import { createInfoBubble } from "../../../../components/info-bubble";
 
 const NOMINATIM_USER_AGENT = "Lumelier Light Show Planner";
 const SEARCH_TIMEOUT_MS = 12_000;

@@ -1,7 +1,7 @@
-import type { TrackAssignmentsRoot } from "./track-assignments";
-import type { OpenModalOptions } from "./import-from-video";
-import type { VideoImportEvent } from "./import-from-video";
-import { updateDetailsPanel } from "./details-panel";
+import type { TrackAssignmentsRoot } from "./pageComponents/track-assignments";
+import type { OpenModalOptions } from "./pageComponents/import-from-video";
+import type { VideoImportEvent } from "./pageComponents/import-from-video";
+import { updateDetailsPanel } from "./pageComponents/details-panel";
 import {
   requestBroadcastRestart,
   requestBroadcastPlay,

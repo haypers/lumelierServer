@@ -2,14 +2,13 @@
  * Assets tab: upload, list, refresh, and download for TimelineMedia files.
  */
 
-import "./styles.css";
-import uploadIcon from "../../../icons/upload.svg?raw";
-import refreshIcon from "../../../icons/refresh.svg?raw";
-import downloadIcon from "../../../icons/download.svg?raw";
-import uploadingIcon from "../../../icons/uploading.svg?raw";
-import uploadedIcon from "../../../icons/uploaded.svg?raw";
-import trashIcon from "../../../icons/trash.svg?raw";
-import { attachTooltipWhen } from "../../../components/popup-tooltip";
+import uploadIcon from "../../../../icons/upload.svg?raw";
+import refreshIcon from "../../../../icons/refresh.svg?raw";
+import downloadIcon from "../../../../icons/download.svg?raw";
+import uploadingIcon from "../../../../icons/uploading.svg?raw";
+import uploadedIcon from "../../../../icons/uploaded.svg?raw";
+import trashIcon from "../../../../icons/trash.svg?raw";
+import { attachTooltipWhen } from "../../../../components/popup-tooltip";
 import {
   createDragHandleCell,
   type ExtensionKind,
