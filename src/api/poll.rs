@@ -167,6 +167,44 @@ fn filter_timeline_by_track(timeline: &serde_json::Value, track_index: u32) -> A
     Arc::new(serde_json::Value::Object(out))
 }
 
+/// Filter timeline to near-future window: only events with startSec in [readhead_sec, readhead_sec + lookahead_sec].
+/// Ranges are omitted (events-only interpretation for now). Preserves version, layers, and other top-level keys.
+fn filter_timeline_to_near_future(
+    timeline: &serde_json::Value,
+    readhead_sec: f64,
+    lookahead_sec: f64,
+) -> Arc<serde_json::Value> {
+    let obj = match timeline.as_object() {
+        Some(o) => o,
+        None => return Arc::new(timeline.clone()),
+    };
+    let items = match obj.get("items").and_then(|v| v.as_array()) {
+        Some(arr) => arr,
+        None => return Arc::new(timeline.clone()),
+    };
+    let end_sec = readhead_sec + lookahead_sec;
+    let filtered: Vec<serde_json::Value> = items
+        .iter()
+        .filter(|it| {
+            let kind = it.get("kind").and_then(|v| v.as_str());
+            if kind != Some("event") {
+                return false;
+            }
+            let start = it.get("startSec").and_then(|v| v.as_f64()).unwrap_or(0.0);
+            start >= readhead_sec && start <= end_sec
+        })
+        .cloned()
+        .collect();
+    let mut out = serde_json::Map::new();
+    for (k, v) in obj.iter() {
+        if k != "items" {
+            out.insert(k.clone(), v.clone());
+        }
+    }
+    out.insert("items".to_string(), serde_json::Value::Array(filtered));
+    Arc::new(serde_json::Value::Object(out))
+}
+
 #[derive(Deserialize)]
 pub struct PollQuery {
     pub show: Option<String>,
@@ -299,8 +337,14 @@ async fn poll_impl(
     let track_index = registry.get_track_index(&device_id);
 
     let snap = broadcast.load_full();
+    let networking = bucket.networking.load();
     let broadcast_value = snap.timeline_parsed.as_ref().map(|timeline| {
-        let filtered_timeline = filter_timeline_by_track(timeline, track_index);
+        let by_track = filter_timeline_by_track(timeline, track_index);
+        let filtered_timeline = filter_timeline_to_near_future(
+            &by_track,
+            snap.readhead_sec,
+            networking.timeline_lookahead_sec,
+        );
         PollBroadcast {
             timeline: filtered_timeline,
             readhead_sec: snap.readhead_sec,
@@ -327,5 +371,9 @@ async fn poll_impl(
         "X-Track-Id",
         HeaderValue::from_str(&track_index.to_string()).expect("track index is valid header value"),
     );
+    let poll_interval_header = format!("{:.2}", networking.poll_interval_sec);
+    if let Ok(h) = HeaderValue::from_str(&poll_interval_header) {
+        response.headers_mut().insert("X-Requested-Poll-Interval-Sec", h);
+    }
     Ok(response)
 }

@@ -1,0 +1,68 @@
+/* Networking tab: poll interval and timeline lookahead. Reuses detail-input styling from details-panel. */
+
+.editor-tab-content--networking {
+  padding: var(--space);
+}
+
+.networking-panel__heading {
+  margin: 0 0 var(--space);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.networking-panel__row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: var(--space);
+  font-size: 13px;
+}
+
+.networking-panel__label-wrap {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+}
+
+.networking-panel__label-wrap label {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.networking-panel__field-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* Match .details-panel .detail-input so number inputs look consistent with timeline details panel */
+.editor-tab-content--networking .detail-input {
+  width: 100%;
+  max-width: 200px;
+  padding: 6px 8px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.editor-tab-content--networking .detail-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.networking-panel__error {
+  font-size: 12px;
+  color: var(--danger, #c00);
+  min-height: 0;
+  overflow: hidden;
+  transition: min-height 0.15s ease-out;
+}
+
+.networking-panel__error--visible {
+  min-height: 1.4em;
+}

@@ -19,6 +19,7 @@ use tokio::process::Command;
 use crate::api::AdminAppState;
 use crate::auth;
 use crate::broadcast::BroadcastSnapshot;
+use crate::live_shows::ShowNetworkingConfig;
 use crate::time;
 use crate::timeline_validator;
 use crate::track_splitter_tree::TrackSplitterTree;
@@ -344,6 +345,23 @@ pub async fn put_timeline(
 }
 
 const TRACK_SPLITTER_TREE_FILENAME: &str = "trackSplitterTree.json";
+const NETWORKING_FILENAME: &str = "networking.json";
+
+fn validate_networking_config(c: &ShowNetworkingConfig) -> Result<(), StatusCode> {
+    if !c.poll_interval_sec.is_finite()
+        || c.poll_interval_sec < 1.0
+        || c.poll_interval_sec > 10.0
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    if !c.timeline_lookahead_sec.is_finite()
+        || c.timeline_lookahead_sec < c.poll_interval_sec + 1.0
+        || c.timeline_lookahead_sec > 60.0
+    {
+        return Err(StatusCode::BAD_REQUEST);
+    }
+    Ok(())
+}
 
 /// GET /api/admin/show-workspaces/:show_id/track-splitter-tree — returns trackSplitterTree.json for the show. 404 if file missing.
 pub async fn get_track_splitter_tree(
@@ -395,6 +413,69 @@ pub async fn put_track_splitter_tree(
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     state.log.log_server_and_show(&show_id, "WORKSPACE", "TrackSplitterPut", &format!("show_id={} success", show_id));
+    Ok(StatusCode::OK)
+}
+
+/// GET /api/admin/show-workspaces/:show_id/networking — returns poll interval and timeline lookahead. Uses defaults if file missing.
+pub async fn get_networking(
+    State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+) -> Result<Json<ShowNetworkingConfig>, StatusCode> {
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let _username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &_username, &show_id).await?;
+    let path = state.shows_path.join(&show_id).join(NETWORKING_FILENAME);
+    let config = match fs::read(&path).await {
+        Ok(bytes) => serde_json::from_slice::<ShowNetworkingConfig>(&bytes)
+            .ok()
+            .filter(|c| validate_networking_config(c).is_ok())
+            .unwrap_or_default(),
+        Err(_) => ShowNetworkingConfig::default(),
+    };
+    Ok(Json(config))
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PutNetworkingBody {
+    pub poll_interval_sec: f64,
+    pub timeline_lookahead_sec: f64,
+}
+
+/// PUT /api/admin/show-workspaces/:show_id/networking — validate, write networking.json, and update live bucket if show is live.
+pub async fn put_networking(
+    State(state): State<AdminAppState>,
+    Path(show_id): Path<String>,
+    headers: HeaderMap,
+    Json(body): Json<PutNetworkingBody>,
+) -> Result<StatusCode, StatusCode> {
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
+    let _username = state
+        .auth
+        .sessions
+        .get(&session_id)
+        .await
+        .ok_or(StatusCode::UNAUTHORIZED)?;
+    check_show_access(&state, &_username, &show_id).await?;
+    let config = ShowNetworkingConfig {
+        poll_interval_sec: body.poll_interval_sec,
+        timeline_lookahead_sec: body.timeline_lookahead_sec,
+    };
+    validate_networking_config(&config)?;
+    let path = state.shows_path.join(&show_id).join(NETWORKING_FILENAME);
+    let json = serde_json::to_string(&config).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    fs::write(&path, json)
+        .await
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    if let Some(bucket) = state.live_shows.get(&show_id) {
+        bucket.networking.store(Arc::new(config));
+    }
     Ok(StatusCode::OK)
 }
 
@@ -1130,6 +1211,18 @@ pub async fn post_go_live(
                 .store(Arc::new(Arc::new(Some(tree))));
         }
     }
+
+    // Load networking config (poll interval, timeline lookahead) for poll response and interpreter.
+    let networking_path = state.shows_path.join(&show_id).join(NETWORKING_FILENAME);
+    if let Ok(bytes) = fs::read(&networking_path).await {
+        if let Ok(parsed) = serde_json::from_slice::<ShowNetworkingConfig>(&bytes) {
+            if validate_networking_config(&parsed).is_ok() {
+                bucket.networking.store(Arc::new(parsed));
+            }
+            // If invalid, keep bucket default (already set in LiveShowState::new).
+        }
+    }
+    // If file missing, bucket keeps default (2 s, 10 s).
 
     state.log.log_server_and_show(&show_id, "SHOW", "GoLive", &format!("show_id={} username={}", show_id, username));
 

@@ -372,6 +372,12 @@ async fn client_poll_loop(
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<u32>().ok())
             .unwrap_or(1);
+        let requested_poll_interval_sec: Option<f64> = response
+            .headers()
+            .get("x-requested-poll-interval-sec")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<f64>().ok())
+            .filter(|&s| s >= 1.0 && s <= 10.0);
         let body: PollResponse = match response.json().await {
             Ok(b) => b,
             Err(_) => continue,
@@ -450,15 +456,19 @@ async fn client_poll_loop(
         state.last_network_rtt_ms = Some(network_rtt_ms);
         state.last_processing_ms = Some(processing_total_ms);
         state.last_effective_rtt_ms = Some(effective_rtt_ms);
-        let anchors = curve_anchors(&record, "pingsEverySecDist");
-        let next_poll_sec = record_sample_sec(
-            &bucket.store,
-            &client_id,
-            "pingsEverySecDist",
-            &anchors,
-            &mut rand::thread_rng(),
-        );
-        state.next_poll_at_ms = deliver_at + (next_poll_sec * 1000.0) as u64;
+        state.next_poll_at_ms = if let Some(sec) = requested_poll_interval_sec {
+            deliver_at + (sec * 1000.0) as u64
+        } else {
+            let anchors = curve_anchors(&record, "pingsEverySecDist");
+            let next_poll_sec = record_sample_sec(
+                &bucket.store,
+                &client_id,
+                "pingsEverySecDist",
+                &anchors,
+                &mut rand::thread_rng(),
+            );
+            deliver_at + (next_poll_sec * 1000.0) as u64
+        };
         let error_ms = server_time_est - (deliver_at as i64);
         let _ = bucket.store.update_display(
             &client_id,

@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use arc_swap::ArcSwap;
 use dashmap::DashMap;
+use serde::{Deserialize, Serialize};
 
 use crate::broadcast::BroadcastSnapshot;
 use crate::connections::ConnectionRegistry;
@@ -16,11 +17,31 @@ use crate::track_splitter_tree::TrackSplitterTree;
 /// Optional track splitter tree for this show (loaded at go-live from trackSplitterTree.json).
 pub type TrackSplitterTreeRef = Arc<ArcSwap<Arc<Option<TrackSplitterTree>>>>;
 
+/// Per-show networking config: poll interval and timeline lookahead. Defaults: 2 s, 10 s.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ShowNetworkingConfig {
+    pub poll_interval_sec: f64,
+    pub timeline_lookahead_sec: f64,
+}
+
+impl Default for ShowNetworkingConfig {
+    fn default() -> Self {
+        Self {
+            poll_interval_sec: 2.0,
+            timeline_lookahead_sec: 10.0,
+        }
+    }
+}
+
+pub type ShowNetworkingConfigRef = Arc<ArcSwap<ShowNetworkingConfig>>;
+
 #[derive(Clone)]
 pub struct LiveShowState {
     pub registry: Arc<ConnectionRegistry>,
     pub broadcast: Arc<ArcSwap<BroadcastSnapshot>>,
     pub track_splitter_tree: TrackSplitterTreeRef,
+    pub networking: ShowNetworkingConfigRef,
 }
 
 impl LiveShowState {
@@ -29,6 +50,7 @@ impl LiveShowState {
             registry: Arc::new(ConnectionRegistry::new()),
             broadcast: Arc::new(ArcSwap::from_pointee(BroadcastSnapshot::new())),
             track_splitter_tree: Arc::new(ArcSwap::from_pointee(Arc::new(None))),
+            networking: Arc::new(ArcSwap::from_pointee(ShowNetworkingConfig::default())),
         }
     }
 }

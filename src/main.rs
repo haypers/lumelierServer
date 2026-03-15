@@ -238,6 +238,10 @@ async fn main() {
             get(api::get_track_splitter_tree).put(api::put_track_splitter_tree),
         )
         .route(
+            "/show-workspaces/:show_id/networking",
+            get(api::get_networking).put(api::put_networking),
+        )
+        .route(
             "/show-workspaces/:show_id/show-location",
             get(api::get_show_location).put(api::put_show_location),
         )

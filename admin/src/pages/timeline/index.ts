@@ -15,6 +15,7 @@ import type { DetailsPanelUpdates } from "./pageComponents/details-panel";
 import { updateDetailsPanel } from "./pageComponents/details-panel";
 import { renderPreviewPanel } from "./pageComponents/preview";
 import { renderAssetsPanel } from "./pageComponents/assets";
+import { renderNetworkingPanel } from "./pageComponents/networking";
 import { createAssetDropOnTimelineHandler } from "./timelineEditor/asset-drop-onto-timeline";
 import {
   exportState,
@@ -707,7 +708,7 @@ export function render(container: HTMLElement, showId: string | null): void {
     `;
     const bottomRightSection = document.createElement("section");
     bottomRightSection.className = "bottom-right-panel";
-    bottomRightSection.setAttribute("aria-label", "Preview and assets");
+    bottomRightSection.setAttribute("aria-label", "Preview, assets, and networking");
 
     const { container: splitContainer, panelA, panelB } = createResizableSplit("horizontal", {
       size: 50,
@@ -749,6 +750,19 @@ export function render(container: HTMLElement, showId: string | null): void {
                     addRange(layerId, startSec, durationSec, filePath, rangeType),
                   ensureTimelineCreated: ensureCustomTimelineCreated,
                 }),
+            });
+            return el;
+          },
+        },
+        {
+          id: "networking",
+          label: "Networking",
+          getContent: () => {
+            const el = document.createElement("div");
+            el.className = "editor-tab-content editor-tab-content--networking";
+            renderNetworkingPanel(el, showId, {
+              onSyncing: () => setAutosaveUI("syncing"),
+              onSaved: () => setAutosaveUI("saved"),
             });
             return el;
           },

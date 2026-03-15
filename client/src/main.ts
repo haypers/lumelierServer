@@ -6,7 +6,9 @@ import * as ui from "./ui";
 const DEVICE_ID_STORAGE_KEY = "lumelier_device_id";
 const TRACK_ID_STORAGE_KEY = "lumelier_track_id";
 
-const POLL_INTERVAL_MS = 2500;
+const DEFAULT_POLL_INTERVAL_MS = 2000;
+/** Current poll interval in ms; updated from X-Requested-Poll-Interval-Sec when server sends it. */
+let pollIntervalMs = DEFAULT_POLL_INTERVAL_MS;
 const SHOW_ID_LEN = 8;
 
 /** Parse show_id from URL: path /{show_id} or /{show_id}/ or query ?show= */
@@ -237,7 +239,12 @@ function syncDisplayAndScheduleNext(): void {
   }, delayMs);
 }
 
-async function fetchPoll(showId: string): Promise<{ data: timeline.PollResponse; t0: number; t3: number }> {
+async function fetchPoll(showId: string): Promise<{
+  data: timeline.PollResponse;
+  t0: number;
+  t3: number;
+  requestedPollIntervalSec?: number;
+}> {
   const deviceId = localStorage.getItem(DEVICE_ID_STORAGE_KEY);
   const headers: HeadersInit = {};
   if (deviceId) (headers as Record<string, string>)["X-Device-ID"] = deviceId;
@@ -255,9 +262,17 @@ async function fetchPoll(showId: string): Promise<{ data: timeline.PollResponse;
   const t3 = nowEpochMs();
   lastRttMs = Math.round(t3 - t0);
   if (!res.ok) throw new Error(`poll failed: ${res.status}`);
+  const requestedSec = res.headers.get("X-Requested-Poll-Interval-Sec");
+  let requestedPollIntervalSec: number | undefined;
+  if (requestedSec != null) {
+    const sec = parseFloat(requestedSec);
+    if (Number.isFinite(sec) && sec >= 1 && sec <= 10) {
+      requestedPollIntervalSec = sec;
+    }
+  }
   const data = (await res.json()) as timeline.PollResponse;
   if (data.deviceId) localStorage.setItem(DEVICE_ID_STORAGE_KEY, data.deviceId);
-  return { data, t0, t3 };
+  return { data, t0, t3, requestedPollIntervalSec };
 }
 
 function computeFirstColor(): string {
@@ -351,7 +366,11 @@ function doRender(): void {
 
 async function pollLoop(showId: string): Promise<void> {
   try {
-    const { data, t0, t3 } = await fetchPoll(showId);
+    const { data, t0, t3, requestedPollIntervalSec } = await fetchPoll(showId);
+    if (requestedPollIntervalSec != null) {
+      pollIntervalMs = Math.round(requestedPollIntervalSec * 1000);
+      pollIntervalMs = Math.max(1000, Math.min(10000, pollIntervalMs));
+    }
     const t1 = data.serverTimeAtRecv;
     const t2 = data.serverTimeAtSend ?? data.serverTime;
 
@@ -431,7 +450,7 @@ async function pollLoop(showId: string): Promise<void> {
       });
     }
   }
-  setTimeout(() => pollLoop(showId), POLL_INTERVAL_MS);
+  setTimeout(() => pollLoop(showId), pollIntervalMs);
 }
 
 const showId = getShowIdFromUrl();
