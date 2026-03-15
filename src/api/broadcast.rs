@@ -80,6 +80,7 @@ pub async fn post_broadcast_timeline(
         pause_at_ms: None,
     };
     bucket.broadcast.store(Arc::new(next));
+    state.log.log_server_and_show(&show_id, "BROADCAST", "Timeline", &format!("show_id={} success", show_id));
     Ok(StatusCode::OK)
 }
 
@@ -102,6 +103,12 @@ pub async fn post_broadcast_play(
         pause_at_ms: None,
     };
     bucket.broadcast.store(Arc::new(next));
+    state.log.log_server_and_show(
+        &show_id,
+        "BROADCAST",
+        "Play",
+        &format!("show_id={} readhead_sec={} play_at_ms={}", show_id, readhead_sec, play_at_ms),
+    );
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(SCHEDULED_DELAY_MS)).await;
     });
@@ -129,6 +136,12 @@ pub async fn post_broadcast_pause(
         pause_at_ms: Some(pause_at_ms),
     };
     bucket.broadcast.store(Arc::new(next));
+    state.log.log_server_and_show(
+        &show_id,
+        "BROADCAST",
+        "Pause",
+        &format!("show_id={} pause_at_ms={}", show_id, pause_at_ms),
+    );
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(SCHEDULED_DELAY_MS)).await;
     });

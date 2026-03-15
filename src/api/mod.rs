@@ -36,11 +36,13 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::live_shows::LiveShowStore;
+use crate::log::{LogExt, LogSender};
 
 /// Shared state for the app on port 3002 (poll, health).
 #[derive(Clone)]
 pub struct MainAppState {
     pub live_shows: Arc<LiveShowStore>,
+    pub log: LogSender,
 }
 
 /// Shared state for the admin app (live show store + paths + auth). client_base_url is main server base (e.g. http://host:3002) for live-join-url.
@@ -55,11 +57,24 @@ pub struct AdminAppState {
     pub simulated_server_url: String,
     pub shows_path: PathBuf,
     pub auth: AuthState,
+    pub log: LogSender,
 }
 
 impl AuthStateExt for AdminAppState {
     fn auth(&self) -> &AuthState {
         &self.auth
+    }
+}
+
+impl LogExt for AdminAppState {
+    fn log(&self) -> &LogSender {
+        &self.log
+    }
+}
+
+impl LogExt for MainAppState {
+    fn log(&self) -> &LogSender {
+        &self.log
     }
 }
 

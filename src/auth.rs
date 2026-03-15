@@ -266,20 +266,32 @@ pub struct MeResponse {
     pub username: String,
 }
 
-// --- Handlers (generic over state that has .auth())
-pub async fn post_register<S: AuthStateExt + Clone + Send + Sync>(
+// --- Handlers (generic over state that has .auth() and .log())
+pub async fn post_register<S: AuthStateExt + crate::log::LogExt + Clone + Send + Sync>(
     State(state): State<S>,
     Json(body): Json<RegisterBody>,
 ) -> Result<StatusCode, (StatusCode, &'static str)> {
     match state.auth().users.create(&body.username, &body.password).await {
-        Ok(()) => Ok(StatusCode::CREATED),
-        Err(CreateUserError::InvalidUsername) => Err((StatusCode::BAD_REQUEST, "Invalid username")),
-        Err(CreateUserError::InvalidPassword) => Err((StatusCode::BAD_REQUEST, "Invalid password")),
-        Err(CreateUserError::Exists) => Err((StatusCode::CONFLICT, "Username unavailable")),
+        Ok(()) => {
+            state.log().log_server("AUTH", "Register", &format!("username={} success", body.username));
+            Ok(StatusCode::CREATED)
+        }
+        Err(CreateUserError::InvalidUsername) => {
+            state.log().log_server("AUTH", "Register", "invalid_username");
+            Err((StatusCode::BAD_REQUEST, "Invalid username"))
+        }
+        Err(CreateUserError::InvalidPassword) => {
+            state.log().log_server("AUTH", "Register", "invalid_password");
+            Err((StatusCode::BAD_REQUEST, "Invalid password"))
+        }
+        Err(CreateUserError::Exists) => {
+            state.log().log_server("AUTH", "Register", &format!("username={} exists", body.username));
+            Err((StatusCode::CONFLICT, "Username unavailable"))
+        }
     }
 }
 
-pub async fn post_login<S: AuthStateExt + Clone + Send + Sync>(
+pub async fn post_login<S: AuthStateExt + crate::log::LogExt + Clone + Send + Sync>(
     State(state): State<S>,
     Json(body): Json<LoginBody>,
 ) -> Result<(StatusCode, HeaderMap, Json<MeResponse>), (StatusCode, &'static str)> {
@@ -287,12 +299,16 @@ pub async fn post_login<S: AuthStateExt + Clone + Send + Sync>(
         .users
         .verify(&body.username, &body.password)
         .await
-        .map_err(|_| (StatusCode::UNAUTHORIZED, "Invalid username or password"))?;
+        .map_err(|_| {
+            state.log().log_server("AUTH", "Login", "invalid_credentials");
+            (StatusCode::UNAUTHORIZED, "Invalid username or password")
+        })?;
     let session_id = state.auth()
         .sessions
         .create(&username)
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Session creation failed"))?;
+    state.log().log_server("AUTH", "Login", &format!("username={} success", username));
     let cookie = format!(
         "{}={}; Path=/; HttpOnly; SameSite=Lax; Max-Age={}",
         SESSION_COOKIE_NAME, session_id, SESSION_MAX_AGE_SECS
@@ -302,11 +318,14 @@ pub async fn post_login<S: AuthStateExt + Clone + Send + Sync>(
     Ok((StatusCode::OK, headers, Json(MeResponse { username })))
 }
 
-pub async fn post_logout<S: AuthStateExt + Clone + Send + Sync>(
+pub async fn post_logout<S: AuthStateExt + crate::log::LogExt + Clone + Send + Sync>(
     State(state): State<S>,
     headers: HeaderMap,
 ) -> (StatusCode, HeaderMap) {
     if let Some(id) = parse_session_cookie(&headers) {
+        if let Some(username) = state.auth().sessions.get(&id).await {
+            state.log().log_server("AUTH", "Logout", &format!("username={}", username));
+        }
         let _ = state.auth().sessions.delete(&id).await;
     }
     let mut res_headers = HeaderMap::new();
@@ -333,7 +352,7 @@ pub async fn get_me<S: AuthStateExt + Clone + Send + Sync>(
 /// Middleware: require valid session for admin API. Returns 401 if no/invalid session.
 /// On success, adds Set-Cookie to the response to renew the session for another 3 days (sliding expiry).
 /// Session file I/O on every protected request could be optimized later (e.g. cache or different store).
-pub async fn require_session<S: AuthStateExt + Clone + Send + Sync>(
+pub async fn require_session<S: AuthStateExt + crate::log::LogExt + Clone + Send + Sync>(
     State(state): State<S>,
     headers: HeaderMap,
     request: Request<axum::body::Body>,

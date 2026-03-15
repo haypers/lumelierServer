@@ -202,7 +202,16 @@ pub async fn poll(
         .live_shows
         .get(&show_id)
         .ok_or(StatusCode::NOT_FOUND)?;
-    poll_impl(bucket, headers).await
+    let result = poll_impl(bucket, headers).await;
+    if let Err(code) = &result {
+        state.log.log_server_and_show(
+            &show_id,
+            "CLIENT",
+            "Poll",
+            &format!("show_id={} error={}", show_id, code),
+        );
+    }
+    result
 }
 
 pub async fn poll_admin(
@@ -219,7 +228,16 @@ pub async fn poll_admin(
         .live_shows
         .get(&show_id)
         .ok_or(StatusCode::NOT_FOUND)?;
-    poll_impl(bucket, headers).await
+    let result = poll_impl(bucket, headers).await;
+    if let Err(code) = &result {
+        state.log.log_server_and_show(
+            &show_id,
+            "CLIENT",
+            "Poll",
+            &format!("show_id={} error={}", show_id, code),
+        );
+    }
+    result
 }
 
 async fn poll_impl(

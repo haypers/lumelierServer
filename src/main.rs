@@ -21,9 +21,10 @@ use tower_http::services::ServeDir;
 mod api;
 mod auth;
 mod broadcast;
-mod hosting;
 mod connections;
+mod hosting;
 mod live_shows;
+mod log;
 mod time;
 mod timeline_validator;
 pub mod track_splitter_tree;
@@ -81,8 +82,13 @@ async fn main() {
     if let Err(e) = std::fs::create_dir_all(&sessions_path) {
         eprintln!("could not create sessions dir: {}", e);
     }
-    // Rolling log files (one per show under the show folder, and one in the root userData
-    // directory for the whole server) are planned for a later change.
+
+    let user_data_path = PathBuf::from("./userData");
+    let logs_path = user_data_path.join("logs");
+    if let Err(e) = std::fs::create_dir_all(&logs_path) {
+        eprintln!("could not create logs dir: {}", e);
+    }
+    let log_sender = log::init(user_data_path.clone());
 
     let auth_state = auth::AuthState {
         users: auth::UserStore::new(users_path.clone()),
@@ -108,7 +114,22 @@ async fn main() {
         simulated_server_url: simulated_server_url.clone(),
         shows_path,
         auth: auth_state,
+        log: log_sender.clone(),
     };
+
+    let main_state = api::MainAppState {
+        live_shows: live_shows.clone(),
+        log: log_sender.clone(),
+    };
+
+    log_sender.log_server(
+        "UPTIME",
+        "Startup",
+        &format!(
+            "main={} admin={} preset={} simulated_server={}",
+            PORT, ADMIN_PORT, preset, simulated_server_enabled
+        ),
+    );
 
     let mut simulated_client_server_child: Option<Child> = None;
     if simulated_server_enabled {
@@ -166,9 +187,7 @@ async fn main() {
         .route("/api/poll", get(api::poll))
         .route("/:show_id", get(serve_client_index))
         .route("/:show_id/", get(serve_client_index))
-        .with_state(api::MainAppState {
-            live_shows: live_shows.clone(),
-        })
+        .with_state(main_state.clone())
         .fallback_service(ServeDir::new("dist-client"));
 
     async fn serve_admin_index() -> impl axum::response::IntoResponse {

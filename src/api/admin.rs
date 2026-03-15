@@ -206,7 +206,15 @@ pub async fn post_reset_connections(
     Path(show_id): Path<String>,
     headers: HeaderMap,
 ) -> Result<StatusCode, StatusCode> {
+    let session_id = auth::parse_session_cookie(&headers).ok_or(StatusCode::UNAUTHORIZED)?;
     let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
+    let username = state.auth.sessions.get(&session_id).await.unwrap_or_default();
+    state.log.log_server_and_show(
+        &show_id,
+        "ADMIN",
+        "ResetConnections",
+        &format!("show_id={} username={}", show_id, username),
+    );
     let now_ms = time::unix_now_ms();
     bucket.registry.remove_disconnected(now_ms);
     Ok(StatusCode::OK)

@@ -202,6 +202,12 @@ pub async fn post_create_show(
         .await
         .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, "Failed to update user access"))?;
 
+    state.log.log_server_and_show(
+        &show_id,
+        "SHOW",
+        "Create",
+        &format!("show_id={} name={} username={}", show_id, name, username),
+    );
     Ok((
         StatusCode::CREATED,
         Json(CreateShowResponse {
@@ -333,6 +339,7 @@ pub async fn put_timeline(
     fs::write(&path, &body)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state.log.log_server_and_show(&show_id, "WORKSPACE", "TimelinePut", &format!("show_id={} success", show_id));
     Ok(StatusCode::OK)
 }
 
@@ -387,6 +394,7 @@ pub async fn put_track_splitter_tree(
     fs::write(&path, &body)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state.log.log_server_and_show(&show_id, "WORKSPACE", "TrackSplitterPut", &format!("show_id={} success", show_id));
     Ok(StatusCode::OK)
 }
 
@@ -755,6 +763,7 @@ pub async fn post_timeline_media_upload(
     };
 
     let mut saved = false;
+    let mut uploaded_filename: Option<String> = None;
     while let Some(field) = multipart.next_field().await.map_err(|_| {
         bad_request("Invalid multipart request".to_string())
     })? {
@@ -786,6 +795,7 @@ pub async fn post_timeline_media_upload(
             )
         })?;
         saved = true;
+        uploaded_filename = Some(sanitized);
         break;
     }
     if !saved {
@@ -793,6 +803,14 @@ pub async fn post_timeline_media_upload(
             "No file uploaded. Send a multipart field named 'file'.".to_string(),
         ));
     }
+
+    let filename_for_log = uploaded_filename.as_deref().unwrap_or("unknown");
+    state.log.log_server_and_show(
+        &show_id,
+        "WORKSPACE",
+        "MediaUpload",
+        &format!("show_id={} filename={} success", show_id, filename_for_log),
+    );
 
     let files = list_timeline_media_files(media_dir.as_path()).await.map_err(|_| {
         (
@@ -1003,6 +1021,15 @@ pub async fn post_show_member(
         .add_show_access(&new_username, &show_id)
         .await
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    state.log.log_server_and_show(
+        &show_id,
+        "AUTH",
+        "ShareShow",
+        &format!(
+            "show_id={} from_username={} to_username={} success",
+            show_id, username, new_username
+        ),
+    );
     Ok(StatusCode::CREATED)
 }
 
@@ -1020,6 +1047,8 @@ pub async fn delete_show(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     check_show_access(&state, &username, &show_id).await?;
+    state.log.log_server_and_show(&show_id, "SHOW", "Delete", &format!("show_id={} username={}", show_id, username));
+    state.log.close_show(&show_id);
     let info_path = state.shows_path.join(&show_id).join("info.json");
     let contents = fs::read_to_string(&info_path).await.map_err(|_| StatusCode::NOT_FOUND)?;
     let info: ShowInfo = serde_json::from_str(&contents).map_err(|_| StatusCode::NOT_FOUND)?;
@@ -1102,12 +1131,21 @@ pub async fn post_go_live(
         }
     }
 
+    state.log.log_server_and_show(&show_id, "SHOW", "GoLive", &format!("show_id={} username={}", show_id, username));
+
     // Notify simulated server in real time so it can create the bucket without waiting for the next 10s poll.
     if state.simulated_server_enabled && !state.simulated_server_url.is_empty() {
         let simulated_url = state.simulated_server_url.clone();
         let show_id_notify = show_id.clone();
+        let log_sender = state.log.clone();
         tokio::spawn(async move {
-            notify_simulated_server_show_live(&simulated_url, &show_id_notify).await;
+            let ok = notify_simulated_server_show_live(&simulated_url, &show_id_notify).await;
+            let details = if ok {
+                format!("show_id={} success", show_id_notify)
+            } else {
+                format!("show_id={} error", show_id_notify)
+            };
+            log_sender.log_server("SIMULATED", "NotifyLive", &details);
         });
     }
 
@@ -1132,14 +1170,23 @@ pub async fn post_end_live(
         .await
         .ok_or(StatusCode::UNAUTHORIZED)?;
     check_show_access(&state, &username, &show_id).await?;
+    state.log.log_server_and_show(&show_id, "SHOW", "EndLive", &format!("show_id={} username={}", show_id, username));
+    state.log.close_show(&show_id);
     state.live_shows.remove(&show_id);
 
     // Notify simulated server in real time so it can remove the bucket without waiting for the next 10s poll.
     if state.simulated_server_enabled && !state.simulated_server_url.is_empty() {
         let simulated_url = state.simulated_server_url.clone();
         let show_id_notify = show_id.clone();
+        let log_sender = state.log.clone();
         tokio::spawn(async move {
-            notify_simulated_server_show_ended(&simulated_url, &show_id_notify).await;
+            let ok = notify_simulated_server_show_ended(&simulated_url, &show_id_notify).await;
+            let details = if ok {
+                format!("show_id={} success", show_id_notify)
+            } else {
+                format!("show_id={} error", show_id_notify)
+            };
+            log_sender.log_server("SIMULATED", "NotifyEnded", &details);
         });
     }
 
@@ -1149,36 +1196,44 @@ pub async fn post_end_live(
 /// Sends a POST to the simulated client server to tell it a show just went live.
 /// The simulated server will create a bucket for this show_id immediately (so the admin UI can add simulated clients without waiting for the 10s poll).
 /// Fire-and-forget: we do not block the go-live response on this; failures are logged and the 10s poll will sync anyway.
-async fn notify_simulated_server_show_live(base_url: &str, show_id: &str) {
+async fn notify_simulated_server_show_live(base_url: &str, show_id: &str) -> bool {
     let url = format!("{}/notify/show-live", base_url.trim_end_matches('/'));
     let body = serde_json::json!({ "show_id": show_id });
     let client = match reqwest::Client::builder().build() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("notify simulated server (go-live): failed to build client: {}", e);
-            return;
+            return false;
         }
     };
-    if let Err(e) = client.post(&url).json(&body).send().await {
-        eprintln!("notify simulated server (go-live): request failed: {}", e);
+    match client.post(&url).json(&body).send().await {
+        Ok(res) => res.status().is_success(),
+        Err(e) => {
+            eprintln!("notify simulated server (go-live): request failed: {}", e);
+            false
+        }
     }
 }
 
 /// Sends a POST to the simulated client server to tell it a show just ended live.
 /// The simulated server will remove the bucket for this show_id immediately (freeing memory).
 /// Fire-and-forget: we do not block the end-live response on this; failures are logged and the 10s poll will sync anyway.
-async fn notify_simulated_server_show_ended(base_url: &str, show_id: &str) {
+async fn notify_simulated_server_show_ended(base_url: &str, show_id: &str) -> bool {
     let url = format!("{}/notify/show-ended", base_url.trim_end_matches('/'));
     let body = serde_json::json!({ "show_id": show_id });
     let client = match reqwest::Client::builder().build() {
         Ok(c) => c,
         Err(e) => {
             eprintln!("notify simulated server (end-live): failed to build client: {}", e);
-            return;
+            return false;
         }
     };
-    if let Err(e) = client.post(&url).json(&body).send().await {
-        eprintln!("notify simulated server (end-live): request failed: {}", e);
+    match client.post(&url).json(&body).send().await {
+        Ok(res) => res.status().is_success(),
+        Err(e) => {
+            eprintln!("notify simulated server (end-live): request failed: {}", e);
+            false
+        }
     }
 }
 
