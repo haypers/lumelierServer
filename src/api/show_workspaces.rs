@@ -520,6 +520,7 @@ pub async fn put_show_location(
 }
 
 /// Read ShowLocation.json for the show and set timeline["requestsGPS"] so clients receive it via broadcast.
+/// Reading ShowLocation from disk here could be cached or otherwise optimized in a future change.
 pub async fn merge_requests_gps_into_timeline(
     state: &AdminAppState,
     show_id: &str,

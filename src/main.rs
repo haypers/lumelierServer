@@ -81,6 +81,8 @@ async fn main() {
     if let Err(e) = std::fs::create_dir_all(&sessions_path) {
         eprintln!("could not create sessions dir: {}", e);
     }
+    // Rolling log files (one per show under the show folder, and one in the root userData
+    // directory for the whole server) are planned for a later change.
 
     let auth_state = auth::AuthState {
         users: auth::UserStore::new(users_path.clone()),

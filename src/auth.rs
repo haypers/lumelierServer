@@ -332,6 +332,7 @@ pub async fn get_me<S: AuthStateExt + Clone + Send + Sync>(
 
 /// Middleware: require valid session for admin API. Returns 401 if no/invalid session.
 /// On success, adds Set-Cookie to the response to renew the session for another 3 days (sliding expiry).
+/// Session file I/O on every protected request could be optimized later (e.g. cache or different store).
 pub async fn require_session<S: AuthStateExt + Clone + Send + Sync>(
     State(state): State<S>,
     headers: HeaderMap,

@@ -62,12 +62,8 @@ pub async fn post_broadcast_timeline(
     body: axum::body::Bytes,
 ) -> Result<StatusCode, StatusCode> {
     let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
-    if timeline_validator::validate_broadcast_timeline(body.as_ref()).is_err() {
-        return Err(StatusCode::BAD_REQUEST);
-    }
-    let json = String::from_utf8(body.to_vec()).map_err(|_| StatusCode::BAD_REQUEST)?;
-    let mut parsed: serde_json::Value =
-        serde_json::from_str(&json).map_err(|_| StatusCode::BAD_REQUEST)?;
+    let mut parsed = timeline_validator::parse_and_validate_broadcast_timeline(body.as_ref())
+        .map_err(|_| StatusCode::BAD_REQUEST)?;
     merge_requests_gps_into_timeline(&state, &show_id, &mut parsed).await;
     let readhead_sec = parsed
         .get("readheadSec")
@@ -75,7 +71,7 @@ pub async fn post_broadcast_timeline(
         .filter(|v| v.is_finite())
         .map(|v| v.max(0.0))
         .unwrap_or(0.0);
-    let json_merged = serde_json::to_string(&parsed).unwrap_or(json);
+    let json_merged = serde_json::to_string(&parsed).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let next = BroadcastSnapshot {
         timeline_raw: Some(Arc::from(json_merged.into_boxed_str())),
         timeline_parsed: Some(Arc::new(parsed)),
@@ -97,9 +93,6 @@ pub async fn post_broadcast_play(
     let now_ms = time::unix_now_ms();
     let play_at_ms = now_ms + SCHEDULED_DELAY_MS;
     let readhead_sec = body.readhead_sec;
-    println!("User hit play from {} (readhead sec).", readhead_sec);
-    println!("Planning to start playing timeline at {} (unix ms)", play_at_ms);
-    println!("Starting to send json to all clients");
     let current = bucket.broadcast.load_full();
     let next = BroadcastSnapshot {
         timeline_raw: current.timeline_raw.clone(),
@@ -109,10 +102,8 @@ pub async fn post_broadcast_play(
         pause_at_ms: None,
     };
     bucket.broadcast.store(Arc::new(next));
-    println!("Finished sending to all clients");
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(SCHEDULED_DELAY_MS)).await;
-        println!("All clients should have started playing the timeline now.");
     });
 
     Ok(Json(PlayResponse {
@@ -129,14 +120,6 @@ pub async fn post_broadcast_pause(
     let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
     let now_ms = time::unix_now_ms();
     let pause_at_ms = now_ms + SCHEDULED_DELAY_MS;
-    println!(
-        "User requested a pause. Planning to pause at {} (unix ms)",
-        pause_at_ms
-    );
-    println!(
-        "Sending pause instruction to clients to pause at {}",
-        pause_at_ms
-    );
     let current = bucket.broadcast.load_full();
     let next = BroadcastSnapshot {
         timeline_raw: current.timeline_raw.clone(),
@@ -146,10 +129,8 @@ pub async fn post_broadcast_pause(
         pause_at_ms: Some(pause_at_ms),
     };
     bucket.broadcast.store(Arc::new(next));
-    println!("Finished sending pause request");
     tokio::spawn(async move {
         tokio::time::sleep(tokio::time::Duration::from_millis(SCHEDULED_DELAY_MS)).await;
-        println!("All clients should be pausing NOW");
     });
 
     Ok(Json(PauseResponse {

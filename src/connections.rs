@@ -8,6 +8,8 @@
 //! handshake status, and disconnect events. "Connected" means last_seen within CONNECTED_THRESHOLD_MS.
 //! A background task calls tick_disconnects every 10s to bump disconnect_events for devices that have gone silent.
 
+use std::cmp::Ordering;
+
 use dashmap::DashMap;
 
 const CONNECTED_THRESHOLD_MS: u64 = 20_000;
@@ -70,6 +72,102 @@ pub struct GeoUpdate {
     pub accuracy: Option<f64>,
     pub alt: Option<f64>,
     pub alt_accuracy: Option<f64>,
+}
+
+/// Lightweight sort key for pagination without building full DeviceRow. Ordering matches sort_rows in admin.
+#[derive(Clone, Debug)]
+enum PageSortKey {
+    Str(String),
+    U64(u64),
+    OptionF64(Option<f64>),
+    OptionU32(Option<u32>),
+    Bool(bool),
+}
+
+impl PartialEq for PageSortKey {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Str(a), Self::Str(b)) => a == b,
+            (Self::U64(a), Self::U64(b)) => a == b,
+            (Self::OptionF64(a), Self::OptionF64(b)) => a == b,
+            (Self::OptionU32(a), Self::OptionU32(b)) => a == b,
+            (Self::Bool(a), Self::Bool(b)) => a == b,
+            _ => false,
+        }
+    }
+}
+
+impl Eq for PageSortKey {}
+
+impl PartialOrd for PageSortKey {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for PageSortKey {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (PageSortKey::Str(a), PageSortKey::Str(b)) => a.cmp(b),
+            (PageSortKey::U64(a), PageSortKey::U64(b)) => a.cmp(b),
+            (PageSortKey::OptionF64(a), PageSortKey::OptionF64(b)) => match (a, b) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Greater,
+                (Some(_), None) => Ordering::Less,
+                (Some(x), Some(y)) => x.partial_cmp(y).unwrap_or(Ordering::Equal),
+            },
+            (PageSortKey::OptionU32(a), PageSortKey::OptionU32(b)) => match (a, b) {
+                (None, None) => Ordering::Equal,
+                (None, Some(_)) => Ordering::Greater,
+                (Some(_), None) => Ordering::Less,
+                (Some(x), Some(y)) => x.cmp(y),
+            },
+            (PageSortKey::Bool(a), PageSortKey::Bool(b)) => a.cmp(b),
+            _ => Ordering::Equal,
+        }
+    }
+}
+
+fn connection_status_str(connected: bool, handshake_returned: bool) -> &'static str {
+    if connected {
+        if handshake_returned {
+            "connected, returned handshake"
+        } else {
+            "connected, no handshake"
+        }
+    } else {
+        "disconnected"
+    }
+}
+
+fn page_sort_key(d: &DeviceState, now_ms: u64, sort_field: &str) -> PageSortKey {
+    let connected = d.is_connected(now_ms);
+    let time_since_last_contact_ms = now_ms.saturating_sub(d.last_seen_at_ms);
+    let estimated_uptime_ms = d.estimated_uptime_ms(now_ms);
+    match sort_field {
+        "deviceId" => PageSortKey::Str(d.device_id.clone()),
+        "firstConnectedAt" => PageSortKey::U64(d.first_connected_at_ms),
+        "averagePingMs" => PageSortKey::OptionF64(d.average_ping_ms()),
+        "lastClientRttMs" => PageSortKey::OptionU32(d.ping_samples.last().copied()),
+        "averageServerProcessingMs" => PageSortKey::OptionF64(d.average_server_processing_ms()),
+        "lastServerProcessingMs" => {
+            PageSortKey::OptionU32(d.server_processing_samples.last().copied())
+        }
+        "timeSinceLastContactMs" => PageSortKey::U64(time_since_last_contact_ms),
+        "disconnectEvents" => PageSortKey::U64(d.disconnect_events as u64),
+        "estimatedUptimeMs" => PageSortKey::U64(estimated_uptime_ms),
+        "connectionStatus" => {
+            PageSortKey::Str(connection_status_str(connected, d.handshake_returned).to_string())
+        }
+        "geoLat" => PageSortKey::OptionF64(d.geo_lat),
+        "geoLon" => PageSortKey::OptionF64(d.geo_lon),
+        "geoAccuracy" => PageSortKey::OptionF64(d.geo_accuracy),
+        "geoAlt" => PageSortKey::OptionF64(d.geo_alt),
+        "geoAltAccuracy" => PageSortKey::OptionF64(d.geo_alt_accuracy),
+        "isSendingGps" => PageSortKey::Bool(d.is_sending_gps),
+        "trackIndex" => PageSortKey::U64(d.track_index as u64),
+        _ => PageSortKey::Str(d.device_id.clone()),
+    }
 }
 
 impl DeviceState {
@@ -314,11 +412,53 @@ impl ConnectionRegistry {
         (total_connected, average_ping_ms, rows)
     }
 
+    /// We intentionally do not auto-prune disconnected devices; stats and UI should reflect
+    /// disconnected devices. Pruning is only done via admin "Reset connections".
     pub fn remove_disconnected(&self, now_ms: u64) {
         self.devices.retain(|_, d| d.is_connected(now_ms));
     }
 
+    /// Returns (total_count, ids for the requested page) without building full DeviceRows.
+    /// One pass over the registry collects (device_id, sort_key), sorts, then paginates.
+    pub fn list_page_ids(
+        &self,
+        now_ms: u64,
+        connected_only: bool,
+        sort_field: &str,
+        sort_asc: bool,
+        page: u32,
+        page_size: u32,
+    ) -> (u32, Vec<String>) {
+        let mut entries: Vec<(String, PageSortKey)> = self
+            .devices
+            .iter()
+            .filter_map(|r| {
+                let d = r.value();
+                if connected_only && !d.is_connected(now_ms) {
+                    return None;
+                }
+                let key = page_sort_key(d, now_ms, sort_field);
+                Some((d.device_id.clone(), key))
+            })
+            .collect();
+        if sort_asc {
+            entries.sort_by(|a, b| a.1.cmp(&b.1));
+        } else {
+            entries.sort_by(|a, b| b.1.cmp(&a.1));
+        }
+        let total_count = entries.len() as u32;
+        let offset = ((page - 1) as usize) * (page_size as usize);
+        let ids: Vec<String> = entries
+            .into_iter()
+            .skip(offset)
+            .take(page_size as usize)
+            .map(|e| e.0)
+            .collect();
+        (total_count, ids)
+    }
+
     /// Returns all device rows, optionally filtered to connected only.
+    #[allow(dead_code)]
     pub fn list_rows_filtered(&self, now_ms: u64, connected_only: bool) -> Vec<DeviceRow> {
         let rows: Vec<DeviceRow> = self
             .devices

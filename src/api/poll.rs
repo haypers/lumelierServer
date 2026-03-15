@@ -2,7 +2,11 @@
 //!
 //! Clients (and simulated clients) call this to get server time, device id echo, and optional broadcast
 //! (timeline + play/pause). We read X-Device-ID and X-Ping-Ms from headers, upsert the registry, then
-//! return JSON with NTP-style timing fields:
+//! return JSON with NTP-style timing fields.
+//!
+//! Rate limiting and abuse handling (poll and admin) will be addressed in a later overhaul.
+//!
+//! Timing fields:
 //! - clientSendMsEcho (t0, echoed from request header X-Client-Send-Ms)
 //! - serverTimeAtRecv (t1)
 //! - serverTimeAtSend (t2)
@@ -122,6 +126,9 @@ fn geo_from_headers(headers: &HeaderMap) -> GeoUpdate {
 
 /// Filter timeline to only the layer and items for the given 1-based track index.
 /// If layers are missing/empty or index is out of range, returns the full timeline unchanged.
+///
+/// Per-device interpretation of range values and possible multi-track layering are planned;
+/// timeline caching here may become less useful once that is in place.
 fn filter_timeline_by_track(timeline: &serde_json::Value, track_index: u32) -> Arc<serde_json::Value> {
     let obj = match timeline.as_object() {
         Some(o) => o,
@@ -259,7 +266,7 @@ async fn poll_impl(
         if should_assign {
             let tree_opt = bucket.track_splitter_tree.load_full();
             if let Some(tree) = tree_opt.as_ref().as_ref() {
-                let mut rng = rand::rngs::OsRng;
+                let mut rng = rand::rngs::ThreadRng::default();
                 track_splitter_tree::evaluate(tree, has_gps_now, &mut rng)
             } else {
                 1

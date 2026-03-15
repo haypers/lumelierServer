@@ -10,12 +10,10 @@ use axum::http::StatusCode;
 use axum::Json;
 use serde::Deserialize;
 use serde::Serialize;
-use std::cmp::Ordering;
 use std::sync::Arc;
 
 use crate::api::{check_show_access, is_valid_show_id_format, AdminAppState};
 use crate::auth;
-use crate::connections::DeviceRow;
 use crate::live_shows::LiveShowState;
 use crate::time;
 
@@ -115,6 +113,9 @@ pub struct PageIdsQuery {
     pub sort_dir: Option<String>,
 }
 
+/// Page sizes allowed for get_page_ids; must match the Connected Devices admin dropdown (10, 20, 50).
+const ALLOWED_PAGE_SIZES: &[u32] = &[10, 20, 50];
+
 #[derive(Serialize)]
 pub struct PageIdsResponse {
     #[serde(rename = "serverTimeMs")]
@@ -145,7 +146,6 @@ pub async fn get_stats(
 ) -> Result<Json<StatsResponse>, StatusCode> {
     let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
     let now_ms = time::unix_now_ms();
-    bucket.registry.tick_disconnects(now_ms);
     let (total_connected, average_ping_ms) = bucket.registry.list_stats_only(now_ms);
     let stats = Stats {
         total_connected,
@@ -157,6 +157,8 @@ pub async fn get_stats(
     }))
 }
 
+/// Full device list (and CSV export in the frontend) is intended for practice runs, not production;
+/// the server is often used for practice when export might be used.
 pub async fn get_connected_devices(
     State(state): State<AdminAppState>,
     Path(show_id): Path<String>,
@@ -164,7 +166,6 @@ pub async fn get_connected_devices(
 ) -> Result<Json<ConnectedDevicesResponse>, StatusCode> {
     let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
     let now_ms = time::unix_now_ms();
-    bucket.registry.tick_disconnects(now_ms);
     let (total_connected, average_ping_ms, rows) = bucket.registry.list_with_stats(now_ms);
     let stats = Stats {
         total_connected,
@@ -211,62 +212,6 @@ pub async fn post_reset_connections(
     Ok(StatusCode::OK)
 }
 
-fn sort_rows(rows: &mut [DeviceRow], sort_field: &str, sort_asc: bool) {
-    rows.sort_by(|a, b| {
-        let cmp = match sort_field {
-            "deviceId" => a.device_id.cmp(&b.device_id),
-            "firstConnectedAt" => a.first_connected_at_ms.cmp(&b.first_connected_at_ms),
-            "averagePingMs" => compare_option_f64(a.average_ping_ms, b.average_ping_ms),
-            "lastClientRttMs" => compare_option_u32(a.latest_rtt_ms, b.latest_rtt_ms),
-            "averageServerProcessingMs" => compare_option_f64(
-                a.average_server_processing_ms,
-                b.average_server_processing_ms,
-            ),
-            "lastServerProcessingMs" => compare_option_u32(
-                a.latest_server_processing_ms,
-                b.latest_server_processing_ms,
-            ),
-            "timeSinceLastContactMs" => {
-                a.time_since_last_contact_ms.cmp(&b.time_since_last_contact_ms)
-            }
-            "disconnectEvents" => a.disconnect_events.cmp(&b.disconnect_events),
-            "estimatedUptimeMs" => a.estimated_uptime_ms.cmp(&b.estimated_uptime_ms),
-            "connectionStatus" => a.connection_status.cmp(&b.connection_status),
-            "geoLat" => compare_option_f64(a.geo_lat, b.geo_lat),
-            "geoLon" => compare_option_f64(a.geo_lon, b.geo_lon),
-            "geoAccuracy" => compare_option_f64(a.geo_accuracy, b.geo_accuracy),
-            "geoAlt" => compare_option_f64(a.geo_alt, b.geo_alt),
-            "geoAltAccuracy" => compare_option_f64(a.geo_alt_accuracy, b.geo_alt_accuracy),
-            "isSendingGps" => a.is_sending_gps.cmp(&b.is_sending_gps),
-            "trackIndex" => a.track_index.cmp(&b.track_index),
-            _ => a.device_id.cmp(&b.device_id),
-        };
-        if sort_asc {
-            cmp
-        } else {
-            cmp.reverse()
-        }
-    });
-}
-
-fn compare_option_f64(a: Option<f64>, b: Option<f64>) -> Ordering {
-    match (a, b) {
-        (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
-        (Some(x), Some(y)) => x.partial_cmp(&y).unwrap_or(Ordering::Equal),
-    }
-}
-
-fn compare_option_u32(a: Option<u32>, b: Option<u32>) -> Ordering {
-    match (a, b) {
-        (None, None) => Ordering::Equal,
-        (None, Some(_)) => Ordering::Greater,
-        (Some(_), None) => Ordering::Less,
-        (Some(x), Some(y)) => x.cmp(&y),
-    }
-}
-
 pub async fn get_page_ids(
     State(state): State<AdminAppState>,
     Path(show_id): Path<String>,
@@ -275,29 +220,29 @@ pub async fn get_page_ids(
 ) -> Result<Json<PageIdsResponse>, StatusCode> {
     let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
     let now_ms = time::unix_now_ms();
-    bucket.registry.tick_disconnects(now_ms);
     let page = q.page.unwrap_or(1).max(1);
-    let page_size = q.page_size.unwrap_or(10);
+    let page_size = q
+        .page_size
+        .unwrap_or(10);
+    let page_size = if ALLOWED_PAGE_SIZES.contains(&page_size) {
+        page_size
+    } else {
+        return Err(StatusCode::BAD_REQUEST);
+    };
     let connected_only = q.connected_only.map(|v| v == 1).unwrap_or(false);
     let sort_field = q
         .sort_field
         .as_deref()
         .unwrap_or("timeSinceLastContactMs");
     let sort_asc = matches!(q.sort_dir.as_deref(), Some("asc") | None);
-    let mut rows = bucket.registry.list_rows_filtered(now_ms, connected_only);
-    sort_rows(&mut rows, sort_field, sort_asc);
-
-    let total_count = rows.len() as u32;
-    let ids: Vec<String> = if page_size == 0 {
-        rows.into_iter().map(|r| r.device_id).collect()
-    } else {
-        let offset = ((page - 1) as usize) * (page_size as usize);
-        rows.into_iter()
-            .skip(offset)
-            .take(page_size as usize)
-            .map(|r| r.device_id)
-            .collect()
-    };
+    let (total_count, ids) = bucket.registry.list_page_ids(
+        now_ms,
+        connected_only,
+        sort_field,
+        sort_asc,
+        page,
+        page_size,
+    );
 
     Ok(Json(PageIdsResponse {
         server_time_ms: now_ms,
@@ -316,7 +261,6 @@ pub async fn post_by_ids(
 ) -> Result<Json<ByIdsResponse>, StatusCode> {
     let bucket = resolve_show_bucket(&state, &show_id, &headers).await?;
     let now_ms = time::unix_now_ms();
-    bucket.registry.tick_disconnects(now_ms);
     let rows = bucket.registry.rows_by_ids(now_ms, &body.ids);
     let devices = rows
         .into_iter()
