@@ -23,7 +23,12 @@ const HANDLE_HIT_RADIUS = 10;
 const CORNER_ZONE_RADIUS = 30;
 
 export interface PositionWidgetOptions {
-  container: HTMLElement;
+  /** When splitting canvas and form, not used for appending (use canvasContainer and formContainer). */
+  container?: HTMLElement;
+  /** If provided with formContainer, canvas is appended here and form in formContainer. */
+  canvasContainer?: HTMLElement;
+  /** If provided with canvasContainer, form is appended here. */
+  formContainer?: HTMLElement;
   initial: Partial<RangePositionOverlay> | null;
   filePath: string;
   rangeType: "Video" | "Image";
@@ -40,6 +45,8 @@ function clampScale(v: number): number {
 export function renderPositionWidget(options: PositionWidgetOptions): void {
   const {
     container,
+    canvasContainer,
+    formContainer,
     initial,
     filePath,
     rangeType,
@@ -55,9 +62,6 @@ export function renderPositionWidget(options: PositionWidgetOptions): void {
     hs: clampScale(initial?.hs ?? DEFAULT_OVERLAY.hs),
     vs: clampScale(initial?.vs ?? DEFAULT_OVERLAY.vs),
   };
-
-  container.innerHTML = "";
-  container.className = "detail-position-widget";
 
   const leftCol = document.createElement("div");
   leftCol.className = "detail-position-widget-canvas-wrap";
@@ -75,8 +79,16 @@ export function renderPositionWidget(options: PositionWidgetOptions): void {
     <label class="detail-position-label"><span class="detail-position-label-text">Media Horizontal Scale</span> <input type="number" class="detail-input detail-position-input" data-field="hs" step="any" min="0.1" value="${overlay.hs}" aria-label="Media Horizontal Scale" ${readonly ? "readonly" : ""} /></label>
     <label class="detail-position-label"><span class="detail-position-label-text">Media Vertical Scale</span> <input type="number" class="detail-input detail-position-input" data-field="vs" step="any" min="0.1" value="${overlay.vs}" aria-label="Media Vertical Scale" ${readonly ? "readonly" : ""} /></label>
   `;
-  container.appendChild(leftCol);
-  container.appendChild(rightCol);
+
+  if (canvasContainer && formContainer) {
+    canvasContainer.appendChild(leftCol);
+    formContainer.appendChild(rightCol);
+  } else if (container) {
+    container.innerHTML = "";
+    container.className = "detail-position-widget";
+    container.appendChild(leftCol);
+    container.appendChild(rightCol);
+  }
 
   if (!canvasEl.getContext("2d")) return;
 
@@ -629,13 +641,14 @@ export function renderPositionWidget(options: PositionWidgetOptions): void {
     scheduleDraw();
   }
 
+  const hoverRoot = container ?? canvasContainer ?? leftCol;
   if (!readonly) {
     canvasEl.addEventListener("pointerdown", onPointerDown);
     canvasEl.addEventListener("pointermove", onPointerMove);
     canvasEl.addEventListener("pointerup", onPointerUp);
     canvasEl.addEventListener("pointerleave", onPointerLeave);
-    container.addEventListener("pointerenter", onWidgetPointerEnter);
-    container.addEventListener("pointerleave", onWidgetPointerLeave);
+    hoverRoot.addEventListener("pointerenter", onWidgetPointerEnter);
+    hoverRoot.addEventListener("pointerleave", onWidgetPointerLeave);
   }
 
   let rafId = 0;

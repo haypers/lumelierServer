@@ -4,15 +4,6 @@
   padding: var(--space);
 }
 
-.networking-panel__heading {
-  margin: 0 0 var(--space);
-  font-size: 12px;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-transform: uppercase;
-  letter-spacing: 0.02em;
-}
-
 .networking-panel__row {
   display: flex;
   flex-direction: column;

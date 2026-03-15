@@ -118,59 +118,65 @@ export function updateDetailsPanel(
   const showPositionWidget =
     payload.kind === "range" &&
     (payload.rangeType === "Video" || payload.rangeType === "Image");
-  const positionWidgetHtml = showPositionWidget
-    ? `
-      <dt>Position</dt>
-      <dd class="detail-position-widget-wrap">
-        <div id="detail-position-widget-container" class="detail-position-widget-container"></div>
-      </dd>`
-    : "";
-
   body.innerHTML = `
-    <dl class="detail-grid">
-      <dt>ID</dt><dd class="detail-readonly">${escapeHtml(String(item.id))}</dd>
-      <dt>Type</dt><dd class="detail-readonly">${escapeHtml(payload.kind)}</dd>
-      <dt>Start</dt>
-      <dd>
-        <input type="number" class="detail-input detail-start" step="any" min="0" value="${startSec}" aria-label="Start time in seconds" />
-        <span class="detail-unit">s</span>
-      </dd>
-      ${payload.kind === "range" ? `
-      <dt>End</dt>
-      <dd>
-        <input type="number" class="detail-input detail-end" step="any" min="0" value="${endSec}" aria-label="End time in seconds" />
-        <span class="detail-unit">s</span>
-      </dd>
+    <div class="detail-sections">
+      <div class="detail-section detail-section--basic">
+        <dl class="detail-grid">
+          <dt>ID</dt><dd class="detail-readonly">${escapeHtml(String(item.id))}</dd>
+          <dt>Type</dt><dd class="detail-readonly">${escapeHtml(payload.kind)}</dd>
+          <dt>Start</dt>
+          <dd>
+            <input type="number" class="detail-input detail-start" step="any" min="0" value="${startSec}" aria-label="Start time in seconds" />
+            <span class="detail-unit">s</span>
+          </dd>
+          ${payload.kind === "range" ? `
+          <dt>End</dt>
+          <dd>
+            <input type="number" class="detail-input detail-end" step="any" min="0" value="${endSec}" aria-label="End time in seconds" />
+            <span class="detail-unit">s</span>
+          </dd>
+          ` : ""}
+          <dt>Layer</dt>
+          <dd class="detail-layer-wrap"></dd>
+          <dt>Name</dt>
+          <dd>
+            <input type="text" class="detail-input detail-label" value="${escapeAttr(payload.label ?? "")}" aria-label="Name" />
+          </dd>
+          ${payload.kind === "range" ? `
+          <dt>Range type</dt>
+          <dd>
+            <select class="detail-input detail-range-type" aria-label="Range type">
+              ${rangeTypeOptions}
+            </select>
+          </dd>
+          <dt>File path</dt>
+          <dd>
+            <input type="text" class="detail-input detail-file-path" value="${escapeAttr(payload.filePath ?? "")}" aria-label="File path" placeholder="Path to media file" />
+          </dd>
+          ` : ""}
+          ${payload.kind === "event" ? `
+          <dt>Event Type</dt>
+          <dd>
+            <select class="detail-input detail-effect-type" aria-label="Event type">
+              ${eventTypeOptions}
+            </select>
+          </dd>
+          ` : ""}
+        </dl>
+        ${payload.kind === "event" ? subsettingsHtml : ""}
+      </div>
+      ${showPositionWidget ? `
+      <div class="detail-section detail-section--position-preview">
+        <div class="detail-position-preview-block">
+          <span class="detail-section-label">Position</span>
+          <div id="detail-position-canvas-container" class="detail-position-widget-canvas-container"></div>
+        </div>
+      </div>
+      <div class="detail-section detail-section--position-vars">
+        <div id="detail-position-form-container" class="detail-position-widget-form-container"></div>
+      </div>
       ` : ""}
-      <dt>Layer</dt>
-      <dd class="detail-layer-wrap"></dd>
-      <dt>Name</dt>
-      <dd>
-        <input type="text" class="detail-input detail-label" value="${escapeAttr(payload.label ?? "")}" aria-label="Name" />
-      </dd>
-      ${payload.kind === "range" ? `
-      <dt>Range type</dt>
-      <dd>
-        <select class="detail-input detail-range-type" aria-label="Range type">
-          ${rangeTypeOptions}
-        </select>
-      </dd>
-      <dt>File path</dt>
-      <dd>
-        <input type="text" class="detail-input detail-file-path" value="${escapeAttr(payload.filePath ?? "")}" aria-label="File path" placeholder="Path to media file" />
-      </dd>
-      ${positionWidgetHtml}
-    </dl>
-      ` : payload.kind === "event" ? `
-      <dt>Event Type</dt>
-      <dd>
-        <select class="detail-input detail-effect-type" aria-label="Event type">
-          ${eventTypeOptions}
-        </select>
-      </dd>
-    </dl>
-    ${subsettingsHtml}
-      ` : "</dl>"}
+    </div>
   `;
 
   const layerWrap = body.querySelector(".detail-layer-wrap");
@@ -186,10 +192,12 @@ export function updateDetailsPanel(
   }
 
   if (showPositionWidget) {
-    const widgetContainer = body.querySelector("#detail-position-widget-container") as HTMLElement | null;
-    if (widgetContainer) {
+    const canvasContainer = body.querySelector("#detail-position-canvas-container") as HTMLElement | null;
+    const formContainer = body.querySelector("#detail-position-form-container") as HTMLElement | null;
+    if (canvasContainer && formContainer) {
       renderPositionWidget({
-        container: widgetContainer,
+        canvasContainer,
+        formContainer,
         initial: payload.positionOverlay ?? null,
         filePath: payload.filePath ?? "",
         rangeType: (payload.rangeType === "Image" || payload.rangeType === "Video" ? payload.rangeType : "Video") as "Video" | "Image",

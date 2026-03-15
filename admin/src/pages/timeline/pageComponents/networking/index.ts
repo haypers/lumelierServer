@@ -22,10 +22,6 @@ export function renderNetworkingPanel(
   const onSyncing = options?.onSyncing;
   const onSaved = options?.onSaved;
   container.innerHTML = "";
-  const heading = document.createElement("h3");
-  heading.className = "networking-panel__heading";
-  heading.textContent = "Networking";
-  container.appendChild(heading);
 
   const pollRow = document.createElement("div");
   pollRow.className = "networking-panel__row";
